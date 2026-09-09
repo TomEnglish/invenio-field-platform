@@ -5,6 +5,11 @@ import { newOperationId } from '@/lib/utils/operationId';
 
 const QUEUE_KEY = 'offline_queue';
 const MAX_RETRIES = 5;
+const listeners = new Set<() => void>();
+export function subscribeQueue(listener: () => void) {
+  listeners.add(listener);
+  return () => { listeners.delete(listener); };
+}
 
 export type QueueAction =
   | { type: 'receiving'; payload: any }
@@ -35,6 +40,7 @@ function mutate(change: (queue: QueueItem[]) => void) {
     const queue = await getQueue();
     change(queue);
     await AsyncStorage.setItem(QUEUE_KEY, JSON.stringify(queue));
+    for (const listener of listeners) { try { listener(); } catch { /* UI observers cannot undo persistence. */ } }
   });
   mutation = next.catch(() => {});
   return next;
@@ -44,8 +50,8 @@ export function belongsToCurrentContext(item: QueueItem): boolean {
   return !!session && !!user && !!activeProject && item.userId === user.id && item.projectId === activeProject.id;
 }
 export async function addToQueue(action: QueueAction, id = newOperationId()): Promise<string> {
-  const { user, activeProject, session } = useAuthStore.getState();
-  if (!user || !activeProject || !session || activeProject.status !== 'active') throw new Error('An authenticated user and active project are required.');
+  const { user, activeProject, session, loading } = useAuthStore.getState();
+  if (loading || !user || !activeProject || !session || activeProject.status !== 'active') throw new Error('An authenticated user and active project are required.');
   const item: QueueItem = { id, userId: user.id, projectId: activeProject.id, action, createdAt: new Date().toISOString(), retryCount: 0, deadLetter: false };
   await mutate((queue) => {
     const old = queue.find((i) => i.id === id);

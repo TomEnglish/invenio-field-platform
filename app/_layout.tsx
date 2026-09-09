@@ -4,8 +4,7 @@ import { Stack } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { AppState, Platform } from 'react-native';
 import { supabase } from '@/lib/supabase';
-import { useAuthStore } from '@/stores/authStore';
-import { switchReceivingScope } from '@/stores/receivingStore';
+import { useAuthStore, handleSignedOut } from '@/stores/authStore';
 import { useEffect } from 'react';
 import { useNetworkStore } from '@/lib/sync/networkStore';
 import { startAutoSync } from '@/lib/sync/syncManager';
@@ -34,8 +33,7 @@ export default function RootLayout() {
   useEffect(() => {
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       if (event === 'SIGNED_OUT') {
-        useAuthStore.setState({ user: null, session: null, activeProject: null, availableProjects: [], loading: false });
-        void switchReceivingScope(null, null);
+        handleSignedOut();
       } else if (event === 'TOKEN_REFRESHED' && session) {
         useAuthStore.setState({ session: { access_token: session.access_token } });
       }

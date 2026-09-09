@@ -2,6 +2,7 @@ import { useAuthStore } from '@/stores/authStore';
 import FontAwesome from '@expo/vector-icons/FontAwesome';
 import { useState } from 'react';
 import {
+  Alert,
   FlatList,
   StyleSheet,
   Text,
@@ -51,7 +52,7 @@ export function ProjectSelector() {
               <TouchableOpacity
                 style={[styles.projectItem, isActive && styles.projectItemActive]}
                 onPress={() => {
-                  setActiveProject(item.id);
+                  void setActiveProject(item.id).catch(error => Alert.alert('Project not changed', error.message));
                   setModalVisible(false);
                 }}
                 accessibilityRole="button"

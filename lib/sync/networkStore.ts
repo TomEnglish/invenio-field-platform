@@ -12,12 +12,12 @@ export const useNetworkStore = create<NetworkStore>((set) => ({
   setOnline: (online) => set({ isOnline: online }),
   startListening: () => {
     const unsubscribe = NetInfo.addEventListener((state: NetInfoState) => {
-      set({ isOnline: !!state.isConnected });
+      set({ isOnline: state.isConnected === true && state.isInternetReachable !== false });
     });
     // Also check immediately
     NetInfo.fetch().then((state) => {
-      set({ isOnline: !!state.isConnected });
-    });
+      set({ isOnline: state.isConnected === true && state.isInternetReachable !== false });
+    }).catch(() => {});
     return unsubscribe;
   },
 }));
