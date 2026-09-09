@@ -48,7 +48,7 @@ export default function SyncScreen() {
   };
   if (!user) return <Redirect href="/" />;
   return <ScrollView contentContainerStyle={{ padding: 20, gap: 16, backgroundColor: colors.canvas, flexGrow: 1 }}>
-    <Stack.Screen options={{ headerShown: true, title: 'Sync & recovery' }} />
+    <Stack.Screen options={{ headerShown: true, title: 'Sync & recovery', headerBackTitle: 'Back' }} />
     <Text style={{ fontSize: 22, color: colors.textPrimary }}>{activeProject?.name ?? 'Select a project'}</Text>
     <Text style={{ color: colors.textMuted }}>{online ? 'Connected' : 'Offline'} · {items.length} saved submissions in this project. Switch projects to review other work.</Text>
     <Button title="Sync now" onPress={() => sync()} loading={busy} disabled={!online || loading || !activeProject || activeProject.status !== 'active'} />
@@ -65,7 +65,7 @@ export default function SyncScreen() {
     </View>)}
     <View style={{ borderTopWidth: 1, borderColor: colors.border, paddingTop: 16, gap: 4 }}>
       <Text style={{ color: colors.textPrimary, fontWeight: '600' }}>App version</Text>
-      <Text selectable style={{ color: colors.textMuted }}>Version {Constants.expoConfig?.version ?? 'unknown'} · Runtime {Updates.runtimeVersion ?? 'development'} · Channel {Updates.channel ?? 'development'}</Text>
+      <Text selectable style={{ color: colors.textMuted }}>Version {Constants.expoConfig?.version ?? 'unknown'} · Runtime {Updates.runtimeVersion || 'development'} · Channel {Updates.channel || 'development'}</Text>
       <Text selectable style={{ color: colors.textMuted }}>Running update: {Updates.updateId ?? (Updates.isEmbeddedLaunch ? 'Included in the installed app' : 'Development / web')}</Text>
       <Text style={{ color: colors.textMuted }}>Use this update ID to confirm a published update is running on this device.</Text>
     </View>
