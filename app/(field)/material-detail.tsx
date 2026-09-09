@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -24,7 +24,9 @@ import {
   fetchShipmentHistory,
   type ShipmentRecord,
 } from '@/lib/api/shipments';
-import { supabase } from '@/lib/supabase';
+import { getProjectClient } from '@/lib/supabaseProject';
+import { processQueue } from '@/lib/sync/syncManager';
+import { newOperationId } from '@/lib/utils/operationId';
 import { useNetworkStore } from '@/lib/sync/networkStore';
 import { addToQueue } from '@/lib/sync/offlineQueue';
 import type { Location } from '@/types/database';
@@ -33,6 +35,12 @@ import { colors } from '@/lib/design/tokens';
 export default function MaterialDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const user = useAuthStore((s) => s.user);
+  const opId = useRef(newOperationId());
+  const saveAction = async (action: Parameters<typeof addToQueue>[0]) => {
+    await addToQueue(action, opId.current);
+    opId.current = newOperationId();
+    if (isOnline) await processQueue();
+  };
   const isOnline = useNetworkStore((s) => s.isOnline);
   const [material, setMaterial] = useState<MaterialWithLocation | null>(null);
   const [loading, setLoading] = useState(true);
@@ -93,24 +101,17 @@ export default function MaterialDetailScreen() {
       Alert.alert('Error', 'Destination is required');
       return;
     }
-    const qty = parseInt(shipQty, 10);
-    if (!qty || qty <= 0) {
+    const qty = Number(shipQty);
+    if (!Number.isInteger(qty) || qty <= 0) {
       Alert.alert('Error', 'Enter a valid quantity');
       return;
     }
     setShipping(true);
     try {
-      if (!isOnline) {
-        await addToQueue({ type: 'shipment', payload: { materialId: material.id, destination, quantity: qty, carrier: carrier || undefined, trackingNumber: trackingNumber || undefined, shippedBy: user?.id } });
-        setShowShipOut(false);
-        Alert.alert('Queued', 'Shipment will sync when back online');
-      } else {
-        await createShipment(material.id, destination, qty, carrier || undefined, trackingNumber || undefined, user?.id);
-        setShowShipOut(false);
-        loadMaterial();
-        loadShipments();
-        Alert.alert('Success', `Shipped ${qty} to ${destination}`);
-      }
+      await saveAction({ type: 'shipment', payload: { materialId: material.id, destination, quantity: qty, carrier: carrier || undefined, trackingNumber: trackingNumber || undefined, shippedBy: user?.id } });
+      setShowShipOut(false);
+      loadMaterial(); loadShipments();
+      Alert.alert('Saved', 'Check Sync for submission progress or any action needed.');
     } catch (e: any) {
       Alert.alert('Error', e.message);
     }
@@ -118,7 +119,7 @@ export default function MaterialDetailScreen() {
   };
 
   const openTransfer = async () => {
-    const { data } = await supabase
+    const { data } = await getProjectClient()
       .from('locations')
       .select('*')
       .order('zone')
@@ -134,16 +135,10 @@ export default function MaterialDetailScreen() {
     if (!material || !user || !selectedLocation) return;
     setTransferring(true);
     try {
-      if (!isOnline) {
-        await addToQueue({ type: 'transfer', payload: { materialId: material.id, fromLocationId: material.location_id, toLocationId: selectedLocation, movedBy: user.id, reason: transferReason } });
-        setShowTransfer(false);
-        Alert.alert('Queued', 'Transfer will sync when back online');
-      } else {
-        await transferMaterial(material.id, material.location_id, selectedLocation, user.id, transferReason);
-        setShowTransfer(false);
-        loadMaterial();
-        Alert.alert('Success', 'Material transferred');
-      }
+      await saveAction({ type: 'transfer', payload: { materialId: material.id, fromLocationId: material.location_id, toLocationId: selectedLocation, movedBy: user.id, reason: transferReason } });
+      setShowTransfer(false);
+      loadMaterial();
+      Alert.alert('Saved', 'Check Sync for submission progress or any action needed.');
     } catch (e: any) {
       Alert.alert('Error', e.message);
     }
@@ -156,23 +151,17 @@ export default function MaterialDetailScreen() {
       Alert.alert('Error', 'Job number is required');
       return;
     }
-    const qty = parseInt(issueQty, 10);
-    if (!qty || qty <= 0) {
+    const qty = Number(issueQty);
+    if (!Number.isInteger(qty) || qty <= 0) {
       Alert.alert('Error', 'Enter a valid quantity');
       return;
     }
     setIssuing(true);
     try {
-      if (!isOnline) {
-        await addToQueue({ type: 'issue', payload: { materialId: material.id, jobNumber, quantity: qty, issuedBy: user.id, workOrder: workOrder || undefined } });
-        setShowIssue(false);
-        Alert.alert('Queued', 'Issue will sync when back online');
-      } else {
-        await issueMaterial(material.id, jobNumber, qty, user.id, workOrder);
-        setShowIssue(false);
-        loadMaterial();
-        Alert.alert('Success', `Issued ${qty} to job ${jobNumber}`);
-      }
+      await saveAction({ type: 'issue', payload: { materialId: material.id, jobNumber, quantity: qty, issuedBy: user.id, workOrder: workOrder || undefined } });
+      setShowIssue(false);
+      loadMaterial();
+      Alert.alert('Saved', 'Check Sync for submission progress or any action needed.');
     } catch (e: any) {
       Alert.alert('Error', e.message);
     }

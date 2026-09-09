@@ -1,3 +1,5 @@
+import { AccessPendingScreen } from '@/components/screens/AccessPendingScreen';
+import { LoadingScreen } from '@/components/ui/LoadingScreen';
 import { OfflineIndicator } from '@/components/ui/OfflineIndicator';
 import { ProjectSelector } from '@/components/ui/ProjectSelector';
 import { SignOutButton } from '@/components/ui/SignOutButton';
@@ -9,7 +11,7 @@ import { StyleSheet, View } from 'react-native';
 import { colors } from '@/lib/design/tokens';
 
 export default function FieldLayout() {
-  const user = useAuthStore((s) => s.user);
+  const { user, activeProject, loading } = useAuthStore();
 
   useEffect(() => {
     if (!user) {
@@ -19,10 +21,13 @@ export default function FieldLayout() {
     }
   }, [user]);
 
+  if (loading) return <LoadingScreen message="Checking access..." />;
+  if (!user) return null;
+  if (!activeProject) return <AccessPendingScreen />;
   return (
     <View style={styles.container}>
       <OfflineIndicator />
-      <Tabs
+      <Tabs key={`${user.id}:${activeProject.id}`}
         screenOptions={{
           tabBarActiveTintColor: colors.brandPrimary,
           tabBarInactiveTintColor: colors.textSubtle,

@@ -1,6 +1,8 @@
 import { supabase } from '@/lib/supabase';
 import type { Project, User } from '@/types/database';
+import { switchReceivingScope } from './receivingStore';
 import { create } from 'zustand';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 interface AuthState {
   user: User | null;
@@ -8,121 +10,72 @@ interface AuthState {
   loading: boolean;
   activeProject: Project | null;
   availableProjects: Project[];
-  setActiveProject: (projectId: string) => void;
+  setActiveProject: (projectId: string) => Promise<void>;
   signIn: (email: string, password: string) => Promise<{ error: string | null }>;
   signOut: () => Promise<void>;
   loadSession: () => Promise<void>;
 }
-
-export const useAuthStore = create<AuthState>((set) => ({
-  user: null,
-  session: null,
-  loading: true,
-  activeProject: null,
-  availableProjects: [],
-
-  setActiveProject: (projectId: string) => {
-    set((state) => ({
-      activeProject: state.availableProjects.find((p) => p.id === projectId) || state.activeProject,
-    }));
+const cleared = { user: null, session: null, activeProject: null, availableProjects: [] };
+let revision = 0;
+async function loadAccess(session: { access_token: string; user: { id: string } }) {
+  const { data: profile, error } = await supabase.from('users').select('*').eq('id', session.user.id).single();
+  if (error || !profile?.is_active || profile.invitation_status !== 'accepted') throw new Error('Access is inactive or invitation setup is incomplete. Contact your administrator.');
+  const { data, error: projectError } = await supabase.from('user_projects').select('projects(*)').eq('user_id', session.user.id);
+  if (projectError) throw new Error('Could not verify project access. Please retry.');
+  const availableProjects = (data ?? []).map((up: any) => up.projects as Project).filter(p => p && p.status !== 'archived');
+  const saved = await AsyncStorage.getItem(`active-project-${session.user.id}`);
+  const activeProject = availableProjects.find(p => p.id === saved) ?? availableProjects[0] ?? null;
+  return { user: profile as User, session: { access_token: session.access_token }, availableProjects, activeProject };
+}
+export const useAuthStore = create<AuthState>((set, get) => ({
+  ...cleared, loading: true,
+  setActiveProject: async (id) => {
+    const project = get().availableProjects.find(p => p.id === id);
+    const user = get().user;
+    if (!project || !user || project.id === get().activeProject?.id) return;
+    const version = ++revision;
+    set({ activeProject: null, loading: true });
+    await AsyncStorage.setItem(`active-project-${user.id}`, id);
+    await switchReceivingScope(user.id, id);
+    if (version === revision) set({ activeProject: project, loading: false });
   },
-
-  signIn: async (email: string, password: string) => {
-    let data, error;
+  signIn: async (email, password) => {
+    const version = ++revision;
+    set({ ...cleared, loading: true });
     try {
-      const result = await supabase.auth.signInWithPassword({
-        email,
-        password,
-      });
-      data = result.data;
-      error = result.error;
-    } catch (e) {
-      return { error: 'Network request failed. Check your connection.' };
+      const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+      if (error || !data.session) throw new Error(error?.message ?? 'Sign in failed');
+      const access = await loadAccess(data.session);
+      if (version !== revision) return { error: 'Session changed. Please retry.' };
+      await switchReceivingScope(access.user.id, access.activeProject?.id ?? null);
+      if (version === revision) set({ ...access, loading: false });
+      return { error: null };
+    } catch (error: any) {
+      if (version === revision) { await supabase.auth.signOut(); set({ ...cleared, loading: false }); }
+      return { error: error?.message ?? 'Check your connection and retry.' };
     }
-
-    if (error || !data.user || !data.session) {
-      return { error: error?.message ?? 'Sign in failed' };
-    }
-
-    // Fetch user profile with role
-    const { data: profile, error: profileError } = await supabase
-      .from('users')
-      .select('*')
-      .eq('id', data.user.id)
-      .single();
-
-    if (profileError) {
-      return { error: 'Failed to load user profile' };
-    }
-
-    const { data: upData } = await supabase
-      .from('user_projects')
-      .select('projects(*)')
-      .eq('user_id', data.user.id);
-
-    let availableProjects: Project[] = [];
-    if (upData) {
-      availableProjects = upData
-        .map((up: any) => up.projects as Project)
-        .filter(Boolean);
-    }
-
-    const activeProject = availableProjects.length > 0 ? availableProjects[0] : null;
-
-    set({
-      session: { access_token: data.session.access_token },
-      user: profile as User,
-      availableProjects,
-      activeProject,
-    });
-
-    return { error: null };
   },
-
   signOut: async () => {
+    ++revision;
+    set({ ...cleared, loading: false });
+    await switchReceivingScope(null, null);
     await supabase.auth.signOut();
-    set({ user: null, session: null, activeProject: null, availableProjects: [] });
   },
-
   loadSession: async () => {
+    const version = ++revision;
     set({ loading: true });
-
     try {
       const { data: { session } } = await supabase.auth.getSession();
-
-      if (session) {
-        const { data: profile } = await supabase
-          .from('users')
-          .select('*')
-          .eq('id', session.user.id)
-          .single();
-
-        const { data: upData } = await supabase
-          .from('user_projects')
-          .select('projects(*)')
-          .eq('user_id', session.user.id);
-
-        let availableProjects: Project[] = [];
-        if (upData) {
-          availableProjects = upData
-            .map((up: any) => up.projects as Project)
-            .filter(Boolean);
-        }
-
-        const activeProject = availableProjects.length > 0 ? availableProjects[0] : null;
-
-        set({
-          session: { access_token: session.access_token },
-          user: profile as User | null,
-          availableProjects,
-          activeProject,
-          loading: false,
-        });
-      } else {
-        set({ user: null, session: null, activeProject: null, availableProjects: [], loading: false });
-      }
+      if (!session) throw new Error('No session');
+      const access = await loadAccess(session);
+      if (version !== revision) return;
+      await switchReceivingScope(access.user.id, access.activeProject?.id ?? null);
+      if (version === revision) set({ ...access, loading: false });
     } catch {
-      set({ user: null, session: null, activeProject: null, availableProjects: [], loading: false });
+      if (version === revision) {
+        set({ ...cleared, loading: false });
+        await switchReceivingScope(null, null);
+      }
     }
   },
 }));

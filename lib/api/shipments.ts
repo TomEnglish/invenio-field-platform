@@ -1,6 +1,5 @@
-import { supabase } from '@/lib/supabase';
+import { applyOperation, type OperationContext } from './operations';
 import { getProjectClient } from '@/lib/supabaseProject';
-import { logAction } from './auditLog';
 
 export interface ShipmentRecord {
   id: string;
@@ -11,44 +10,8 @@ export interface ShipmentRecord {
   created_at: string;
 }
 
-export async function createShipment(
-  materialId: string,
-  destination: string,
-  quantityShipped: number,
-  carrier?: string,
-  trackingNumber?: string,
-  shippedBy?: string
-) {
-  const projectId = getProjectClient().projectId;
-
-  // Atomically deduct quantity (RPCS require manual supabase injection)
-  const { error: rpcError } = await supabase.rpc('deduct_material_quantity', {
-    p_material_id: materialId,
-    p_quantity: quantityShipped,
-    p_depleted_status: 'shipped',
-  });
-
-  if (rpcError) throw new Error(rpcError.message);
-
-  // Create shipment record
-  const client = getProjectClient();
-  const { error: shipError } = await client
-    .from('shipments_out')
-    .insert({
-      material_id: materialId,
-      destination,
-      carrier: carrier || null,
-      tracking_number: trackingNumber || null,
-      quantity_shipped: quantityShipped,
-    });
-
-  if (shipError) throw new Error(shipError.message);
-
-  logAction(shippedBy ?? 'unknown', 'shipment_created', 'material', materialId, {
-    destination,
-    quantity: quantityShipped,
-    carrier,
-  });
+export async function createShipment(materialId: string, destination: string, quantity: number, carrier?: string, trackingNumber?: string, shippedBy?: string, context?: OperationContext) {
+  return applyOperation('shipment', { materialId, destination, quantity, carrier, trackingNumber }, context);
 }
 
 export async function fetchShipmentHistory(materialId: string): Promise<ShipmentRecord[]> {

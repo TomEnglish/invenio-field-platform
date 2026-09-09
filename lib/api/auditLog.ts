@@ -1,4 +1,4 @@
-import { supabase } from '@/lib/supabase';
+import { getProjectClient } from '@/lib/supabaseProject';
 
 export interface AuditEntry {
   id: string;
@@ -10,24 +10,8 @@ export interface AuditEntry {
   created_at: string;
 }
 
-export async function logAction(
-  userId: string,
-  action: string,
-  entityType: string,
-  entityId?: string,
-  details?: Record<string, any>
-): Promise<void> {
-  await supabase.from('audit_log').insert({
-    user_id: userId,
-    action,
-    entity_type: entityType,
-    entity_id: entityId ?? null,
-    details: details ?? {},
-  });
-}
-
 export async function fetchAuditLog(limit = 50): Promise<AuditEntry[]> {
-  const { data, error } = await supabase
+  const { data, error } = await getProjectClient()
     .from('audit_log')
     .select('*')
     .order('created_at', { ascending: false })

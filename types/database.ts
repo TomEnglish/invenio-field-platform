@@ -29,6 +29,8 @@ export interface UserProject {
 }
 
 export interface User {
+  is_active: boolean;
+  invitation_status: 'pending' | 'accepted' | 'cancelled';
   id: string;
   email: string;
   full_name: string;

@@ -45,8 +45,8 @@ export default function ExceptionsScreen() {
   );
 
   const handleResolve = (id: string, resolution: 'hold' | 'return_to_vendor') => {
-    const label = resolution === 'hold' ? 'Move to Hold Area' : 'Return to Vendor';
-    Alert.alert('Resolve Exception', `Confirm: ${label}?`, [
+    const label = resolution === 'hold' ? 'Keep open on hold' : 'Return to Vendor';
+    Alert.alert('Update Exception', `Confirm: ${label}?`, [
       { text: 'Cancel', style: 'cancel' },
       {
         text: 'Confirm',

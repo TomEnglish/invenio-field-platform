@@ -98,7 +98,7 @@ export async function fetchQRCodeDetail(id: string) {
     const { data: mat } = await client
       .from('materials')
       .select('*, locations(*)')
-      .eq('id', qr.entity_id)
+      .eq('qr_code_id', qr.id)
       .single();
     material = mat;
   }

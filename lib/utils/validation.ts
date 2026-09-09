@@ -4,8 +4,8 @@ export const materialStepSchema = z.object({
   material_type: z.string().min(1, 'Material type is required'),
   size: z.string().optional(),
   grade: z.string().optional(),
-  qty: z.number().min(1, 'Quantity must be at least 1'),
-  weight: z.number().optional(),
+  qty: z.number().int().min(1, 'Quantity must be at least 1'),
+  weight: z.number().min(0).optional(),
   description: z.string().optional(),
   spec: z.string().optional(),
 });
@@ -36,6 +36,7 @@ export const locationStepSchema = z.object({
 
 export const decisionStepSchema = z.object({
   status: z.enum(['accepted', 'partially_accepted', 'rejected']),
+  accepted_qty: z.number().int().positive().optional(),
   has_exception: z.boolean(),
   exception_type: z.enum(['wrong_type', 'wrong_count', 'damage']).optional(),
 });

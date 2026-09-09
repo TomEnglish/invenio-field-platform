@@ -1,6 +1,5 @@
-import { supabase } from '@/lib/supabase';
+import { applyOperation, type OperationContext } from './operations';
 import { getProjectClient } from '@/lib/supabaseProject';
-import { logAction } from './auditLog';
 
 export interface MaterialWithLocation {
   id: string;
@@ -115,74 +114,9 @@ export async function fetchMaterialById(id: string) {
   } as MaterialWithLocation;
 }
 
-export async function transferMaterial(
-  materialId: string,
-  fromLocationId: string | null,
-  toLocationId: string,
-  movedBy: string,
-  reason?: string
-) {
-  const client = getProjectClient();
-
-  // Update material location
-  const { error: updateError } = await client.from('materials')
-    .update({ location_id: toLocationId })
-    .eq('id', materialId);
-
-  if (updateError) throw new Error(updateError.message);
-
-  // Record the movement
-  const { error: moveError } = await client.from('material_movements')
-    .insert({
-      material_id: materialId,
-      from_location_id: fromLocationId,
-      to_location_id: toLocationId,
-      moved_by: movedBy,
-      reason: reason || null,
-    });
-
-  if (moveError) throw new Error(moveError.message);
-
-  logAction(movedBy, 'material_transferred', 'material', materialId, {
-    from: fromLocationId,
-    to: toLocationId,
-    reason,
-  });
+export async function transferMaterial(materialId: string, fromLocationId: string | null, toLocationId: string, movedBy: string, reason?: string, context?: OperationContext) {
+  return applyOperation('transfer', { materialId, fromLocationId, toLocationId, reason }, context);
 }
-
-export async function issueMaterial(
-  materialId: string,
-  jobNumber: string,
-  quantityIssued: number,
-  issuedBy: string,
-  workOrder?: string
-) {
-  const projectId = getProjectClient().projectId;
-
-  // Atomically deduct quantity (RPCS require manual supabase injection)
-  const { error: rpcError } = await supabase.rpc('deduct_material_quantity', {
-    p_material_id: materialId,
-    p_quantity: quantityIssued,
-    p_depleted_status: 'depleted',
-  });
-
-  if (rpcError) throw new Error(rpcError.message);
-
-  // Record the issue
-  const client = getProjectClient();
-  const { error: issueError } = await client.from('material_issues')
-    .insert({
-      material_id: materialId,
-      job_number: jobNumber,
-      work_order: workOrder || null,
-      quantity_issued: quantityIssued,
-      issued_by: issuedBy,
-    });
-
-  if (issueError) throw new Error(issueError.message);
-
-  logAction(issuedBy, 'material_issued', 'material', materialId, {
-    job_number: jobNumber,
-    quantity: quantityIssued,
-  });
+export async function issueMaterial(materialId: string, jobNumber: string, quantity: number, issuedBy: string, workOrder?: string, context?: OperationContext) {
+  return applyOperation('issue', { materialId, jobNumber, quantity, workOrder }, context);
 }

@@ -1,3 +1,5 @@
+import { Platform } from 'react-native';
+import { newOperationId } from '@/lib/utils/operationId';
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -16,6 +18,7 @@ export interface PhotoEntry {
 }
 
 interface ReceivingState {
+  operationId: string;
   // Current wizard state
   step: number;
   qrCodeValue: string;
@@ -43,6 +46,7 @@ interface ReceivingState {
 }
 
 const initialState = {
+  operationId: '',
   step: 0,
   qrCodeValue: '',
   qrCodeId: null as string | null,
@@ -83,11 +87,32 @@ export const useReceivingStore = create<ReceivingState>()(
         })),
       setLocation: (location) => set({ location }),
       setDecision: (decision) => set({ decision }),
-      reset: () => set(initialState),
+      reset: () => set({ ...initialState, operationId: newOperationId() }),
     }),
     {
-      name: 'receiving-wizard',
-      storage: createJSONStorage(() => AsyncStorage),
+      name: 'receiving-wizard-unscoped',
+      skipHydration: true,
+      storage: createJSONStorage(() => Platform.OS === 'web' && typeof window === 'undefined' ? { getItem: async () => null, setItem: async () => {}, removeItem: async () => {} } : AsyncStorage),
     }
   )
 );
+
+// Save each draft independently; the legacy unscoped key is intentionally retained.
+let draftScope: string | null = null;
+let hydration: Promise<void> = Promise.resolve();
+export function switchReceivingScope(userId: string | null, projectId: string | null): Promise<void> {
+  const next = userId && projectId ? `receiving-wizard-${userId}-${projectId}` : null;
+  hydration = hydration.catch(() => {}).then(async () => {
+    if (next === draftScope) return;
+    // Point at an empty key before resetting so the previous draft is not overwritten.
+    useReceivingStore.persist.setOptions({ name: 'receiving-wizard-unscoped' });
+    useReceivingStore.setState({ ...initialState, operationId: newOperationId() });
+    draftScope = next;
+    if (next) {
+      useReceivingStore.persist.setOptions({ name: next });
+      await useReceivingStore.persist.rehydrate();
+      if (!useReceivingStore.getState().operationId) useReceivingStore.setState({ operationId: newOperationId() });
+    }
+  });
+  return hydration;
+}

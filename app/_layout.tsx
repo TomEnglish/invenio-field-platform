@@ -2,6 +2,10 @@ import FontAwesome from '@expo/vector-icons/FontAwesome';
 import { useFonts } from 'expo-font';
 import { Stack } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
+import { AppState, Platform } from 'react-native';
+import { supabase } from '@/lib/supabase';
+import { useAuthStore } from '@/stores/authStore';
+import { switchReceivingScope } from '@/stores/receivingStore';
 import { useEffect } from 'react';
 import { useNetworkStore } from '@/lib/sync/networkStore';
 import { startAutoSync } from '@/lib/sync/syncManager';
@@ -26,6 +30,23 @@ export default function RootLayout() {
       SplashScreen.hideAsync();
     }
   }, [loaded]);
+
+  useEffect(() => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      if (event === 'SIGNED_OUT') {
+        useAuthStore.setState({ user: null, session: null, activeProject: null, availableProjects: [], loading: false });
+        void switchReceivingScope(null, null);
+      } else if (event === 'TOKEN_REFRESHED' && session) {
+        useAuthStore.setState({ session: { access_token: session.access_token } });
+      }
+    });
+    const refresh = () => {
+      if (useAuthStore.getState().user && useNetworkStore.getState().isOnline) void useAuthStore.getState().loadSession();
+    };
+    const foreground = AppState.addEventListener('change', state => { if (state === 'active') refresh(); });
+    if (Platform.OS === 'web') window.addEventListener('focus', refresh);
+    return () => { subscription.unsubscribe(); foreground.remove(); if (Platform.OS === 'web') window.removeEventListener('focus', refresh); };
+  }, []);
 
   // Start network monitoring and auto-sync
   useEffect(() => {

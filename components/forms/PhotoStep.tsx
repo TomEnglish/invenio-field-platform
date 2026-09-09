@@ -1,3 +1,4 @@
+import { persistPhoto } from '@/lib/utils/persistPhoto';
 import { useState } from 'react';
 import { View, ScrollView, Text, Image, StyleSheet, Alert } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
@@ -29,7 +30,8 @@ export function PhotoStep({ onNext, onBack }: Props) {
     });
 
     if (!result.canceled && result.assets[0]) {
-      addPhoto({ uri: result.assets[0].uri, photo_type: selectedType });
+      try { addPhoto({ uri: await persistPhoto(result.assets[0].uri), photo_type: selectedType }); }
+      catch (error: any) { Alert.alert('Photo not saved', error.message); }
     }
   };
 
@@ -41,7 +43,8 @@ export function PhotoStep({ onNext, onBack }: Props) {
     });
 
     if (!result.canceled && result.assets[0]) {
-      addPhoto({ uri: result.assets[0].uri, photo_type: selectedType });
+      try { addPhoto({ uri: await persistPhoto(result.assets[0].uri), photo_type: selectedType }); }
+      catch (error: any) { Alert.alert('Photo not saved', error.message); }
     }
   };
 

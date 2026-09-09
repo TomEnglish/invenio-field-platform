@@ -1,7 +1,8 @@
 import { EditMaterialModal } from '@/components/modals/EditMaterialModal';
 import { DataTable, type DataTableColumn } from '@/components/ui/DataTable';
 import { fetchMaterials, type MaterialWithLocation } from '@/lib/api/materials';
-import { getProjectClient } from '@/lib/supabaseProject';
+import { applyOperation, operationContext } from '@/lib/api/operations';
+import { newOperationId } from '@/lib/utils/operationId';
 import { useAuthStore } from '@/stores/authStore';
 import FontAwesome from '@expo/vector-icons/FontAwesome';
 import { useFocusEffect } from 'expo-router';
@@ -49,7 +50,9 @@ const StatusBadge = ({ status }: { status: string }) => {
 };
 
 export default function MaterialsScreen() {
-  const activeProject = useAuthStore((s) => s.activeProject);
+  const { activeProject, user } = useAuthStore();
+  const [reason, setReason] = useState('');
+  const operationId = useRef(newOperationId());
   const [materials, setMaterials] = useState<MaterialWithLocation[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -108,6 +111,8 @@ export default function MaterialsScreen() {
   );
 
   const openEdit = (item: MaterialWithLocation) => {
+    if (user?.role !== 'admin') return;
+    setReason(''); operationId.current = newOperationId();
     setEditItem(item);
     setEditType(item.material_type);
     setEditSize(item.size ?? '');
@@ -120,18 +125,10 @@ export default function MaterialsScreen() {
     if (!editItem) return;
     setSaving(true);
     try {
-      const { error } = await getProjectClient()
-        .from('materials')
-        .update({
-          material_type: editType,
-          size: editSize || null,
-          grade: editGrade || null,
-          spec: editSpec || null,
-          weight: editWeight ? parseFloat(editWeight) : null,
-        })
-        .eq('id', editItem.id);
-
-      if (error) throw new Error(error.message);
+      await applyOperation('correct_material', { materialId: editItem.id, reason, changes: {
+        material_type: editType, size: editSize || null, grade: editGrade || null,
+        spec: editSpec || null, weight: editWeight ? Number(editWeight) : null,
+      } }, operationContext(operationId.current));
       setEditItem(null);
       load();
     } catch (e: any) {
@@ -251,6 +248,8 @@ export default function MaterialsScreen() {
 
       <EditMaterialModal
         editItem={editItem}
+        reason={reason}
+        setReason={setReason}
         editType={editType}
         setEditType={setEditType}
         editSize={editSize}

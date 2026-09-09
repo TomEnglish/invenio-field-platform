@@ -1,3 +1,5 @@
+import { AccessPendingScreen } from '@/components/screens/AccessPendingScreen';
+import { LoadingScreen } from '@/components/ui/LoadingScreen';
 import { OfflineIndicator } from '@/components/ui/OfflineIndicator';
 import { ProjectSelector } from '@/components/ui/ProjectSelector';
 import { SignOutButton } from '@/components/ui/SignOutButton';
@@ -9,7 +11,7 @@ import { StyleSheet, View } from 'react-native';
 import { colors } from '@/lib/design/tokens';
 
 export default function OfficeLayout() {
-  const user = useAuthStore((s) => s.user);
+  const { user, activeProject, loading } = useAuthStore();
 
   useEffect(() => {
     if (!user) {
@@ -19,10 +21,13 @@ export default function OfficeLayout() {
     }
   }, [user]);
 
+  if (loading) return <LoadingScreen message="Checking access..." />;
+  if (!user || user.role === 'field_worker') return null;
+  if (!activeProject) return <AccessPendingScreen />;
   return (
     <View style={styles.container}>
       <OfflineIndicator />
-      <Tabs
+      <Tabs key={`${user.id}:${activeProject.id}`}
         screenOptions={{
           tabBarActiveTintColor: colors.brandPrimary,
           tabBarInactiveTintColor: colors.textSubtle,
@@ -111,7 +116,8 @@ export default function OfficeLayout() {
         <Tabs.Screen
           name="admin"
           options={{
-            title: 'Admin',
+            title: 'Data Browser',
+            href: user.role === 'admin' ? undefined : null,
             tabBarIcon: ({ color }) => (
               <FontAwesome name="database" size={24} color={color} />
             ),

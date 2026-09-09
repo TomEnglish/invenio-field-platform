@@ -1,5 +1,5 @@
 import { getProjectClient } from '@/lib/supabaseProject';
-import { logAction } from './auditLog';
+import { applyOperation } from './operations';
 
 export interface ExceptionRecord {
   id: string;
@@ -77,19 +77,5 @@ export async function resolveException(
   resolution: 'hold' | 'return_to_vendor',
   userId?: string
 ) {
-  const client = getProjectClient();
-
-  // Will automatically apply `eq('project_id', projectId)`
-  const { error } = await client.from('receiving_records')
-    .update({
-      exception_resolved: true,
-      exception_resolution: resolution,
-    })
-    .eq('id', id);
-
-  if (error) throw new Error(error.message);
-
-  if (userId) {
-    logAction(userId, 'exception_resolved', 'receiving_record', id, { resolution });
-  }
+  return applyOperation('exception', { id, resolution });
 }

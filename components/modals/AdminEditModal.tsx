@@ -1,3 +1,4 @@
+import { newOperationId } from '@/lib/utils/operationId';
 import { useState, useEffect } from 'react';
 import { ScrollView, StyleSheet, Text, TouchableOpacity, View, type TextStyle } from 'react-native';
 import { Button } from '@/components/ui/Button';
@@ -24,6 +25,7 @@ interface AdminEditModalProps {
   onCancel: () => void;
   saving: boolean;
   canDelete: boolean;
+  correction?: boolean;
 }
 
 export function AdminEditModal({
@@ -37,10 +39,14 @@ export function AdminEditModal({
   onCancel,
   saving,
   canDelete,
+  correction = false,
 }: AdminEditModalProps) {
+  const [reason, setReason] = useState('');
+  const [operationId, setOperationId] = useState(newOperationId());
   const [formData, setFormData] = useState<Record<string, any>>({});
 
   useEffect(() => {
+    setReason(''); setOperationId(newOperationId());
     if (record) {
       setFormData({ ...record });
     } else if (isNew) {
@@ -60,7 +66,7 @@ export function AdminEditModal({
   const handleSave = () => {
     const changes: Record<string, any> = {};
     columns.forEach((col) => {
-      if (!col.editable && !isNew) return;
+      if (!col.editable) return;
       const val = formData[col.key];
       if (col.type === 'number') {
         changes[col.key] = val === '' || val === null || val === undefined ? null : Number(val);
@@ -70,6 +76,7 @@ export function AdminEditModal({
         changes[col.key] = val === '' ? null : val;
       }
     });
+    if (correction) { changes._reason = reason; changes._operationId = operationId; }
     onSave(changes);
   };
 
@@ -170,12 +177,13 @@ export function AdminEditModal({
           {canDelete && !isNew && onDelete ? (
             <Button title="Delete" variant="danger" onPress={onDelete} />
           ) : null}
-          <Button title={isNew ? 'Create' : 'Save'} onPress={handleSave} loading={saving} />
+          {columns.some(c => c.editable) && <Button title={isNew ? 'Create' : 'Save'} onPress={handleSave} loading={saving} disabled={correction && reason.trim().length < 5} />}
         </>
       }
     >
       <ScrollView style={{ maxHeight: 440 }} showsVerticalScrollIndicator>
         {columns.map(renderField)}
+        {correction && <Input label="Reason for correction" value={reason} onChangeText={setReason} required />}
       </ScrollView>
     </Modal>
   );

@@ -15,6 +15,7 @@ import { router, useFocusEffect } from 'expo-router';
 import FontAwesome from '@expo/vector-icons/FontAwesome';
 import { Button } from '@/components/ui/Button';
 import { fetchMaterials, type MaterialWithLocation } from '@/lib/api/materials';
+import { useAuthStore } from '@/stores/authStore';
 import { useNetworkStore } from '@/lib/sync/networkStore';
 import { getCached, setCache } from '@/lib/sync/readCache';
 import { colors } from '@/lib/design/tokens';
@@ -40,6 +41,9 @@ export default function InventoryScreen() {
   const load = async () => {
     setLoading(true);
     offsetRef.current = 0;
+    const context = useAuthStore.getState();
+    const stillCurrent = () => context.user?.id === useAuthStore.getState().user?.id && context.activeProject?.id === useAuthStore.getState().activeProject?.id;
+    setMaterials([]);
     const cacheKey = `materials_${statusFilter}_${search}`;
     try {
       const result = await fetchMaterials({
@@ -47,12 +51,14 @@ export default function InventoryScreen() {
         search: search || undefined,
         offset: 0,
       });
+      if (!stillCurrent()) return;
       setMaterials(result.data);
       setHasMore(result.hasMore);
       offsetRef.current = result.data.length;
       await setCache(cacheKey, result.data);
     } catch (e: any) {
-      const cached = await getCached<MaterialWithLocation[]>(cacheKey);
+      if (!stillCurrent()) return;
+      const cached = !useNetworkStore.getState().isOnline ? await getCached<MaterialWithLocation[]>(cacheKey) : null;
       if (cached) {
         setMaterials(cached);
         setHasMore(false);

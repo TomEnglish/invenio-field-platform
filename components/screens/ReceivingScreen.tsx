@@ -3,7 +3,7 @@ import { View, Text, StyleSheet, Alert } from 'react-native';
 import { router, Stack } from 'expo-router';
 import { useReceivingStore } from '@/stores/receivingStore';
 import { useAuthStore } from '@/stores/authStore';
-import { lookupOrCreateQRCode, submitReceivingRecord } from '@/lib/api/receiving';
+import { processQueue } from '@/lib/sync/syncManager';
 import { useNetworkStore } from '@/lib/sync/networkStore';
 import { addToQueue } from '@/lib/sync/offlineQueue';
 import { MaterialStep } from '@/components/forms/MaterialStep';
@@ -36,43 +36,17 @@ export function ReceivingScreenContent() {
 
     setSubmitting(true);
     try {
-      if (!isOnline) {
-        await addToQueue({
-          type: 'receiving',
-          payload: {
-            qrCodeValue: store.qrCodeValue,
-            material: store.material,
-            po: store.po,
-            inspection: store.inspection,
-            photos: [],
-            location: store.location,
-            decision: store.decision,
-            userId: user.id,
-          },
-        });
-        store.reset();
-        Alert.alert('Queued', 'Record saved offline and will sync when reconnected. Photos must be added later.', [
-          { text: 'OK', onPress: () => router.back() },
-        ]);
-      } else {
-        const qr = await lookupOrCreateQRCode(store.qrCodeValue);
-
-        await submitReceivingRecord({
-          qrCodeId: qr.id,
-          material: store.material,
-          po: store.po,
-          inspection: store.inspection,
-          photos: store.photos,
-          location: store.location,
-          decision: store.decision,
-          userId: user.id,
-        });
-
-        store.reset();
-        Alert.alert('Success', 'Receiving record submitted', [
-          { text: 'OK', onPress: () => router.back() },
-        ]);
-      }
+      await addToQueue({ type: 'receiving', payload: {
+        qrCodeValue: store.qrCodeValue, material: store.material, po: store.po,
+        inspection: store.inspection, photos: store.photos, location: store.location,
+        decision: store.decision, userId: user.id,
+      } }, store.operationId);
+      // Queue persistence succeeds before clearing the draft, even for online submissions.
+      store.reset();
+      if (isOnline) await processQueue();
+      Alert.alert('Saved', 'Submission saved. Check Sync for upload progress or any action needed.', [
+        { text: 'OK', onPress: () => router.back() },
+      ]);
     } catch (e: any) {
       Alert.alert('Error', e.message ?? 'Failed to submit');
     } finally {

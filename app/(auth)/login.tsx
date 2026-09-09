@@ -1,3 +1,4 @@
+import { supabase } from '@/lib/supabase';
 import { useState } from 'react';
 import { View, Text, StyleSheet, KeyboardAvoidingView, Platform, type TextStyle } from 'react-native';
 import { router } from 'expo-router';
@@ -10,8 +11,22 @@ export default function LoginScreen() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
+  const [notice, setNotice] = useState('');
   const [loading, setLoading] = useState(false);
   const signIn = useAuthStore((s) => s.signIn);
+
+  const resetPassword = async () => {
+    if (!email.trim()) { setError('Enter your email to request a password reset.'); return; }
+    setLoading(true); setError(''); setNotice('');
+    try {
+      const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), {
+        redirectTo: 'https://invenio-field-msr.netlify.app/login.html',
+      });
+      if (error) throw error;
+      setNotice('If this account can receive a reset link, check your email to set a new password.');
+    } catch (e: any) { setError(e.message || 'Could not request a reset. Please retry.'); }
+    finally { setLoading(false); }
+  };
 
   const handleLogin = async () => {
     if (!email || !password) {
@@ -64,12 +79,14 @@ export default function LoginScreen() {
             error={error && !password ? 'Password is required' : undefined}
           />
 
-          {error && email && password ? (
+          {error ? (
             <Text style={styles.formError} accessibilityLiveRegion="polite">
               {error}
             </Text>
           ) : null}
 
+          {notice ? <Text accessibilityLiveRegion="polite" style={{ color: colors.textMuted }}>{notice}</Text> : null}
+          <Button title="Reset password" variant="ghost" onPress={resetPassword} disabled={loading} />
           <Button
             title="Sign In"
             onPress={handleLogin}

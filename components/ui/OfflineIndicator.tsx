@@ -1,6 +1,6 @@
 import { useState, useCallback } from 'react';
 import { View, Text, StyleSheet, type TextStyle } from 'react-native';
-import { useFocusEffect } from 'expo-router';
+import { Link, useFocusEffect } from 'expo-router';
 import { useNetworkStore } from '@/lib/sync/networkStore';
 import { getQueueStats } from '@/lib/sync/offlineQueue';
 import { colors, fontSize, fontWeight, space } from '@/lib/design/tokens';
@@ -15,10 +15,11 @@ export function OfflineIndicator() {
     }, [isOnline])
   );
 
-  if (isOnline && stats.deadLetters === 0 && stats.pending === 0) return null;
+
 
   return (
     <View>
+      <Link href="/sync" style={{ padding: 8, color: colors.brandPrimary }}>Sync &amp; recovery{stats.pending + stats.deadLetters > 0 ? ` (${stats.pending + stats.deadLetters})` : ''}</Link>
       {!isOnline && (
         <View style={[styles.banner, styles.bannerWarn]}>
           <Text style={styles.text}>
@@ -30,7 +31,7 @@ export function OfflineIndicator() {
       {isOnline && stats.pending > 0 && (
         <View style={[styles.banner, styles.bannerInfo]}>
           <Text style={styles.text}>
-            {stats.pending} queued action{stats.pending > 1 ? 's' : ''} syncing...
+            {stats.pending} queued action{stats.pending > 1 ? 's' : ''} waiting to sync
           </Text>
         </View>
       )}

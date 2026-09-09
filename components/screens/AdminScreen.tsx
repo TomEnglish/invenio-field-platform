@@ -37,253 +37,173 @@ interface TableConfig {
 
 const TABLE_CONFIGS: TableConfig[] = [
   {
-    key: 'materials',
-    label: 'Materials',
+    key: "materials", label: "Materials", idField: "id", orderBy: "created_at", orderAsc: false, canInsert: false, canDelete: false, searchColumns: ["material_type","size","grade","spec"],
     columns: [
-      { key: 'id', label: 'ID', editable: false, type: 'text' },
-      { key: 'material_type', label: 'Type', editable: true, type: 'text' },
-      { key: 'size', label: 'Size', editable: true, type: 'text' },
-      { key: 'grade', label: 'Grade', editable: true, type: 'text' },
-      { key: 'spec', label: 'Spec', editable: true, type: 'text' },
-      { key: 'qty', label: 'Qty', editable: true, type: 'number' },
-      { key: 'current_quantity', label: 'Current Qty', editable: true, type: 'number' },
-      { key: 'weight', label: 'Weight', editable: true, type: 'number' },
-      { key: 'status', label: 'Status', editable: true, type: 'enum', options: ['in_yard', 'issued', 'shipped', 'depleted'] },
-      { key: 'location_id', label: 'Location ID', editable: true, type: 'text' },
-      { key: 'qr_code_id', label: 'QR Code ID', editable: false, type: 'text' },
-      { key: 'created_at', label: 'Created', editable: false, type: 'date' },
+      {key: "material_type",label: "Type",editable: true,type: "text"},
+      {key: "size",label: "Size",editable: true,type: "text"},
+      {key: "grade",label: "Grade",editable: true,type: "text"},
+      {key: "spec",label: "Spec",editable: true,type: "text"},
+      {key: "qty",label: "Qty",editable: false,type: "number"},
+      {key: "current_quantity",label: "Current Qty",editable: false,type: "number"},
+      {key: "weight",label: "Weight",editable: true,type: "number"},
+      {key: "status",label: "Status",editable: false,type: "enum",options: ["in_yard","issued","shipped","depleted"]},
+      {key: "created_at",label: "Created",editable: false,type: "date"}
     ],
-    searchColumns: ['material_type', 'grade', 'spec'],
-    canInsert: false,
-    canDelete: false,
-    idField: 'id',
-    orderBy: 'created_at',
-    orderAsc: false,
   },
   {
-    key: 'receiving_records',
-    label: 'Receiving',
+    key: "receiving_records", label: "Receiving Records", idField: "id", orderBy: "created_at", orderAsc: false, canInsert: false, canDelete: false, searchColumns: ["material_type","vendor","po_number","grade"],
     columns: [
-      { key: 'id', label: 'ID', editable: false, type: 'text' },
-      { key: 'po_number', label: 'PO Number', editable: true, type: 'text' },
-      { key: 'carrier', label: 'Carrier', editable: true, type: 'text' },
-      { key: 'status', label: 'Status', editable: true, type: 'enum', options: ['pending', 'inspecting', 'completed', 'rejected'] },
-      { key: 'received_by', label: 'Received By', editable: false, type: 'text' },
-      { key: 'notes', label: 'Notes', editable: true, type: 'text' },
-      { key: 'created_at', label: 'Created', editable: false, type: 'date' },
+      {key: "material_type",label: "Type",editable: false,type: "text"},
+      {key: "qty",label: "Qty",editable: false,type: "number"},
+      {key: "size",label: "Size",editable: false,type: "text"},
+      {key: "grade",label: "Grade",editable: false,type: "text"},
+      {key: "status",label: "Status",editable: false,type: "enum",options: ["pending","accepted","partially_accepted","rejected"]},
+      {key: "vendor",label: "Vendor",editable: false,type: "text"},
+      {key: "po_number",label: "PO #",editable: false,type: "text"},
+      {key: "condition",label: "Condition",editable: false,type: "enum",options: ["good","damaged","mixed"]},
+      {key: "inspection_pass",label: "Insp. Pass",editable: false,type: "boolean"},
+      {key: "has_exception",label: "Exception",editable: false,type: "boolean"},
+      {key: "exception_type",label: "Exception Type",editable: false,type: "text"},
+      {key: "exception_resolved",label: "Resolved",editable: false,type: "boolean"},
+      {key: "exception_resolution",label: "Resolution",editable: false,type: "enum",options: ["","hold","return_to_vendor"]},
+      {key: "created_at",label: "Created",editable: false,type: "date"}
     ],
-    searchColumns: ['po_number', 'carrier'],
-    canInsert: false,
-    canDelete: false,
-    idField: 'id',
-    orderBy: 'created_at',
-    orderAsc: false,
   },
   {
-    key: 'locations',
-    label: 'Locations',
+    key: "locations", label: "Locations", idField: "id", orderBy: "zone", orderAsc: true, canInsert: true, canDelete: false, searchColumns: ["zone","row","rack"],
     columns: [
-      { key: 'id', label: 'ID', editable: false, type: 'text' },
-      { key: 'zone', label: 'Zone', editable: true, type: 'text' },
-      { key: 'row', label: 'Row', editable: true, type: 'text' },
-      { key: 'rack', label: 'Rack', editable: true, type: 'text' },
-      { key: 'description', label: 'Description', editable: true, type: 'text' },
-      { key: 'is_active', label: 'Active', editable: true, type: 'boolean' },
-      { key: 'created_at', label: 'Created', editable: false, type: 'date' },
+      {key: "zone",label: "Zone",editable: true,type: "text"},
+      {key: "row",label: "Row",editable: true,type: "text"},
+      {key: "rack",label: "Rack",editable: true,type: "text"},
+      {key: "is_hold_area",label: "Hold Area",editable: true,type: "boolean"},
+      {key: "capacity",label: "Capacity",editable: true,type: "number"},
+      {key: "created_at",label: "Created",editable: false,type: "date"}
     ],
-    searchColumns: ['zone', 'row', 'rack', 'description'],
-    canInsert: true,
-    canDelete: true,
-    idField: 'id',
-    orderBy: 'zone',
-    orderAsc: true,
   },
   {
-    key: 'qr_codes',
-    label: 'QR Codes',
+    key: "qr_codes", label: "QR Codes", idField: "id", orderBy: "created_at", orderAsc: false, canInsert: false, canDelete: false, searchColumns: ["code_value"],
     columns: [
-      { key: 'id', label: 'ID', editable: false, type: 'text' },
-      { key: 'code_value', label: 'Code', editable: false, type: 'text' },
-      { key: 'entity_type', label: 'Entity Type', editable: true, type: 'enum', options: ['material', 'location'] },
-      { key: 'entity_id', label: 'Entity ID', editable: true, type: 'text' },
-      { key: 'is_active', label: 'Active', editable: true, type: 'boolean' },
-      { key: 'created_at', label: 'Created', editable: false, type: 'date' },
+      {key: "code_value",label: "Code",editable: false,type: "text"},
+      {key: "entity_type",label: "Entity Type",editable: false,type: "enum",options: ["item","pallet","shipment"]},
+      {key: "entity_id",label: "Entity ID",editable: false,type: "text"},
+      {key: "created_at",label: "Created",editable: false,type: "date"}
     ],
-    searchColumns: ['code_value'],
-    canInsert: false,
-    canDelete: false,
-    idField: 'id',
-    orderBy: 'created_at',
-    orderAsc: false,
   },
   {
-    key: 'material_movements',
-    label: 'Movements',
+    key: "material_movements", label: "Material Movements", idField: "id", orderBy: "created_at", orderAsc: false, canInsert: false, canDelete: false, searchColumns: ["reason"],
     columns: [
-      { key: 'id', label: 'ID', editable: false, type: 'text' },
-      { key: 'material_id', label: 'Material ID', editable: false, type: 'text' },
-      { key: 'from_location_id', label: 'From Location', editable: false, type: 'text' },
-      { key: 'to_location_id', label: 'To Location', editable: false, type: 'text' },
-      { key: 'moved_by', label: 'Moved By', editable: false, type: 'text' },
-      { key: 'reason', label: 'Reason', editable: false, type: 'text' },
-      { key: 'created_at', label: 'Created', editable: false, type: 'date' },
+      {key: "material_id",label: "Material ID",editable: false,type: "text"},
+      {key: "from_location_id",label: "From Location",editable: false,type: "text"},
+      {key: "to_location_id",label: "To Location",editable: false,type: "text"},
+      {key: "reason",label: "Reason",editable: false,type: "text"},
+      {key: "moved_by",label: "Moved By",editable: false,type: "text"},
+      {key: "created_at",label: "Date",editable: false,type: "date"}
     ],
-    searchColumns: ['material_id', 'reason'],
-    canInsert: false,
-    canDelete: false,
-    idField: 'id',
-    orderBy: 'created_at',
-    orderAsc: false,
   },
   {
-    key: 'material_issues',
-    label: 'Issues',
+    key: "material_issues", label: "Material Issues", idField: "id", orderBy: "created_at", orderAsc: false, canInsert: false, canDelete: false, searchColumns: ["job_number","work_order"],
     columns: [
-      { key: 'id', label: 'ID', editable: false, type: 'text' },
-      { key: 'material_id', label: 'Material ID', editable: false, type: 'text' },
-      { key: 'job_number', label: 'Job Number', editable: true, type: 'text' },
-      { key: 'work_order', label: 'Work Order', editable: true, type: 'text' },
-      { key: 'quantity_issued', label: 'Qty Issued', editable: false, type: 'number' },
-      { key: 'issued_by', label: 'Issued By', editable: false, type: 'text' },
-      { key: 'created_at', label: 'Created', editable: false, type: 'date' },
+      {key: "material_id",label: "Material ID",editable: false,type: "text"},
+      {key: "job_number",label: "Job #",editable: false,type: "text"},
+      {key: "work_order",label: "Work Order",editable: false,type: "text"},
+      {key: "quantity_issued",label: "Qty Issued",editable: false,type: "number"},
+      {key: "issued_by",label: "Issued By",editable: false,type: "text"},
+      {key: "created_at",label: "Date",editable: false,type: "date"}
     ],
-    searchColumns: ['job_number', 'work_order'],
-    canInsert: false,
-    canDelete: false,
-    idField: 'id',
-    orderBy: 'created_at',
-    orderAsc: false,
   },
   {
-    key: 'shipments_out',
-    label: 'Shipments Out',
+    key: "shipments_out", label: "Shipments Out", idField: "id", orderBy: "created_at", orderAsc: false, canInsert: false, canDelete: false, searchColumns: ["destination","carrier","tracking_number"],
     columns: [
-      { key: 'id', label: 'ID', editable: false, type: 'text' },
-      { key: 'shipment_number', label: 'Shipment #', editable: true, type: 'text' },
-      { key: 'destination', label: 'Destination', editable: true, type: 'text' },
-      { key: 'carrier', label: 'Carrier', editable: true, type: 'text' },
-      { key: 'status', label: 'Status', editable: true, type: 'enum', options: ['pending', 'in_transit', 'delivered'] },
-      { key: 'shipped_by', label: 'Shipped By', editable: false, type: 'text' },
-      { key: 'created_at', label: 'Created', editable: false, type: 'date' },
+      {key: "material_id",label: "Material ID",editable: false,type: "text"},
+      {key: "destination",label: "Destination",editable: false,type: "text"},
+      {key: "carrier",label: "Carrier",editable: false,type: "text"},
+      {key: "tracking_number",label: "Tracking #",editable: false,type: "text"},
+      {key: "quantity_shipped",label: "Qty",editable: false,type: "number"},
+      {key: "created_at",label: "Date",editable: false,type: "date"}
     ],
-    searchColumns: ['shipment_number', 'destination', 'carrier'],
-    canInsert: true,
-    canDelete: false,
-    idField: 'id',
-    orderBy: 'created_at',
-    orderAsc: false,
   },
   {
-    key: 'purchase_orders',
-    label: 'POs',
+    key: "purchase_orders", label: "Purchase Orders", idField: "id", orderBy: "id", orderAsc: false, canInsert: false, canDelete: false, searchColumns: ["purchase_order_id","po_description","supplier","item_description"],
     columns: [
-      { key: 'id', label: 'ID', editable: false, type: 'text' },
-      { key: 'po_number', label: 'PO Number', editable: true, type: 'text' },
-      { key: 'vendor', label: 'Vendor', editable: true, type: 'text' },
-      { key: 'status', label: 'Status', editable: true, type: 'enum', options: ['draft', 'submitted', 'acknowledged', 'shipped', 'received', 'closed'] },
-      { key: 'notes', label: 'Notes', editable: true, type: 'text' },
-      { key: 'created_at', label: 'Created', editable: false, type: 'date' },
+      {key: "purchase_order_id",label: "PO ID",editable: false,type: "text"},
+      {key: "po_description",label: "Description",editable: false,type: "text"},
+      {key: "supplier",label: "Supplier",editable: false,type: "text"},
+      {key: "status",label: "Status",editable: false,type: "enum",options: ["Sent","Follow-Up Document Created","Finished","Canceled"]},
+      {key: "item_description",label: "Item",editable: false,type: "text"},
+      {key: "ordered_quantity",label: "Qty",editable: false,type: "number"},
+      {key: "net_value",label: "Net Value",editable: false,type: "number"},
+      {key: "delivery_date_from",label: "Delivery Date",editable: false,type: "date"},
+      {key: "created_at",label: "Created",editable: false,type: "date"},
+      {key: "item_status",label: "Item Status",editable: false,type: "text"},
+      {key: "delivery_status",label: "Delivery Status",editable: false,type: "text"},
+      {key: "category",label: "Category",editable: false,type: "text"},
+      {key: "sub_category",label: "Sub-Category",editable: false,type: "text"}
     ],
-    searchColumns: ['po_number', 'vendor'],
-    canInsert: true,
-    canDelete: true,
-    idField: 'id',
-    orderBy: 'created_at',
-    orderAsc: false,
   },
   {
-    key: 'shipments',
-    label: 'Shipments',
+    key: "shipments", label: "Shipments (Inbound)", idField: "id", orderBy: "id", orderAsc: false, canInsert: false, canDelete: false, searchColumns: ["shipment_number","supplier","po_number","part_description"],
     columns: [
-      { key: 'id', label: 'ID', editable: false, type: 'text' },
-      { key: 'po_id', label: 'PO ID', editable: true, type: 'text' },
-      { key: 'tracking_number', label: 'Tracking #', editable: true, type: 'text' },
-      { key: 'carrier', label: 'Carrier', editable: true, type: 'text' },
-      { key: 'status', label: 'Status', editable: true, type: 'enum', options: ['pending', 'in_transit', 'delivered'] },
-      { key: 'expected_date', label: 'Expected Date', editable: true, type: 'date' },
-      { key: 'created_at', label: 'Created', editable: false, type: 'date' },
+      {key: "shipment_number",label: "Shipment #",editable: false,type: "text"},
+      {key: "supplier",label: "Supplier",editable: false,type: "text"},
+      {key: "status",label: "Status",editable: false,type: "text"},
+      {key: "category",label: "Category",editable: false,type: "text"},
+      {key: "po_number",label: "PO #",editable: false,type: "text"},
+      {key: "eta",label: "ETA",editable: false,type: "date"},
+      {key: "delivery_date",label: "Delivered",editable: false,type: "date"},
+      {key: "part_description",label: "Description",editable: false,type: "text"},
+      {key: "num_pieces",label: "Pieces",editable: false,type: "number"}
     ],
-    searchColumns: ['tracking_number', 'carrier'],
-    canInsert: false,
-    canDelete: false,
-    idField: 'id',
-    orderBy: 'created_at',
-    orderAsc: false,
   },
   {
-    key: 'material_links',
-    label: 'Material Links',
+    key: "material_links", label: "Material Links", idField: "id", orderBy: "created_at", orderAsc: false, canInsert: false, canDelete: false, searchColumns: ["po_id","install_tag","po_description","install_discipline"],
     columns: [
-      { key: 'id', label: 'ID', editable: false, type: 'text' },
-      { key: 'material_id', label: 'Material ID', editable: true, type: 'text' },
-      { key: 'shipment_id', label: 'Shipment ID', editable: true, type: 'text' },
-      { key: 'receiving_record_id', label: 'Receiving ID', editable: true, type: 'text' },
-      { key: 'created_at', label: 'Created', editable: false, type: 'date' },
+      {key: "po_id",label: "PO ID",editable: false,type: "text"},
+      {key: "po_description",label: "PO Description",editable: false,type: "text"},
+      {key: "install_tag",label: "Install Tag",editable: false,type: "text"},
+      {key: "install_discipline",label: "Discipline",editable: false,type: "text"},
+      {key: "material_status",label: "Status",editable: false,type: "enum",options: ["ordered","shipped","received","installed"]},
+      {key: "quantity",label: "Qty",editable: false,type: "number"},
+      {key: "uom",label: "UOM",editable: false,type: "text"},
+      {key: "notes",label: "Notes",editable: false,type: "text"},
+      {key: "created_at",label: "Created",editable: false,type: "date"}
     ],
-    searchColumns: ['material_id'],
-    canInsert: false,
-    canDelete: false,
-    idField: 'id',
-    orderBy: 'created_at',
-    orderAsc: false,
   },
   {
-    key: 'delivery_dates',
-    label: 'Delivery Dates',
+    key: "delivery_dates", label: "Delivery Dates", idField: "id", orderBy: "delivery_date", orderAsc: true, canInsert: false, canDelete: false, searchColumns: ["package_description","tag_number","supplier_name","po_number"],
     columns: [
-      { key: 'id', label: 'ID', editable: false, type: 'text' },
-      { key: 'po_id', label: 'PO ID', editable: true, type: 'text' },
-      { key: 'promised_date', label: 'Promised', editable: true, type: 'date' },
-      { key: 'actual_date', label: 'Actual', editable: true, type: 'date' },
-      { key: 'notes', label: 'Notes', editable: true, type: 'text' },
-      { key: 'created_at', label: 'Created', editable: false, type: 'date' },
+      {key: "package_description",label: "Package",editable: false,type: "text"},
+      {key: "tag_number",label: "Tag #",editable: false,type: "text"},
+      {key: "supplier_name",label: "Supplier",editable: false,type: "text"},
+      {key: "po_number",label: "PO #",editable: false,type: "text"},
+      {key: "delivery_date",label: "Delivery Date",editable: false,type: "date"},
+      {key: "delivery_date_notes",label: "Notes",editable: false,type: "text"}
     ],
-    searchColumns: ['notes'],
-    canInsert: true,
-    canDelete: true,
-    idField: 'id',
-    orderBy: 'created_at',
-    orderAsc: false,
   },
   {
-    key: 'audit_log',
-    label: 'Audit Log',
+    key: "audit_log", label: "Audit Log", idField: "id", orderBy: "created_at", orderAsc: false, canInsert: false, canDelete: false, searchColumns: ["action","entity_type"],
     columns: [
-      { key: 'id', label: 'ID', editable: false, type: 'text' },
-      { key: 'user_id', label: 'User ID', editable: false, type: 'text' },
-      { key: 'action', label: 'Action', editable: false, type: 'text' },
-      { key: 'entity_type', label: 'Entity Type', editable: false, type: 'text' },
-      { key: 'entity_id', label: 'Entity ID', editable: false, type: 'text' },
-      { key: 'details', label: 'Details', editable: false, type: 'text' },
-      { key: 'created_at', label: 'Created', editable: false, type: 'date' },
+      {key: "action",label: "Action",editable: false,type: "text"},
+      {key: "entity_type",label: "Entity Type",editable: false,type: "text"},
+      {key: "entity_id",label: "Entity ID",editable: false,type: "text"},
+      {key: "user_id",label: "User ID",editable: false,type: "text"},
+      {key: "details",label: "Details",editable: false,type: "text"},
+      {key: "created_at",label: "Date",editable: false,type: "date"}
     ],
-    searchColumns: ['action', 'entity_type'],
-    canInsert: false,
-    canDelete: false,
-    idField: 'id',
-    orderBy: 'created_at',
-    orderAsc: false,
   },
   {
-    key: 'project_schedule',
-    label: 'Schedule',
+    key: "project_schedule", label: "Project Schedule", idField: "id", orderBy: "start_date", orderAsc: true, canInsert: false, canDelete: false, searchColumns: ["activity_id","activity_name","category"],
     columns: [
-      { key: 'id', label: 'ID', editable: false, type: 'text' },
-      { key: 'task_name', label: 'Task', editable: true, type: 'text' },
-      { key: 'start_date', label: 'Start', editable: true, type: 'date' },
-      { key: 'end_date', label: 'End', editable: true, type: 'date' },
-      { key: 'status', label: 'Status', editable: true, type: 'enum', options: ['not_started', 'in_progress', 'completed', 'on_hold'] },
-      { key: 'assigned_to', label: 'Assigned To', editable: true, type: 'text' },
-      { key: 'notes', label: 'Notes', editable: true, type: 'text' },
-      { key: 'created_at', label: 'Created', editable: false, type: 'date' },
+      {key: "activity_id",label: "Activity ID",editable: false,type: "text"},
+      {key: "activity_name",label: "Activity",editable: false,type: "text"},
+      {key: "start_date",label: "Start",editable: false,type: "date"},
+      {key: "finish_date",label: "Finish",editable: false,type: "date"},
+      {key: "status",label: "Status",editable: false,type: "text"},
+      {key: "percent_complete",label: "% Complete",editable: false,type: "number"},
+      {key: "category",label: "Category",editable: false,type: "text"},
+      {key: "is_critical",label: "Critical",editable: false,type: "boolean"},
+      {key: "is_milestone",label: "Milestone",editable: false,type: "boolean"}
     ],
-    searchColumns: ['task_name', 'assigned_to'],
-    canInsert: true,
-    canDelete: true,
-    idField: 'id',
-    orderBy: 'created_at',
-    orderAsc: false,
-  },
+  }
 ];
 
 // ---------------------------------------------------------------------------
@@ -331,7 +251,7 @@ function formatValue(value: any, type: string): string {
 // ---------------------------------------------------------------------------
 
 export function AdminScreen() {
-  const activeProject = useAuthStore((s) => s.activeProject);
+  const { activeProject, user } = useAuthStore();
   const [selectedTable, setSelectedTable] = useState(TABLE_CONFIGS[0]);
   const [records, setRecords] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -347,6 +267,7 @@ export function AdminScreen() {
   const [saving, setSaving] = useState(false);
 
   const load = async () => {
+    if (user?.role !== 'admin') return;
     setLoading(true);
     offsetRef.current = 0;
     try {
@@ -461,6 +382,8 @@ export function AdminScreen() {
   };
 
   // Show first 5 columns in the card
+  if (user?.role !== 'admin') return <Text style={{ padding: 20, color: colors.textMuted }}>Administrator access required.</Text>;
+
   const displayColumns = selectedTable.columns.slice(0, 5);
 
   const renderItem = ({ item }: { item: any }) => (
@@ -493,7 +416,7 @@ export function AdminScreen() {
           </View>
         );
       })}
-      <Text style={styles.editHint}>Tap to edit</Text>
+      <Text style={styles.editHint}>{selectedTable.columns.some(c => c.editable) ? 'Tap to edit' : 'Tap to view'}</Text>
     </TouchableOpacity>
   );
 
@@ -562,7 +485,8 @@ export function AdminScreen() {
         onDelete={handleDelete}
         onCancel={closeModal}
         saving={saving}
-        canDelete={selectedTable.canDelete}
+        canDelete={false}
+        correction={selectedTable.key === 'materials'}
       />
     </View>
   );

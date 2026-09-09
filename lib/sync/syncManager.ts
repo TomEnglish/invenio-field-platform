@@ -1,6 +1,6 @@
-import { Alert } from 'react-native';
-import { getQueue, removeFromQueue, markFailed, type QueueItem } from './offlineQueue';
-import { lookupOrCreateQRCode, submitReceivingRecord } from '../api/receiving';
+import { useAuthStore } from '@/stores/authStore';
+import { getQueue, removeFromQueue, markFailed, belongsToCurrentContext, type QueueItem } from './offlineQueue';
+import { submitReceivingRecord } from '../api/receiving';
 import { transferMaterial, issueMaterial } from '../api/materials';
 import { createShipment } from '../api/shipments';
 import { useNetworkStore } from './networkStore';
@@ -18,7 +18,7 @@ export async function processQueue(): Promise<{ processed: number; failed: numbe
     const queue = await getQueue();
     for (const item of queue) {
       // Skip dead-lettered items
-      if (item.deadLetter) continue;
+      if (item.deadLetter || !belongsToCurrentContext(item) || !useNetworkStore.getState().isOnline) continue;
 
       try {
         await processItem(item);
@@ -34,22 +34,21 @@ export async function processQueue(): Promise<{ processed: number; failed: numbe
     syncing = false;
   }
 
-  if (processed > 0) {
-    Alert.alert('Sync Complete', `${processed} queued action${processed > 1 ? 's' : ''} synced successfully.`);
-  }
+
 
   return { processed, failed };
 }
 
 async function processItem(item: QueueItem): Promise<void> {
   const { action } = item;
+  const context = { operationId: item.id, userId: item.userId!, projectId: item.projectId! };
 
   switch (action.type) {
     case 'receiving': {
       const r = action.payload;
-      const qr = await lookupOrCreateQRCode(r.qrCodeValue);
       await submitReceivingRecord({
-        qrCodeId: qr.id,
+        qrCodeValue: r.qrCodeValue,
+        context,
         material: r.material,
         po: r.po,
         inspection: r.inspection,
@@ -62,17 +61,17 @@ async function processItem(item: QueueItem): Promise<void> {
     }
     case 'transfer': {
       const t = action.payload;
-      await transferMaterial(t.materialId, t.fromLocationId, t.toLocationId, t.movedBy, t.reason);
+      await transferMaterial(t.materialId, t.fromLocationId, t.toLocationId, t.movedBy, t.reason, context);
       break;
     }
     case 'issue': {
       const i = action.payload;
-      await issueMaterial(i.materialId, i.jobNumber, i.quantity, i.issuedBy, i.workOrder);
+      await issueMaterial(i.materialId, i.jobNumber, i.quantity, i.issuedBy, i.workOrder, context);
       break;
     }
     case 'shipment': {
       const s = action.payload;
-      await createShipment(s.materialId, s.destination, s.quantity, s.carrier, s.trackingNumber, s.shippedBy);
+      await createShipment(s.materialId, s.destination, s.quantity, s.carrier, s.trackingNumber, s.shippedBy, context);
       break;
     }
   }
@@ -80,10 +79,15 @@ async function processItem(item: QueueItem): Promise<void> {
 
 // Subscribe to network changes and auto-sync when coming back online
 export function startAutoSync() {
-  return useNetworkStore.subscribe((state, prev) => {
+  const network = useNetworkStore.subscribe((state, prev) => {
     if (state.isOnline && !prev.isOnline) {
       // Just came back online — process the queue
-      processQueue();
+      void processQueue().catch(() => {});
     }
   });
+  const account = useAuthStore.subscribe((state, prev) => {
+    if (state.user && state.activeProject && state.session && useNetworkStore.getState().isOnline &&
+      (state.user.id !== prev.user?.id || state.activeProject.id !== prev.activeProject?.id)) void processQueue().catch(() => {});
+  });
+  return () => { network(); account(); };
 }

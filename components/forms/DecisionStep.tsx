@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { View, ScrollView, Text, StyleSheet } from 'react-native';
+import { View, ScrollView, Text, StyleSheet, Alert } from 'react-native';
+import { Input } from '@/components/ui/Input';
 import { Button } from '@/components/ui/Button';
 import { useReceivingStore } from '@/stores/receivingStore';
 import type { ExceptionType } from '@/types/database';
@@ -27,8 +28,9 @@ interface Props {
 }
 
 export function DecisionStep({ onNext, onSubmit, onBack, submitting }: Props) {
-  const { decision, setDecision, inspection } = useReceivingStore();
+  const { decision, setDecision, inspection, material } = useReceivingStore();
 
+  const [acceptedQty, setAcceptedQty] = useState(String(decision.accepted_qty ?? ''));
   const [status, setStatus] = useState<DecisionStatus>(decision.status);
   const [hasException, setHasException] = useState(decision.has_exception);
   const [exceptionType, setExceptionType] = useState<ExceptionType | undefined>(
@@ -39,9 +41,12 @@ export function DecisionStep({ onNext, onSubmit, onBack, submitting }: Props) {
   const autoException = inspection.condition === 'damaged' || !inspection.inspection_pass;
 
   const handleNext = () => {
+    const count = Number(acceptedQty);
+    if (status === 'partially_accepted' && (!Number.isInteger(count) || count <= 0 || count >= material.qty)) { Alert.alert('Accepted quantity', 'Enter a whole number smaller than the delivered quantity and greater than zero.'); return; }
     const flagException = hasException || autoException;
     setDecision({
       status,
+      accepted_qty: status === 'partially_accepted' ? count : undefined,
       has_exception: flagException,
       exception_type: flagException ? exceptionType : undefined,
     });
@@ -66,6 +71,7 @@ export function DecisionStep({ onNext, onSubmit, onBack, submitting }: Props) {
         ))}
       </View>
 
+      {status === 'partially_accepted' && <Input label={`Accepted quantity (of ${material.qty} delivered)`} value={acceptedQty} onChangeText={setAcceptedQty} keyboardType="numeric" />}
       {autoException && (
         <View style={styles.autoAlert}>
           <Text style={styles.autoAlertText}>
