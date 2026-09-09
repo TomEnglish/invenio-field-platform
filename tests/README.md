@@ -21,5 +21,10 @@ Contracts covered:
 - Server initialization avoids browser-only storage; native authentication still
   restores persisted sessions.
 
-These are focused logic regression tests. A web export and browser smoke test are
-still needed to verify Expo rendering and the real browser storage adapter.
+- Receiving drafts preserve separate accounts/projects, photos and operation IDs across restart.
+- Photo upload/reference failures propagate, and a context change during either asynchronous step stops subsequent writes.
+
+All 26 tests pass. `npm run lint` and `npx expo export --platform web` also pass;
+the web login was verified in Chrome without console errors. Native camera,
+force-close/restart and hosted email/storage behavior remain release smoke checks.
+See the sibling MSR `docs/PLATFORM_RELEASE.md` for the coordinated release guide.
