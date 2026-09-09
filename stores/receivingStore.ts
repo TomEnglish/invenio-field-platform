@@ -30,6 +30,7 @@ interface ReceivingState {
   inspection: InspectionStepData;
   photos: PhotoEntry[];
   location: LocationStepData;
+  locationLabel: string;
   decision: DecisionStepData;
 
   // Actions
@@ -40,7 +41,7 @@ interface ReceivingState {
   setInspection: (data: InspectionStepData) => void;
   addPhoto: (photo: PhotoEntry) => void;
   removePhoto: (index: number) => void;
-  setLocation: (data: LocationStepData) => void;
+  setLocation: (data: LocationStepData, label?: string) => void;
   setDecision: (data: DecisionStepData) => void;
   reset: () => void;
 }
@@ -60,6 +61,7 @@ const initialState = {
     inspection_pass: true,
   } as InspectionStepData,
   photos: [] as PhotoEntry[],
+  locationLabel: '',
   location: {
     location_id: '',
   } as LocationStepData,
@@ -85,7 +87,7 @@ export const useReceivingStore = create<ReceivingState>()(
         set((state) => ({
           photos: state.photos.filter((_, i) => i !== index),
         })),
-      setLocation: (location) => set({ location }),
+      setLocation: (location, locationLabel = '') => set({ location, locationLabel }),
       setDecision: (decision) => set({ decision }),
       reset: () => set({ ...initialState, operationId: newOperationId() }),
     }),
