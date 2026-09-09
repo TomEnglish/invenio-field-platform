@@ -29,7 +29,8 @@ class Handler(SimpleHTTPRequestHandler):
         if path=='/auth/v1/user':return self.reply(USER)
         if path.startswith('/rest/v1/'):
             table=path.split('/')[-1]
-            return self.reply(USER if table=='users' else [{'projects':p} for p in PROJECTS] if table=='user_projects' else [])
+            if table not in ['users','user_projects','locations'] and 'vnd.pgrst.object' in self.headers.get('Accept',''): return self.reply(None)
+            return self.reply([dict(id='d1111111-1111-4111-8111-111111111111',project_id=PROJECT_ID,zone='A',row='1',rack='2',is_hold_area=False)] if table=='locations' else USER if table=='users' else [{'projects':p} for p in PROJECTS] if table=='user_projects' else [])
         file=ROOT / path.lstrip('/')
         if path=='/':file=ROOT/'index.html'
         if not file.is_file():file=ROOT/(path.lstrip('/')+'.html')
@@ -39,12 +40,13 @@ class Handler(SimpleHTTPRequestHandler):
         if file.suffix=='.js':
             hosts=set(re.findall(rb'https://[a-zA-Z0-9.-]+\.supabase\.co',data))
             if hosts - {b'https://example.supabase.co'}:return self.send_error(500,'Rebuild the CI placeholder export with --clear before testing')
-            data=data.replace(b'https://example.supabase.co',b'http://127.0.0.1:8093')
+            data=data.replace(b'https://example.supabase.co',b'http://127.0.0.1:8094')
         if file.suffix=='.html':
-            queue=[dict(id='e1111111-1111-4111-8111-111111111111',userId=USER_ID,projectId=PROJECT_ID,action={'type':'receiving','payload':{}},createdAt='2026-09-09T12:00:00Z',retryCount=5,deadLetter=True,lastError='Fixture: photo upload interrupted')]
-            seed='<script>if(!localStorage.getItem("field-fixture-seeded")){localStorage.setItem("offline_queue",'+json.dumps(json.dumps(queue))+');localStorage.setItem("field-fixture-seeded","1");}</script>'
+            queue=[dict(id='e1111111-1111-4111-8111-111111111111',userId=USER_ID,projectId=PROJECT_ID,action={'type':'receiving','payload':{'material':{'material_type':'Steel Pipe','qty':10},'po':{'po_number':'PO-1042','vendor':'Yard Supply'}}},createdAt='2026-09-09T12:00:00Z',retryCount=5,deadLetter=True,lastError='Fixture: photo upload interrupted')]
+            draft=dict(state=dict(operationId='e2222222-2222-4222-8222-222222222222',step=6,qrCodeValue='QR-REVIEW',material={'material_type':'Steel Pipe','qty':10,'size':'6 inch','grade':'A106'},po={'po_number':'PO-1042','vendor':'Yard Supply','delivery_ticket':'DT-1042','carrier':'Yard Logistics'},inspection={'condition':'good','inspection_pass':True},photos=[],location={'location_id':'d1111111-1111-4111-8111-111111111111'},locationLabel='A · Row 1, Rack 2',decision={'status':'partially_accepted','accepted_qty':5,'has_exception':False}),version=0)
+            seed='<script>if(!localStorage.getItem("field-fixture-seeded")){localStorage.setItem("offline_queue",'+json.dumps(json.dumps(queue))+');localStorage.setItem('+json.dumps('receiving-wizard-'+USER_ID+'-'+PROJECT_ID)+','+json.dumps(json.dumps(draft))+');localStorage.setItem("field-fixture-seeded","1");}</script>'
             data=data.replace(b'</head>',seed.encode()+b'</head>')
         self.send_response(200);self.send_header('Content-Type',self.guess_type(str(file)));self.send_header('Cache-Control','no-store');self.send_header('Content-Length',str(len(data)));self.end_headers();self.wfile.write(data)
 if __name__=='__main__':
-    print('Field fixture: http://127.0.0.1:8093 — sign in as field@example.test with any nonempty password',flush=True)
-    ThreadingHTTPServer(('127.0.0.1',8093),Handler).serve_forever()
+    print('Field fixture: http://127.0.0.1:8094 — sign in as field@example.test with any nonempty password',flush=True)
+    ThreadingHTTPServer(('127.0.0.1',8094),Handler).serve_forever()
