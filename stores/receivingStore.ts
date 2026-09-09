@@ -111,6 +111,10 @@ export function switchReceivingScope(userId: string | null, projectId: string | 
     if (next) {
       useReceivingStore.persist.setOptions({ name: next });
       await useReceivingStore.persist.rehydrate();
+      if (!useReceivingStore.persist.hasHydrated()) {
+        draftScope = null;
+        throw new Error('The saved receiving draft could not be restored. Its stored data was preserved for recovery.');
+      }
       if (!useReceivingStore.getState().operationId) useReceivingStore.setState({ operationId: newOperationId() });
     }
   });

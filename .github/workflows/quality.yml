@@ -1,0 +1,34 @@
+name: Field quality checks
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: field-quality-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  quality:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      CI: '1'
+      EXPO_PUBLIC_SUPABASE_URL: https://example.supabase.co
+      EXPO_PUBLIC_SUPABASE_ANON_KEY: ci-build-placeholder
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - run: npm run lint
+      - name: Receiving, session isolation, persistence and retry regressions
+        run: node --test tests/*.test.cjs
+      - name: Bundle iOS, Android and web without production credentials
+        run: npx expo export --clear --platform all --output-dir dist-ci
+      - name: Verify CI bundles use only the placeholder backend
+        run: node scripts/check-ci-export.cjs

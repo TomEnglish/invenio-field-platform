@@ -9,6 +9,7 @@ export function operationContext(operationId = newOperationId()): OperationConte
   return { operationId, userId: user.id, projectId: activeProject.id };
 }
 export async function applyOperation(action: string, payload: unknown, context = operationContext()) {
+  if (useAuthStore.getState().accessMode !== 'online' || useAuthStore.getState().loading) throw new Error('Reconnect and verify access before uploading. Your saved work will wait in Sync.');
   const current = operationContext(context.operationId);
   if (current.userId !== context.userId || current.projectId !== context.projectId) throw new Error('Account or project changed. Return to the original context to retry.');
   const { data, error } = await supabase.rpc('apply_field_operation', {

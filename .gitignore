@@ -49,3 +49,6 @@ vids/
 
 # Supabase CLI cache
 supabase/.temp/
+
+# CI export artifacts
+dist-ci/

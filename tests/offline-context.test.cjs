@@ -5,7 +5,7 @@ const { createModuleLoader } = require('./helpers/load-typescript.cjs');
 function setup({ afterWrite } = {}) {
   const records = new Map();
   const writes = [];
-  const auth = {
+  const auth = { accessMode: 'online', loading: false,
     user: { id: 'worker-a', role: 'field_worker', is_active: true },
     activeProject: { id: 'project-a', status: 'active' },
     session: { access_token: 'test-session' },

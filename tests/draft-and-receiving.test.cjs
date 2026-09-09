@@ -99,7 +99,7 @@ const RECEIPT = 'e1111111-1111-4111-8111-111111111111';
 
 function receivingSetup(options = {}) {
   const calls = { operations: [], uploads: [], references: [], reads: [] };
-  const auth = {
+  const auth = { accessMode: 'online', loading: false,
     user: { id: 'worker-a' }, session: { access_token: 'test-session' },
     activeProject: { id: 'project-a', status: 'active' },
   };
@@ -226,4 +226,15 @@ test('an account switch during photo upload prevents attachment under the change
   await assert.rejects(() => api.submitReceivingRecord(input), /account|project/i);
   assert.equal(calls.uploads.length, 1);
   assert.equal(calls.references.length, 0);
+});
+
+test('corrupt persisted drafts report recovery failure without overwriting saved bytes', async () => {
+  const key='receiving-wizard-worker-a-project-a';
+  const records=new Map([[key,'{corrupt draft']]);
+  const restored=draftStore(records);
+  await assert.rejects(restored.switchReceivingScope('worker-a','project-a'),/draft.*restor|restor.*draft/i);
+  assert.equal(records.get(key),'{corrupt draft');
+  records.set(key,JSON.stringify({state:{qrCodeValue:'REPAIRED',operationId:OPERATION},version:0}));
+  await restored.switchReceivingScope('worker-a','project-a');
+  assert.equal(restored.useReceivingStore.getState().qrCodeValue,'REPAIRED');
 });

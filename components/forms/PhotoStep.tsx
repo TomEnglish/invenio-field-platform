@@ -1,9 +1,9 @@
-import { persistPhoto } from '@/lib/utils/persistPhoto';
-import { useState } from 'react';
+import { savePhotoToDraft } from '@/lib/utils/savePhotoToDraft';
+import { useRef, useState } from 'react';
 import { View, ScrollView, Text, Image, StyleSheet, Alert } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { Button } from '@/components/ui/Button';
-import { useReceivingStore, type PhotoEntry } from '@/stores/receivingStore';
+import { useReceivingStore } from '@/stores/receivingStore';
 import type { PhotoType } from '@/types/database';
 import { colors } from '@/lib/design/tokens';
 
@@ -19,33 +19,27 @@ interface Props {
 }
 
 export function PhotoStep({ onNext, onBack }: Props) {
-  const { photos, addPhoto, removePhoto } = useReceivingStore();
+  const { photos, removePhoto } = useReceivingStore();
   const [selectedType, setSelectedType] = useState<PhotoType>('general');
 
-  const takePhoto = async () => {
-    const result = await ImagePicker.launchCameraAsync({
-      mediaTypes: ['images'],
-      quality: 0.7,
-      allowsEditing: false,
-    });
-
-    if (!result.canceled && result.assets[0]) {
-      try { addPhoto({ uri: await persistPhoto(result.assets[0].uri), photo_type: selectedType }); }
-      catch (error: any) { Alert.alert('Photo not saved', error.message); }
-    }
-  };
-
-  const pickPhoto = async () => {
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ['images'],
-      quality: 0.7,
-      allowsEditing: false,
-    });
-
-    if (!result.canceled && result.assets[0]) {
-      try { addPhoto({ uri: await persistPhoto(result.assets[0].uri), photo_type: selectedType }); }
-      catch (error: any) { Alert.alert('Photo not saved', error.message); }
-    }
+  const [busy, setBusy] = useState(false);
+  const capturing = useRef(false);
+  const capture = async (camera: boolean) => {
+    if (capturing.current) return;
+    capturing.current = true; setBusy(true);
+    const operationId = useReceivingStore.getState().operationId;
+    const photoType = selectedType;
+    try {
+      if (camera) {
+        const permission = await ImagePicker.requestCameraPermissionsAsync();
+        if (!permission.granted) throw new Error('Allow camera access in device Settings, or choose a photo from the library.');
+      }
+      const result = await (camera ? ImagePicker.launchCameraAsync : ImagePicker.launchImageLibraryAsync)({
+        mediaTypes: ['images'], quality: 0.7, allowsEditing: false,
+      });
+      if (!result.canceled && result.assets[0]) await savePhotoToDraft(result.assets[0].uri, photoType, operationId);
+    } catch (error: any) { Alert.alert('Photo not saved', error.message || 'Please try again.'); }
+    finally { capturing.current = false; setBusy(false); }
   };
 
   const handleRemove = (index: number) => {
@@ -66,6 +60,7 @@ export function PhotoStep({ onNext, onBack }: Props) {
             key={t.value}
             title={t.label}
             variant={selectedType === t.value ? 'primary' : 'secondary'}
+            disabled={busy}
             onPress={() => setSelectedType(t.value)}
             style={styles.typeButton}
           />
@@ -73,8 +68,8 @@ export function PhotoStep({ onNext, onBack }: Props) {
       </View>
 
       <View style={styles.row}>
-        <Button title="Take Photo" onPress={takePhoto} style={{ flex: 1 }} />
-        <Button title="From Library" variant="secondary" onPress={pickPhoto} style={{ flex: 1 }} />
+        <Button title="Take Photo" onPress={() => capture(true)} disabled={busy} style={{ flex: 1 }} />
+        <Button title="From Library" variant="secondary" onPress={() => capture(false)} disabled={busy} style={{ flex: 1 }} />
       </View>
 
       {photos.length > 0 && (
@@ -85,6 +80,7 @@ export function PhotoStep({ onNext, onBack }: Props) {
               <Text style={styles.photoType}>{photo.photo_type}</Text>
               <Button
                 title="Remove"
+                disabled={busy}
                 variant="danger"
                 onPress={() => handleRemove(index)}
                 style={styles.removeButton}
@@ -95,13 +91,13 @@ export function PhotoStep({ onNext, onBack }: Props) {
       )}
 
       <Text style={styles.hint}>
-        {photos.length === 0
+        {busy ? 'Saving photo on this device…' : photos.length === 0
           ? 'No photos added yet (optional)'
           : `${photos.length} photo(s) attached`}
       </Text>
 
-      <Button title="Next" onPress={onNext} style={{ marginTop: 16 }} />
-      <Button title="Back" variant="secondary" onPress={onBack} style={{ marginTop: 8 }} />
+      <Button title="Next" disabled={busy} onPress={onNext} style={{ marginTop: 16 }} />
+      <Button title="Back" disabled={busy} variant="secondary" onPress={onBack} style={{ marginTop: 8 }} />
     </ScrollView>
   );
 }
