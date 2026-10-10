@@ -31,8 +31,12 @@ export default function FieldLayout() {
         screenOptions={{
           tabBarActiveTintColor: colors.brandPrimary,
           tabBarInactiveTintColor: colors.textSubtle,
-          headerStyle: { backgroundColor: colors.surface },
-          headerTitleStyle: { fontWeight: '600' },
+          tabBarStyle: { backgroundColor: colors.surface, borderTopColor: colors.border },
+          // Navy header carries the portal's sidebar identity on phones.
+          headerStyle: { backgroundColor: colors.navBg },
+          headerTintColor: colors.navInk,
+          headerTitleStyle: { fontWeight: '600', color: colors.navInk },
+          headerShadowVisible: false,
           headerRight: () => (
             <View style={{ flexDirection: 'row', alignItems: 'center' }}>
               <ProjectSelector />

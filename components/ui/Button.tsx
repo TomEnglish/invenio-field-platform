@@ -34,7 +34,7 @@ export function Button({
   const [focused, setFocused] = useState(false);
   const isDisabled = disabled || loading;
   const spinnerColor =
-    variant === 'secondary' || variant === 'ghost' ? colors.brandPrimary : colors.textInverse;
+    variant === 'secondary' ? colors.textPrimary : variant === 'ghost' ? colors.brandPrimary : colors.textInverse;
 
   return (
     <Pressable
@@ -88,17 +88,17 @@ const styles = StyleSheet.create({
   primary: { backgroundColor: colors.brandPrimary },
   primaryPressed: { backgroundColor: colors.brandPrimaryHover },
   primaryText: { color: colors.textInverse } as TextStyle,
-  // Secondary — tonal sky
+  // Secondary — portal outline: white surface, hairline border, ink text
   secondary: {
-    backgroundColor: colors.brandPrimarySoft,
-    borderColor: colors.brandPrimary,
+    backgroundColor: colors.surface,
+    borderColor: colors.border,
   },
-  secondaryPressed: { backgroundColor: colors.brandPrimaryPressed },
-  secondaryText: { color: colors.brandPrimary } as TextStyle,
+  secondaryPressed: { backgroundColor: colors.raised },
+  secondaryText: { color: colors.textPrimary } as TextStyle,
   // Ghost
   ghost: { backgroundColor: 'transparent' },
   ghostPressed: { backgroundColor: colors.raised },
-  ghostText: { color: colors.textMuted } as TextStyle,
+  ghostText: { color: colors.brandPrimary } as TextStyle,
   // Danger
   danger: { backgroundColor: colors.danger },
   dangerPressed: { backgroundColor: colors.dangerHover },
