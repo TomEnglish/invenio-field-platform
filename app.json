@@ -16,6 +16,7 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.qrassetscanner.app",
+      "buildNumber": "3",
       "appleTeamId": "3K94LXF39A",
       "infoPlist": {
         "NSCameraUsageDescription": "This app uses the camera to scan QR codes on materials.",
