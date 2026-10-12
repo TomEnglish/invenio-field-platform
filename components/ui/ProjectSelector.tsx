@@ -20,7 +20,7 @@ export function ProjectSelector() {
   if (!activeProject || availableProjects.length <= 1) {
     return (
       <View style={styles.singleProjectContainer}>
-        <Text style={styles.singleProjectText}>{activeProject?.name}</Text>
+        <Text style={styles.singleProjectText} numberOfLines={1}>{activeProject?.name}</Text>
       </View>
     );
   }
@@ -33,7 +33,7 @@ export function ProjectSelector() {
         accessibilityRole="button"
         accessibilityLabel={`Project: ${activeProject.name}. Tap to change.`}
       >
-        <Text style={styles.selectorText}>{activeProject.name}</Text>
+        <Text style={styles.selectorText} numberOfLines={1}>{activeProject.name}</Text>
         <FontAwesome name="caret-down" size={16} color={colors.brandPrimary} />
       </TouchableOpacity>
 
@@ -79,6 +79,7 @@ export function ProjectSelector() {
 
 const styles = StyleSheet.create({
   singleProjectContainer: {
+    maxWidth: 160,
     paddingHorizontal: space[3],
     marginRight: space[2],
   },
@@ -91,6 +92,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: space[1] + 2,
+    maxWidth: 160,
     paddingHorizontal: space[3],
     paddingVertical: space[2] - 2,
     backgroundColor: colors.brandPrimarySoft,
@@ -98,6 +100,7 @@ const styles = StyleSheet.create({
     marginRight: space[2],
   },
   selectorText: {
+    flexShrink: 1,
     fontSize: fontSize.body,
     color: colors.brandPrimary,
     fontWeight: fontWeight.semibold as TextStyle['fontWeight'],

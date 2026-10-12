@@ -1,6 +1,7 @@
 import { useState, useCallback } from 'react';
 import { View, Text, StyleSheet, type TextStyle } from 'react-native';
 import { Link, useFocusEffect } from 'expo-router';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNetworkStore } from '@/lib/sync/networkStore';
 import { useAuthStore } from '@/stores/authStore';
 import { getQueueStats, subscribeQueue } from '@/lib/sync/offlineQueue';
@@ -11,6 +12,7 @@ export function OfflineIndicator() {
   const { user, activeProject, accessMode } = useAuthStore();
   const [error, setError] = useState('');
   const [stats, setStats] = useState({ pending: 0, deadLetters: 0 });
+  const insets = useSafeAreaInsets();
 
   useFocusEffect(useCallback(() => {
     let current = true;
@@ -24,9 +26,15 @@ export function OfflineIndicator() {
   }, [isOnline, user?.id, activeProject?.id]));
 
   return (
-    <View>
-      <Link href="/sync" style={{ padding: 8, color: colors.brandPrimary }}>Sync &amp; recovery{stats.pending + stats.deadLetters > 0 ? ` (${stats.pending + stats.deadLetters})` : ''}</Link>
-      {error ? <Text accessibilityRole="alert" style={{ color: colors.danger, padding: 8 }}>{error}</Text> : null}
+    // Sits above the tab header and owns the status-bar inset, so it reads
+    // as part of the navy header instead of drawing under the clock.
+    <View style={{ paddingTop: insets.top, backgroundColor: colors.navBg }}>
+      <Link href="/sync" style={styles.syncLink}>Sync &amp; recovery{stats.pending + stats.deadLetters > 0 ? ` (${stats.pending + stats.deadLetters})` : ''}</Link>
+      {error ? (
+        <View style={[styles.banner, styles.bannerDanger]}>
+          <Text accessibilityRole="alert" style={styles.text}>{error}</Text>
+        </View>
+      ) : null}
       {(!isOnline || accessMode === 'offline') && (
         <View style={[styles.banner, styles.bannerWarn]}>
           <Text style={styles.text}>
@@ -54,6 +62,13 @@ export function OfflineIndicator() {
 }
 
 const styles = StyleSheet.create({
+  syncLink: {
+    alignSelf: 'flex-end',
+    paddingHorizontal: space[4],
+    paddingVertical: space[1],
+    fontSize: fontSize.sm,
+    color: colors.navAccent,
+  },
   banner: {
     paddingVertical: space[2] - 2,
     paddingHorizontal: space[3],
