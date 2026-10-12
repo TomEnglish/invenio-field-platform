@@ -7,7 +7,7 @@ export default function PrototypeScreen() {
     <ScrollView style={styles.root} contentContainerStyle={styles.rootContent}>
       <View style={styles.container}>
         <Header />
-        <Section title="Color tokens" caption="Tailwind slate spine + sky/cyan accents. Same names work light and dark — this page shows the light column.">
+        <Section title="Color tokens" caption="Invenio Portal palette: navy ink, Invenio blue, teal accent. Same names work light and dark — this page shows the light column.">
           <ColorGrid />
         </Section>
 

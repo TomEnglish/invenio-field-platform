@@ -1,6 +1,6 @@
 import { supabase } from '@/lib/supabase';
 import { useState } from 'react';
-import { View, Text, StyleSheet, KeyboardAvoidingView, Platform, type TextStyle } from 'react-native';
+import { View, Text, Image, StyleSheet, KeyboardAvoidingView, Platform, type TextStyle, type ViewStyle } from 'react-native';
 import { router } from 'expo-router';
 import { useAuthStore } from '@/stores/authStore';
 import { Button } from '@/components/ui/Button';
@@ -55,10 +55,17 @@ export default function LoginScreen() {
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
     >
       <View style={styles.inner}>
-        <Text style={styles.title}>Invenio</Text>
-        <Text style={styles.subtitle}>Laydown yard management</Text>
-
         <View style={styles.form}>
+          <View style={styles.head}>
+            <Image
+              source={require('@/assets/images/invenio-technologies-logo.png')}
+              style={styles.logo}
+              resizeMode="contain"
+              accessibilityLabel="Invenio Technologies"
+            />
+            <Text style={styles.title} accessibilityRole="header">Sign in</Text>
+            <Text style={styles.subtitle}>Laydown yard management</Text>
+          </View>
           <Input
             label="Email"
             value={email}
@@ -86,13 +93,13 @@ export default function LoginScreen() {
           ) : null}
 
           {notice ? <Text accessibilityLiveRegion="polite" style={{ color: colors.textMuted }}>{notice}</Text> : null}
-          <Button title="Reset password" variant="ghost" onPress={resetPassword} disabled={loading} />
           <Button
             title="Sign In"
             onPress={handleLogin}
             loading={loading}
             style={{ marginTop: space[2] }}
           />
+          <Button title="Forgot password?" variant="ghost" onPress={resetPassword} disabled={loading} />
         </View>
       </View>
     </KeyboardAvoidingView>
@@ -100,36 +107,54 @@ export default function LoginScreen() {
 }
 
 const styles = StyleSheet.create({
+  // Portal sign-in: card centered on the navy-to-blue gradient. Native
+  // falls back to the navy start color (no gradient dependency).
   container: {
     flex: 1,
-    backgroundColor: colors.canvas,
+    backgroundColor: colors.heroStart,
+    ...(Platform.OS === 'web'
+      ? ({ backgroundImage: `linear-gradient(135deg, ${colors.heroStart} 0%, ${colors.heroEnd} 100%)` } as unknown as ViewStyle)
+      : {}),
   },
   inner: {
     flex: 1,
     justifyContent: 'center',
-    paddingHorizontal: space[6],
+    paddingHorizontal: space[4],
+  },
+  head: {
+    alignItems: 'center',
+    paddingBottom: space[4],
+    marginBottom: space[4],
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+  },
+  logo: {
+    width: 141,
+    height: 48,
+    marginBottom: space[3],
   },
   title: {
-    fontSize: 28,
-    fontWeight: fontWeight.bold as TextStyle['fontWeight'],
-    color: colors.brandPrimary,
+    fontSize: fontSize.xl,
+    fontWeight: fontWeight.semibold as TextStyle['fontWeight'],
+    color: colors.textPrimary,
     textAlign: 'center',
-    letterSpacing: -0.5,
   },
   subtitle: {
-    fontSize: fontSize.md,
+    fontSize: fontSize.sm,
     color: colors.textMuted,
     textAlign: 'center',
-    marginTop: space[1],
-    marginBottom: space[8],
+    marginTop: 2,
   },
   form: {
+    width: '100%',
+    maxWidth: 400,
+    alignSelf: 'center',
     backgroundColor: colors.surface,
     borderRadius: radius.lg,
     borderWidth: 1,
     borderColor: colors.border,
-    padding: space[5],
-    ...shadow.sm,
+    padding: space[6],
+    ...shadow.lg,
   },
   formError: {
     color: colors.danger,

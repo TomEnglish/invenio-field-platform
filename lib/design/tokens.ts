@@ -18,26 +18,26 @@ import type { ViewStyle } from 'react-native';
 // ─────────────────────────────────────────────────────────────
 
 export const colors = {
-  // Surfaces
-  canvas: '#F8FAFC',        // page background
+  // Surfaces — values match the Invenio Portal (portal.inveniotech.org)
+  canvas: '#F6F8FB',        // page background
   surface: '#FFFFFF',       // card / panel
-  raised: '#F1F5F9',        // subtle fill (hover, row-stripe)
+  raised: '#EDF4FF',        // subtle fill (hover, row-stripe, table head)
 
   // Borders
-  border: '#E2E8F0',
+  border: '#DDE5EF',
   borderStrong: '#CBD5E1',
 
   // Text
-  textPrimary: '#1E293B',
-  textMuted: '#64748B',
-  textSubtle: '#94A3B8',
+  textPrimary: '#122C4C',
+  textMuted: '#566983',
+  textSubtle: '#5F6E83',
   textInverse: '#FFFFFF',
 
   // Brand
-  brandPrimary: '#0369A1',   // sky-700 — primary CTA, focus ring
-  brandPrimaryHover: '#075985',
-  brandPrimaryPressed: '#CDE9FB', // pressed-state fill for secondary buttons
-  brandPrimarySoft: '#E0F2FE',
+  brandPrimary: '#174FDA',   // Invenio blue — primary CTA, focus ring
+  brandPrimaryHover: '#1E40AF',
+  brandPrimaryPressed: '#BFDBFE', // pressed-state fill for secondary buttons
+  brandPrimarySoft: '#EDF4FF',
   brandAccent: '#0891B2',    // cyan-600 — secondary accent
   brandAccentSoft: '#CFFAFE',
 
@@ -55,29 +55,42 @@ export const colors = {
   info: '#7C3AED',
   infoSoft: '#EDE9FE',
 
+  // Navigation chrome — the portal's navy sidebar, used for app headers.
+  // Navy in both themes.
+  navBg: '#0D294A',
+  navInk: '#F1F5F9',
+  navMuted: '#B4C2D6',
+  navHover: '#14325F',
+  navBorder: '#26426B',
+  navAccent: '#60A5FA',
+
+  // Sign-in backdrop gradient stops
+  heroStart: '#0B2545',
+  heroEnd: '#1A56DB',
+
   // Overlay
-  overlay: 'rgba(15, 23, 42, 0.45)',
+  overlay: 'rgba(0, 0, 0, 0.5)',
 } as const;
 
 // Dark-theme counterparts. Every key in `colors` has a pair.
 // Used by the HTML surfaces today; wire into the Expo app when dark mode ships.
 export const colorsDark = {
   canvas: '#0B1220',
-  surface: '#111A2E',
-  raised: '#1A2744',
+  surface: '#121D30',
+  raised: '#1B304C',
 
-  border: '#334155',
+  border: '#2B3B54',
   borderStrong: '#475569',
 
-  textPrimary: '#F1F5F9',
-  textMuted: '#94A3B8',
-  textSubtle: '#64748B',
+  textPrimary: '#EDF4FF',
+  textMuted: '#ACBDD5',
+  textSubtle: '#8595AB',
   textInverse: '#0B1220',
 
-  brandPrimary: '#22D3EE',       // cyan-400 — brighter for dark contrast
-  brandPrimaryHover: '#67E8F9',
-  brandPrimaryPressed: 'rgba(34,211,238,0.28)',
-  brandPrimarySoft: 'rgba(34,211,238,0.14)',
+  brandPrimary: '#60A4FF',       // lighter Invenio blue for dark contrast
+  brandPrimaryHover: '#91BFFF',
+  brandPrimaryPressed: '#27456A',
+  brandPrimarySoft: '#1B304C',
   brandAccent: '#0891B2',
   brandAccentSoft: 'rgba(8,145,178,0.18)',
 
@@ -94,6 +107,16 @@ export const colorsDark = {
   info: '#8B5CF6',
   infoSoft: 'rgba(139,92,246,0.15)',
 
+  navBg: '#0D294A',
+  navInk: '#F1F5F9',
+  navMuted: '#ACBDD5',
+  navHover: '#14325F',
+  navBorder: '#26426B',
+  navAccent: '#60A4FF',
+
+  heroStart: '#0B2545',
+  heroEnd: '#1A56DB',
+
   overlay: 'rgba(0, 0, 0, 0.6)',
 } as const;
 
@@ -105,12 +128,12 @@ export const fontFamily = {
   base: Platform.select({
     ios: 'System',
     android: 'sans-serif',
-    default: 'Inter, system-ui, -apple-system, sans-serif',
+    default: "'Segoe UI', Arial, sans-serif",
   }) as string,
   mono: Platform.select({
     ios: 'Menlo',
     android: 'monospace',
-    default: 'JetBrains Mono, ui-monospace, Menlo, monospace',
+    default: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace',
   }) as string,
 };
 
@@ -163,10 +186,10 @@ export const space = {
 // ─────────────────────────────────────────────────────────────
 
 export const radius = {
-  sm: 6,    // chips, small badges
-  md: 8,    // buttons, inputs
-  lg: 12,   // cards, panels
-  xl: 16,   // modals, large surfaces
+  sm: 6,    // small badges, toasts
+  md: 6,    // buttons, inputs (portal controls)
+  lg: 8,    // cards, panels, modals (portal surfaces)
+  xl: 12,   // large hero surfaces
   pill: 999,
 } as const;
 
@@ -179,12 +202,12 @@ const webShadow = (value: string): ViewStyle =>
 
 export const shadow = {
   sm: {
-    shadowColor: '#0F172A',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 2,
+    shadowColor: '#122C4C',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.04,
+    shadowRadius: 8,
     elevation: 1,
-    ...webShadow('0 1px 2px rgba(15,23,42,0.05)'),
+    ...webShadow('0 2px 8px rgba(18,44,76,0.04)'),
   } as ViewStyle,
   md: {
     shadowColor: '#0F172A',

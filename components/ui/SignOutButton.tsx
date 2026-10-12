@@ -32,7 +32,7 @@ export function SignOutButton() {
         <FontAwesome
           name="sign-out"
           size={22}
-          color={colors.textMuted}
+          color={colors.navMuted}
           style={{ opacity: pressed ? 0.5 : 1 }}
         />
       )}

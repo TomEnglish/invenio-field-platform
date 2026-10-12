@@ -84,7 +84,7 @@ const styles = StyleSheet.create({
   },
   singleProjectText: {
     fontSize: fontSize.body,
-    color: colors.textMuted,
+    color: colors.navMuted,
     fontWeight: fontWeight.medium as TextStyle['fontWeight'],
   },
   selectorButton: {
