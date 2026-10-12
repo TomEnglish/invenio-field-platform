@@ -37,6 +37,11 @@ export default function FieldLayout() {
           headerTintColor: colors.navInk,
           headerTitleStyle: { fontWeight: '600', color: colors.navInk },
           headerShadowVisible: false,
+          // Title on the left, project + sign-out on the right, so the two
+          // never overlap. OfflineIndicator above already covers the status
+          // bar inset, so the header must not add it again.
+          headerTitleAlign: 'left',
+          headerStatusBarHeight: 0,
           headerRight: () => (
             <View style={{ flexDirection: 'row', alignItems: 'center' }}>
               <ProjectSelector />

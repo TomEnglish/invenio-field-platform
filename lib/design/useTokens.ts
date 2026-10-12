@@ -49,8 +49,14 @@ export type ThemeColors = { readonly [K in keyof typeof lightColors]: string };
  */
 export function useTokens(): ThemeColors {
   const scheme = useColorScheme();
-  return scheme === 'dark' ? darkColors : lightColors;
+  return DARK_MODE_ENABLED && scheme === 'dark' ? darkColors : lightColors;
 }
+
+// Most screens, the shared components (Card, Button, headers), and the tab
+// bar still use the static light `colors`. Following the OS dark scheme in
+// only the screens that use this hook put light text on white cards, so
+// stay light until every surface is migrated, then flip this on.
+const DARK_MODE_ENABLED = false;
 
 type NamedStyles<T> = { [P in keyof T]: ViewStyle | TextStyle | ImageStyle };
 
