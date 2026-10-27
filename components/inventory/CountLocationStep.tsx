@@ -21,8 +21,8 @@ export function CountLocationStep({ reference, onNext, onBack, nextTitle = 'Next
     if (id !== map?.id) setLocation({ siteMapId: id, pin: null, zoneId: null, zoneName: '' });
   };
   const chooseZone = (next: SiteMapZone | null) => {
-    // Keep the pin only if it sits inside the chosen zone.
-    const pin = next && location.pin && pointInPolygon(location.pin, next.shape) ? location.pin : null;
+    // Keep the pin only if it is on this plan and inside the chosen zone.
+    const pin = next && location.siteMapId === map?.id && location.pin && pointInPolygon(location.pin, next.shape) ? location.pin : null;
     setLocation({ siteMapId: map?.id ?? null, pin, zoneId: next?.id ?? null, zoneName: next?.name ?? '' });
   };
 
@@ -39,6 +39,7 @@ export function CountLocationStep({ reference, onNext, onBack, nextTitle = 'Next
       ) : null}
       {map ? (
         <SiteMapPicker
+          key={map.id}
           map={map}
           imageUri={reference.images[map.id] ?? null}
           zones={zones}

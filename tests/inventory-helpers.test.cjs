@@ -125,7 +125,8 @@ test('quantities follow the server rule: up to 9 digits and 3 decimals, above ze
   assert.equal(count.normaliseQuantity('1.5'), '1.5');
   assert.equal(count.normaliseQuantity('.25'), '0.25');
   assert.equal(count.normaliseQuantity('4.'), '4');
-  for (const bad of ['0', '0.000', '-1', '1.2345', '1,5', 'abc', '', '1234567890']) assert.equal(count.normaliseQuantity(bad), null, bad);
+  assert.equal(count.normaliseQuantity('1,5'), '1.5', 'comma-decimal keypads');
+  for (const bad of ['0', '0.000', '-1', '1.2345', '1,5.5', '1,2,3', 'abc', '', '1234567890']) assert.equal(count.normaliseQuantity(bad), null, bad);
 });
 
 const items = [

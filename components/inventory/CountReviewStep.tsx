@@ -4,15 +4,16 @@ import * as ImagePicker from 'expo-image-picker';
 import { Button } from '@/components/ui/Button';
 import { useCountStore } from '@/stores/countStore';
 import { saveCountPhoto } from '@/lib/utils/saveCountPhoto';
-import { COUNT_CONDITIONS, countReviewIssue } from '@/lib/inventory/count';
+import { COUNT_CONDITIONS, categoryAvailabilityIssue, countReviewIssue } from '@/lib/inventory/count';
+import type { InventoryCategory } from '@/lib/inventory/categories';
 import { colors, radius, space, fontSize, fontWeight } from '@/lib/design/tokens';
 
-interface Props { onEdit: (step: number) => void; onSubmit: () => void; submitting: boolean; error?: string }
+interface Props { categories: InventoryCategory[]; treeKnown: boolean; onEdit: (step: number) => void; onSubmit: () => void; submitting: boolean; error?: string }
 
 // Step 4: photo, then the receiving-style review with Edit per section.
-export function CountReviewStep({ onEdit, onSubmit, submitting, error }: Props) {
+export function CountReviewStep({ categories, treeKnown, onEdit, onSubmit, submitting, error }: Props) {
   const draft = useCountStore();
-  const issue = countReviewIssue(draft);
+  const issue = countReviewIssue(draft) ?? categoryAvailabilityIssue(draft.category, categories, treeKnown);
   const [busy, setBusy] = useState(false);
   const [photoError, setPhotoError] = useState('');
   const capturing = useRef(false);

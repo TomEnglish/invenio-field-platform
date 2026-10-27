@@ -1,13 +1,13 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { View, Text, StyleSheet, ScrollView } from 'react-native';
-import { router, Stack } from 'expo-router';
+import { router, Stack, useFocusEffect } from 'expo-router';
 import { useCountStore } from '@/stores/countStore';
 import { useAuthStore } from '@/stores/authStore';
 import { processQueue } from '@/lib/sync/syncManager';
 import { useNetworkStore } from '@/lib/sync/networkStore';
 import { addToQueue, getQueue } from '@/lib/sync/offlineQueue';
 import { recordCountLocally } from '@/lib/api/inventory';
-import { buildCountPayload, countReviewIssue } from '@/lib/inventory/count';
+import { buildCountPayload, categoryAvailabilityIssue, countReviewIssue } from '@/lib/inventory/count';
 import { QRScanner } from '@/components/scanning/QRScanner';
 import { CountItemStep } from '@/components/inventory/CountItemStep';
 import { CountCategoryStep } from '@/components/inventory/CountCategoryStep';
@@ -36,6 +36,9 @@ export function CountItemScreenContent({ homeRoute }: { homeRoute: string }) {
   const [scanMessage, setScanMessage] = useState('');
   const [lookingUp, setLookingUp] = useState(false);
   useEffect(() => { setSaved(null); setEditing(false); setError(''); setScanMessage(''); }, [user?.id, activeProject?.id]);
+  // The confirmation belongs to the visit that saved; leaving by the tab bar ends it.
+  useFocusEffect(useCallback(() => () => { setSaved(null); setScanMessage(''); }, []));
+  const treeKnown = !!reference.data.savedAt;
   const step = Math.max(0, Math.min(store.step, REVIEW));
   const next = (number: number) => { store.setStep(editing ? REVIEW : number); setEditing(false); setError(''); };
   const back = (number: number) => { store.setStep(editing ? REVIEW : number); setEditing(false); };
@@ -54,7 +57,7 @@ export function CountItemScreenContent({ homeRoute }: { homeRoute: string }) {
   const handleSubmit = async () => {
     if (submitLock.current || !user || !activeProject || loading) return;
     const draft = useCountStore.getState();
-    const issue = countReviewIssue(draft);
+    const issue = countReviewIssue(draft) ?? categoryAvailabilityIssue(draft.category, reference.data.categories, treeKnown);
     if (issue) { setError(issue.message); return; }
     const accountId = user.id, projectId = activeProject.id, operationId = draft.operationId;
     const sameContext = () => {
@@ -115,9 +118,9 @@ export function CountItemScreenContent({ homeRoute }: { homeRoute: string }) {
       {editing && step !== REVIEW && <><Text style={styles.hint}>Continue to keep changes and return to review.</Text><Button title="Cancel edits" variant="ghost" onPress={() => back(REVIEW)} /></>}
     </View>
     {step === 0 && <CountItemStep onNext={() => next(1)} onBack={editing ? undefined : () => router.replace(homeRoute as any)} />}
-    {step === 1 && <CountCategoryStep categories={reference.data.categories} onNext={() => next(2)} onBack={() => back(0)} />}
+    {step === 1 && <CountCategoryStep categories={reference.data.categories} treeKnown={treeKnown} onNext={() => next(2)} onBack={() => back(0)} />}
     {step === 2 && <CountLocationStep reference={reference.data} onNext={() => next(3)} onBack={() => back(1)} />}
-    {step === 3 && <CountReviewStep onEdit={edit} onSubmit={handleSubmit} submitting={submitting || loading} error={error} />}
+    {step === 3 && <CountReviewStep categories={reference.data.categories} treeKnown={treeKnown} onEdit={edit} onSubmit={handleSubmit} submitting={submitting || loading} error={error} />}
   </View>;
 }
 

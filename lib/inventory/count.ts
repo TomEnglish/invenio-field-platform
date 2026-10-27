@@ -93,6 +93,8 @@ const QUANTITY = /^[0-9]{1,9}(\.[0-9]{1,3})?$/;
 // Returns the value to send, or null when it would be refused.
 export function normaliseQuantity(text: string | number | null | undefined): string | null {
   let value = String(text ?? '').trim();
+  // Comma-decimal keypads offer only ",".
+  if (!value.includes('.') && value.split(',').length === 2) value = value.replace(',', '.');
   if (value.startsWith('.')) value = `0${value}`;
   if (value.endsWith('.')) value = value.slice(0, -1);
   if (!QUANTITY.test(value) || Number(value) <= 0) return null;
@@ -122,6 +124,21 @@ export function countCategoryIssue(category: CountCategoryChoice): string | null
 export function countLocationIssue(location: CountLocation): string | null {
   if (location.pin && !location.siteMapId) return 'A pin needs a site plan. Choose the plan again or clear the pin.';
   if (location.pin && !isValidPin(location.pin)) return 'The pin is off the plan. Place it again.';
+  return null;
+}
+
+// The office can archive or merge a category after it was chosen, kept by
+// "Count next" or pre-filled from a record; the server then refuses the count
+// on every retry. Checked against the latest downloaded tree when there is one.
+export function categoryAvailabilityIssue(
+  category: CountCategoryChoice,
+  categories: Pick<InventoryCategory, 'id' | 'status'>[],
+  treeKnown: boolean,
+): { step: number; message: string } | null {
+  if (!treeKnown) return null;
+  const live = new Set(categories.filter(c => c.status !== 'archived').map(c => c.id));
+  if (category.categoryId && !live.has(category.categoryId)) return { step: 1, message: 'The office has archived or merged this category. Choose a category again.' };
+  if (category.proposed?.parentId && !live.has(category.proposed.parentId)) return { step: 1, message: 'The office has archived or merged the parent of your proposed category. Propose it again under another category.' };
   return null;
 }
 

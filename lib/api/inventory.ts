@@ -38,13 +38,33 @@ export interface CountReference {
   savedAt: string | null;
 }
 
+
 const KEYS = {
   categories: 'count_categories', maps: 'count_site_maps', zones: 'count_site_map_zones',
-  items: 'count_items', images: 'count_site_map_images', savedAt: 'count_saved_at',
+  images: 'count_site_map_images', savedAt: 'count_saved_at',
+  // Tags are stored in chunks: one large AsyncStorage value cannot be read
+  // back on Android (about 2 MB per row).
+  itemChunks: 'count_item_chunks', itemChunk: (index: number) => `count_items_${index}`,
+  // Counts saved on this device since the last download.
+  localItems: 'count_items_local',
 };
 const PAGE = 1000;
+const ITEM_CHUNK = 500;
+const LOOKUP_TIMEOUT_MS = 5000;
 export const ITEM_COLUMNS = 'id,uid,qr_code,inventory_item,item_description,part_number,quantity,uom,condition,count_status,category_id,site_map_id,pin_x,pin_y,zone_id,location,counted_at';
 export const EMPTY_REFERENCE: CountReference = { categories: [], maps: [], zones: [], items: [], images: {}, savedAt: null };
+const NULL_FIELDS = {
+  item_description: null, part_number: null, quantity: null, uom: null, condition: null, category_id: null,
+  site_map_id: null, pin_x: null, pin_y: null, zone_id: null, location: null, counted_at: null,
+};
+
+// A weak signal can look online; tag lookups then fall back to the cache.
+export function withTimeout<T>(work: PromiseLike<T>, ms = LOOKUP_TIMEOUT_MS): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error('The server took too long to answer.')), ms);
+    Promise.resolve(work).then(value => { clearTimeout(timer); resolve(value); }, error => { clearTimeout(timer); reject(error); });
+  });
+}
 
 function contextGuard() {
   const { user, activeProject } = useAuthStore.getState();
@@ -55,23 +75,53 @@ function contextGuard() {
   };
 }
 
-async function fetchAll<T>(table: string, columns: string, filter: (query: any) => any = query => query): Promise<T[]> {
+type ProjectClient = ReturnType<typeof getProjectClient>;
+async function fetchAll<T>(client: ProjectClient, table: string, columns: string, filter: (query: any) => any = query => query): Promise<T[]> {
   const rows: T[] = [];
   for (let from = 0; ; from += PAGE) {
-    const { data, error } = await filter(getProjectClient().from(table).select(columns)).order('id').range(from, from + PAGE - 1);
+    const { data, error } = await filter(client.from(table).select(columns)).order('id').range(from, from + PAGE - 1);
     if (error) throw new Error(error.message);
     rows.push(...((data ?? []) as T[]));
     if (!data || data.length < PAGE) return rows;
   }
 }
 
+// Nulls are dropped when stored and restored when read, to keep chunks small.
+const compact = (item: InventoryItem) => Object.fromEntries(Object.entries(item).filter(([, value]) => value !== null && value !== undefined));
+const expand = (item: Partial<InventoryItem>) => ({ ...NULL_FIELDS, ...item }) as InventoryItem;
+
+async function writeItems(items: InventoryItem[]) {
+  const previous = (await getCached<number>(KEYS.itemChunks)) ?? 0;
+  const chunks = Math.ceil(items.length / ITEM_CHUNK);
+  for (let index = 0; index < Math.max(chunks, previous); index++) {
+    await setCache(KEYS.itemChunk(index), index < chunks ? items.slice(index * ITEM_CHUNK, (index + 1) * ITEM_CHUNK).map(compact) : []);
+  }
+  await setCache(KEYS.itemChunks, chunks);
+  await setCache(KEYS.localItems, []);
+}
+
+function mergeLocal(items: InventoryItem[], local: InventoryItem[]) {
+  if (local.length === 0) return items;
+  const byTag = new Map(local.map(item => [item.qr_code.trim(), item]));
+  const merged = items.map(item => byTag.get(item.qr_code.trim()) ?? item);
+  const known = new Set(items.map(item => item.qr_code.trim()));
+  return [...merged, ...local.filter(item => !known.has(item.qr_code.trim()))];
+}
+
+async function readItems(): Promise<InventoryItem[]> {
+  const chunks = (await getCached<number>(KEYS.itemChunks)) ?? 0;
+  const parts = await Promise.all(Array.from({ length: chunks }, (_, index) => getCached<Partial<InventoryItem>[]>(KEYS.itemChunk(index))));
+  const local = (await getCached<Partial<InventoryItem>[]>(KEYS.localItems)) ?? [];
+  return mergeLocal(parts.flatMap(part => part ?? []).map(expand), local.map(expand));
+}
+
 export async function readCachedReference(): Promise<CountReference> {
   const [categories, maps, zones, items, images, savedAt] = await Promise.all([
     getCached<InventoryCategory[]>(KEYS.categories), getCached<SiteMap[]>(KEYS.maps), getCached<SiteMapZone[]>(KEYS.zones),
-    getCached<InventoryItem[]>(KEYS.items), getCached<Record<string, string>>(KEYS.images), getCached<string>(KEYS.savedAt),
+    readItems(), getCached<Record<string, string>>(KEYS.images), getCached<string>(KEYS.savedAt),
   ]);
   return {
-    categories: categories ?? [], maps: maps ?? [], zones: zones ?? [], items: items ?? [],
+    categories: categories ?? [], maps: maps ?? [], zones: zones ?? [], items,
     images: Platform.OS === 'web' ? {} : images ?? {}, savedAt: savedAt ?? null,
   };
 }
@@ -97,7 +147,7 @@ export async function ensureSiteMapImage(map: SiteMap, projectId: string): Promi
   const target = `${directory}${map.id}-${version}.${extension(map.storage_path)}`;
   if ((await fs.getInfoAsync(target)).exists) return target;
   await fs.makeDirectoryAsync(directory, { intermediates: true });
-  const partial = `${target}.download`;
+  const partial = `${target}.${Date.now()}${Math.random().toString(36).slice(2, 8)}.download`;
   try {
     const result = await fs.downloadAsync(await signed(), partial);
     if (result.status !== 200) throw new Error(`Site plan download failed (${result.status})`);
@@ -107,32 +157,37 @@ export async function ensureSiteMapImage(map: SiteMap, projectId: string): Promi
   }
   // Older versions of this plan are no longer needed.
   for (const name of await fs.readDirectoryAsync(directory).catch(() => [] as string[])) {
-    if (name.startsWith(`${map.id}-`) && `${directory}${name}` !== target) await fs.deleteAsync(`${directory}${name}`, { idempotent: true }).catch(() => {});
+    if (name.startsWith(`${map.id}-`) && !name.endsWith('.download') && `${directory}${name}` !== target) {
+      await fs.deleteAsync(`${directory}${name}`, { idempotent: true }).catch(() => {});
+    }
   }
   return target;
 }
 
 // Fetches categories, active site plans, zones and every tag for the active
 // project, stores them, then downloads plan images. Image failures keep the
-// previously downloaded copy.
-export async function refreshCountReference(): Promise<CountReference> {
+// previously downloaded copy. One client is used throughout, so every page
+// comes from the project the refresh started in.
+async function runRefresh(): Promise<CountReference> {
   const guard = contextGuard();
   if (!guard.projectId) throw new Error('Select a project first.');
+  const client = getProjectClient();
   const [categories, maps, zones, items] = await Promise.all([
-    fetchAll<InventoryCategory>('inventory_categories', 'id,parent_id,name,status,sort_order', query => query.neq('status', 'archived')),
-    fetchAll<SiteMap & { is_active: boolean }>('site_maps', 'id,name,storage_path,image_width,image_height,updated_at,is_active', query => query.eq('is_active', true)),
-    fetchAll<SiteMapZone>('site_map_zones', 'id,map_id,name,shape,color,sort_order'),
-    fetchAll<InventoryItem>('inventory_records', ITEM_COLUMNS),
+    fetchAll<InventoryCategory>(client, 'inventory_categories', 'id,parent_id,name,status,sort_order', query => query.neq('status', 'archived')),
+    fetchAll<SiteMap & { is_active: boolean }>(client, 'site_maps', 'id,name,storage_path,image_width,image_height,updated_at,is_active', query => query.eq('is_active', true)),
+    fetchAll<SiteMapZone>(client, 'site_map_zones', 'id,map_id,name,shape,color,sort_order'),
+    fetchAll<InventoryItem>(client, 'inventory_records', ITEM_COLUMNS),
   ]);
   if (!guard.current()) throw new Error('Project changed while loading. Pull to refresh.');
   const activeMaps = maps.map(({ is_active: _active, ...map }) => map);
   const mapIds = new Set(activeMaps.map(map => map.id));
   const activeZones = zones.filter(zone => mapIds.has(zone.map_id));
   const savedAt = new Date().toISOString();
-  await Promise.all([
-    setCache(KEYS.categories, categories), setCache(KEYS.maps, activeMaps), setCache(KEYS.zones, activeZones),
-    setCache(KEYS.items, items), setCache(KEYS.savedAt, savedAt),
-  ]);
+  await Promise.all([setCache(KEYS.categories, categories), setCache(KEYS.maps, activeMaps), setCache(KEYS.zones, activeZones)]);
+  if (!guard.current()) throw new Error('Project changed while loading. Pull to refresh.');
+  await writeItems(items);
+  if (!guard.current()) throw new Error('Project changed while loading. Pull to refresh.');
+  await setCache(KEYS.savedAt, savedAt);
   const previous = (await getCached<Record<string, string>>(KEYS.images)) ?? {};
   const images: Record<string, string> = {};
   for (const map of activeMaps) {
@@ -148,6 +203,17 @@ export async function refreshCountReference(): Promise<CountReference> {
   return { categories, maps: activeMaps, zones: activeZones, items, images, savedAt };
 }
 
+// A refresh already running for the same account and project is shared.
+let inflight: { key: string; promise: Promise<CountReference> } | null = null;
+export function refreshCountReference(): Promise<CountReference> {
+  const { user, activeProject } = useAuthStore.getState();
+  const key = `${user?.id}:${activeProject?.id}`;
+  if (inflight?.key === key) return inflight.promise;
+  const promise = runRefresh().finally(() => { if (inflight?.promise === promise) inflight = null; });
+  inflight = { key, promise };
+  return promise;
+}
+
 // Online first, falling back to what this device saved last time.
 export async function loadCountReference(): Promise<{ data: CountReference; source: 'online' | 'cache'; error?: string }> {
   if (useNetworkStore.getState().isOnline) {
@@ -160,18 +226,18 @@ export async function loadCountReference(): Promise<{ data: CountReference; sour
   return { data: await readCachedReference(), source: 'cache' };
 }
 
-// Tag lookup for Count and Scan. The server is authoritative when reachable;
-// the cache answers offline (and for legacy tags stored with spaces).
+// Tag lookup for Count and Scan. The server is authoritative when it answers
+// in time; the cache answers offline (and for legacy tags stored with spaces).
 export async function findInventoryByTag(tag: string): Promise<InventoryItem | null> {
   const wanted = tag.trim();
   if (!wanted) return null;
   if (useNetworkStore.getState().isOnline) {
     try {
-      const { data, error } = await getProjectClient().from('inventory_records').select(ITEM_COLUMNS).eq('qr_code', wanted).limit(1);
+      const { data, error } = await withTimeout<{ data: any[] | null; error: unknown }>(getProjectClient().from('inventory_records').select(ITEM_COLUMNS).eq('qr_code', wanted).limit(1));
       if (!error && data?.[0]) return data[0] as InventoryItem;
     } catch { /* Fall back to the cache below. */ }
   }
-  return findItemByTag((await getCached<InventoryItem[]>(KEYS.items)) ?? [], wanted) ?? null;
+  return findItemByTag(await readItems(), wanted) ?? null;
 }
 
 export async function zoneNameFor(item: Pick<InventoryItem, 'zone_id' | 'location'>): Promise<string | null> {
@@ -182,24 +248,22 @@ export async function zoneNameFor(item: Pick<InventoryItem, 'zone_id' | 'locatio
   return item.location?.trim() || null;
 }
 
-// Reflect a saved count in the cached tag list straight away, so progress and
-// the outstanding list are right offline. The next refresh replaces it.
+// Reflect a saved count in the cached tags straight away, so progress and the
+// outstanding list are right offline. The next download replaces it.
 export async function recordCountLocally(count: CountOperationPayload, zoneName: string | null): Promise<void> {
   const guard = contextGuard();
-  const items = (await getCached<InventoryItem[]>(KEYS.items)) ?? [];
-  const counted_at = new Date().toISOString();
-  const existing = findItemByTag(items, count.tag);
+  const existing = findItemByTag(await readItems(), count.tag);
   if (existing?.count_status === 'received') return;
-  const patch: Partial<InventoryItem> = {
+  const local = ((await getCached<Partial<InventoryItem>[]>(KEYS.localItems)) ?? []).map(expand);
+  const updated: InventoryItem = {
+    ...(existing ?? { id: -Date.now(), uid: '', qr_code: count.tag, ...NULL_FIELDS } as InventoryItem),
     inventory_item: count.name, quantity: count.quantity, uom: count.uom, condition: count.condition,
     category_id: count.categoryId ?? existing?.category_id ?? null, site_map_id: count.siteMapId,
     pin_x: count.pin?.x ?? null, pin_y: count.pin?.y ?? null, zone_id: count.zoneId,
-    location: zoneName ?? existing?.location ?? null, count_status: 'counted', counted_at,
+    location: zoneName ?? existing?.location ?? null, count_status: 'counted', counted_at: new Date().toISOString(),
   };
-  if (count.description) patch.item_description = count.description;
-  if (count.partNumber) patch.part_number = count.partNumber;
-  const next = existing
-    ? items.map(item => (item === existing ? { ...item, ...patch } : item))
-    : [...items, { id: -Date.now(), uid: '', qr_code: count.tag, item_description: null, part_number: null, ...patch } as InventoryItem];
-  if (guard.current()) await setCache(KEYS.items, next);
+  if (count.description) updated.item_description = count.description;
+  if (count.partNumber) updated.part_number = count.partNumber;
+  const next = [...local.filter(item => item.qr_code.trim() !== count.tag.trim()), updated];
+  if (guard.current()) await setCache(KEYS.localItems, next.map(compact));
 }

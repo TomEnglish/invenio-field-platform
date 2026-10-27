@@ -15,12 +15,12 @@ import { countProgress, outstandingTags, recentCounts, shortDate } from '@/lib/i
 import { colors, radius, space, fontSize, fontWeight, touchTarget } from '@/lib/design/tokens';
 
 const LIST_LIMIT = 50;
-type PendingCount = { id: string; tag: string; name: string; zoneName?: string };
+type PendingCount = { id: string; tag: string; name: string; zoneName?: string; stuck: boolean };
 
 function pendingCounts(queue: QueueItem[]): PendingCount[] {
   return queue.filter(item => item.action?.type === 'count' && belongsToCurrentContext(item)).map(item => {
     const payload = item.action.payload as { count?: { tag?: string; name?: string }; zoneName?: string };
-    return { id: item.id, tag: payload.count?.tag ?? '', name: payload.count?.name ?? 'Inventory count', zoneName: payload.zoneName };
+    return { id: item.id, tag: payload.count?.tag ?? '', name: payload.count?.name ?? 'Inventory count', zoneName: payload.zoneName, stuck: !!item.deadLetter };
   });
 }
 
@@ -45,10 +45,11 @@ export function CountHomeScreenContent({ countItemRoute }: { countItemRoute: str
     return () => { live = false; unsubscribe(); };
   }, []));
 
-  const pendingTags = pending.map(p => p.tag);
+  // Counts the server keeps refusing are not counted as found.
+  const pendingTags = pending.filter(p => !p.stuck).map(p => p.tag);
   const progress = countProgress(data.items, pendingTags);
   const outstanding = outstandingTags(data.items, pendingTags, query);
-  const recent = recentCounts(data.items.filter(item => !pendingTags.includes(item.qr_code.trim())), 10);
+  const recent = recentCounts(data.items.filter(item => !pending.some(p => p.tag === item.qr_code.trim())), 10);
   const zoneName = (id: string | null, fallback: string | null) => data.zones.find(z => z.id === id)?.name ?? fallback ?? '';
   const percent = progress.total ? Math.round((progress.found / progress.total) * 100) : 0;
   const nothingSetUp = !loading && data.items.length === 0 && data.categories.length === 0 && data.maps.length === 0;
@@ -85,7 +86,7 @@ export function CountHomeScreenContent({ countItemRoute }: { countItemRoute: str
         <View style={styles.bar} accessibilityRole="progressbar" accessibilityLabel="Tags found" accessibilityValue={{ min: 0, max: progress.total, now: progress.found }}>
           <View style={[styles.barFill, { width: `${percent}%` }]} />
         </View>
-        <Text style={styles.muted}>{progress.found} of {progress.total} tags found{pending.length ? ` · ${pending.length} waiting to sync` : ''}</Text>
+        <Text style={styles.muted}>{progress.found} of {progress.total} tags found{pendingTags.length ? ` · ${pendingTags.length} waiting to sync` : ''}</Text>
       </Card>
 
       {draft.tag ? (
@@ -120,7 +121,7 @@ export function CountHomeScreenContent({ countItemRoute }: { countItemRoute: str
         <View key={p.id} style={styles.row}>
           <Text style={styles.rowTitle}>{p.name}</Text>
           <Text style={styles.text}>{[p.tag, p.zoneName].filter(Boolean).join(' · ')}</Text>
-          <Text style={styles.pending}>Waiting to sync</Text>
+          <Text style={styles.pending}>{p.stuck ? 'Needs attention in Sync' : 'Waiting to sync'}</Text>
         </View>
       ))}
       {recent.map(item => (

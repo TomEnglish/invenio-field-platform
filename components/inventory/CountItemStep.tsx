@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Toast } from '@/components/ui/Toast';
 import { useCountStore } from '@/stores/countStore';
-import { COUNT_CONDITIONS, COUNT_UNITS, countItemIssue, shortDate, type CountCondition } from '@/lib/inventory/count';
+import { COUNT_CONDITIONS, COUNT_UNITS, countItemIssue, normaliseQuantity, shortDate, type CountCondition } from '@/lib/inventory/count';
 import { colors, space, fontSize, fontWeight } from '@/lib/design/tokens';
 
 interface Props { onNext: () => void; onBack?: () => void }
@@ -23,7 +23,7 @@ export function CountItemStep({ onNext, onBack }: Props) {
   const [error, setError] = useState('');
 
   const handleNext = () => {
-    const next = { name, partNumber, description, quantity, uom: uom.trim().toUpperCase(), condition, notes };
+    const next = { name, partNumber, description, quantity: normaliseQuantity(quantity) ?? quantity, uom: uom.trim().toUpperCase(), condition, notes };
     const issue = countItemIssue(next);
     if (issue) { setError(issue); return; }
     setItem(next);

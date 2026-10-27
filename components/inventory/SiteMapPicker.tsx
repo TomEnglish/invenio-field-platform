@@ -56,21 +56,31 @@ export function SiteMapPicker({ map, imageUri, zones, pin, zoneId, initialView, 
 
   const gesture = useMemo(() => {
     const pinchStart = { current: null as { view: MapView; focus: { x: number; y: number } } | null };
-    const panStart = { current: null as MapView | null };
+    // A one-finger pan can stay active while a pinch runs (iOS). It pauses
+    // during the pinch and then continues from wherever the pinch left the view.
+    const panBase = { current: null as { view: MapView; x: number; y: number } | null };
+    const panLast = { x: 0, y: 0 };
+    let pinching = false;
     const pinch = Gesture.Pinch().runOnJS(true)
-      .onStart(e => { pinchStart.current = viewRef.current ? { view: viewRef.current, focus: { x: e.focalX, y: e.focalY } } : null; })
+      .onStart(e => { pinching = true; pinchStart.current = viewRef.current ? { view: viewRef.current, focus: { x: e.focalX, y: e.focalY } } : null; })
       .onUpdate(e => {
         const start = pinchStart.current, { image: size, frame: box } = latest.current;
         if (!start || !size) return;
         apply(zoomAt(start.view, start.view.scale * e.scale, start.focus, size, box, { x: e.focalX, y: e.focalY }));
       })
-      .onEnd(() => latest.current.finish());
+      .onFinalize(() => {
+        if (!pinching) return;
+        pinching = false;
+        if (viewRef.current) panBase.current = { view: viewRef.current, x: panLast.x, y: panLast.y };
+        latest.current.finish();
+      });
     const pan = Gesture.Pan().runOnJS(true).maxPointers(1).minDistance(6)
-      .onStart(() => { panStart.current = viewRef.current; })
+      .onStart(() => { panLast.x = 0; panLast.y = 0; panBase.current = viewRef.current ? { view: viewRef.current, x: 0, y: 0 } : null; })
       .onUpdate(e => {
-        const start = panStart.current, { image: size, frame: box } = latest.current;
-        if (!start || !size) return;
-        apply(panBy(start, e.translationX, e.translationY, size, box));
+        panLast.x = e.translationX; panLast.y = e.translationY;
+        const base = panBase.current, { image: size, frame: box } = latest.current;
+        if (pinching || !base || !size) return;
+        apply(panBy(base.view, e.translationX - base.x, e.translationY - base.y, size, box));
       })
       .onEnd(() => latest.current.finish());
     const tap = Gesture.Tap().runOnJS(true).maxDistance(10).onEnd((e, success) => {
@@ -96,6 +106,8 @@ export function SiteMapPicker({ map, imageUri, zones, pin, zoneId, initialView, 
 
   return (
     <View style={styles.container}>
+      {/* The border sits outside the measured frame so taps and the fit use the same box. */}
+      <View style={styles.border}>
       <GestureDetector gesture={gesture}>
         <View style={styles.frame} collapsable={false} onLayout={(e: LayoutChangeEvent) => setFrame({ width: e.nativeEvent.layout.width, height: e.nativeEvent.layout.height })}
           accessible accessibilityLabel={`Site plan ${map.name}. Tap to drop a pin; pinch to zoom.`} accessibilityHint={activeZone ? `Pin is in ${activeZone.name}` : undefined}>
@@ -123,6 +135,7 @@ export function SiteMapPicker({ map, imageUri, zones, pin, zoneId, initialView, 
           ) : null}
         </View>
       </GestureDetector>
+      </View>
       {imageUri ? (
         <View style={styles.controls}>
           <Button title="−" accessibilityLabel="Zoom out" variant="secondary" onPress={() => zoomBy(1 / 1.6)} disabled={!view || view.scale <= MIN_ZOOM} style={styles.control} />
@@ -137,7 +150,8 @@ export function SiteMapPicker({ map, imageUri, zones, pin, zoneId, initialView, 
 
 const styles = StyleSheet.create({
   container: { flex: 1, gap: space[2] },
-  frame: { flex: 1, minHeight: 240, overflow: 'hidden', borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.raised },
+  border: { flex: 1, minHeight: 240, overflow: 'hidden', borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.raised },
+  frame: { flex: 1, overflow: 'hidden' },
   content: { position: 'absolute', pointerEvents: 'none' },
   pin: { position: 'absolute', width: PIN_SIZE, height: PIN_SIZE, alignItems: 'center', pointerEvents: 'none' },
   placeholder: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: space[3], padding: space[6] },

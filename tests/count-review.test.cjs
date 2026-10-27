@@ -2,7 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { createModuleLoader } = require('./helpers/load-typescript.cjs');
 
-const { countReviewIssue, buildCountPayload } = createModuleLoader().load('./lib/inventory/count.ts');
+const { countReviewIssue, buildCountPayload, categoryAvailabilityIssue } = createModuleLoader().load('./lib/inventory/count.ts');
 const plain = (value) => JSON.parse(JSON.stringify(value));
 
 function draft() {
@@ -72,4 +72,16 @@ test('a proposal is sent instead of a category id, and a pin only with its plan'
   assert.equal(payload.siteMapId, null);
   assert.equal(payload.description, 'Shell and tube');
   assert.equal(payload.notes, 'Under tarp');
+});
+
+test('a category the office archived or merged since it was chosen must be chosen again', () => {
+  const tree = [{ id: 'valve', status: 'active' }, { id: 'oil', status: 'proposed' }, { id: 'old', status: 'archived' }];
+  const kept = { categoryId: 'valve', proposed: null, label: 'Valve' };
+  assert.equal(categoryAvailabilityIssue(kept, tree, true), null);
+  assert.equal(categoryAvailabilityIssue({ ...kept, categoryId: 'oil' }, tree, true), null, 'proposed categories can be used');
+  assert.equal(categoryAvailabilityIssue({ ...kept, categoryId: 'old' }, tree, true).step, 1);
+  assert.equal(categoryAvailabilityIssue({ ...kept, categoryId: 'gone' }, tree, true).step, 1);
+  assert.match(categoryAvailabilityIssue({ categoryId: null, proposed: { parentId: 'old', name: 'New' }, label: '' }, tree, true).message, /parent/);
+  assert.equal(categoryAvailabilityIssue({ categoryId: null, proposed: { parentId: null, name: 'New' }, label: '' }, tree, true), null);
+  assert.equal(categoryAvailabilityIssue({ ...kept, categoryId: 'gone' }, [], false), null, 'without a downloaded tree the server decides');
 });

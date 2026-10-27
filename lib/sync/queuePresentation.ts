@@ -21,6 +21,7 @@ export function queueRecoveryMessage(item: QueueItem): string {
   const error = item.lastError || '';
   const count = item.action?.type === 'count';
   if (count && /already been received/i.test(error)) return 'This tag was received before the count uploaded, so the count cannot be applied. Share the support details with your office.';
+  if (count && /(category|zone|site map) is unavailable/i.test(error)) return 'The office archived or changed the category, zone or site plan this count uses, so the server refused it. Share the support details with your office; the count stays on this device.';
   if (/photo/i.test(error)) return `The ${count ? 'count' : 'receipt'} may already be saved. Retry to finish attaching its photos; the same submission will be reused.`;
   if (/access|permission|jwt|sign.in|unauthorized|account|project/i.test(error)) return 'Verify your sign-in and project access, then retry. Your saved submission is preserved.';
   if (/unsupported|unknown.*type/i.test(error)) return 'Ask an administrator to review this saved submission. Keep it on this device.';

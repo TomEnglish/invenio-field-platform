@@ -11,11 +11,11 @@ const item = (qr_code, count_status, extra = {}) => ({
 function setup({ tables = {}, online = true, failQueries = false, platform = 'ios', onQuery } = {}) {
   const records = new Map();
   const files = new Map();
-  const calls = { queries: [], signed: [], downloads: [] };
+  const calls = { queries: [], signed: [], downloads: [], clients: 0 };
   const auth = { user: { id: 'worker-a' }, session: { access_token: 'test' }, activeProject: { id: 'project-a', status: 'active' } };
   const network = { isOnline: online };
-  const query = (table) => {
-    const state = { table, filters: [] };
+  const query = (table, projectId) => {
+    const state = { table, projectId, filters: [] };
     const builder = {
       neq: (column, value) => { state.filters.push(['neq', column, value]); return builder; },
       eq: (column, value) => { state.filters.push(['eq', column, value]); return builder; },
@@ -25,7 +25,7 @@ function setup({ tables = {}, online = true, failQueries = false, platform = 'io
         calls.queries.push(state);
         if (onQuery) await onQuery(state, auth);
         if (failQueries) return { data: null, error: { message: 'column inventory_records.uid does not exist' } };
-        let rows = tables[table] ?? [];
+        let rows = (tables[table] ?? []).filter(row => !row.project_id || row.project_id === state.projectId);
         for (const [op, column, value] of state.filters) rows = rows.filter(row => (op === 'eq' ? row[column] === value : row[column] !== value));
         return { data: rows.slice(from, to + 1), error: null };
       },
@@ -37,7 +37,8 @@ function setup({ tables = {}, online = true, failQueries = false, platform = 'io
     '@react-native-async-storage/async-storage': { getItem: async (k) => records.get(k) ?? null, setItem: async (k, v) => { records.set(k, v); } },
     '@/stores/authStore': { useAuthStore: { getState: () => auth } },
     '@/lib/sync/networkStore': { useNetworkStore: { getState: () => network } },
-    '@/lib/supabaseProject': { getProjectClient: () => ({ from: (table) => ({ select: () => query(table) }) }) },
+    // Like the real client, the project is fixed when the client is created.
+    '@/lib/supabaseProject': { getProjectClient: () => { const projectId = auth.activeProject.id; calls.clients += 1; return { from: (table) => ({ select: () => query(table, projectId) }) }; } },
     '@/lib/supabase': { supabase: { storage: { from: (bucket) => ({ createSignedUrl: async (path) => { calls.signed.push([bucket, path]); return { data: { signedUrl: `https://signed.example/${path}` }, error: null }; } }) } } },
     'expo-file-system/legacy': {
       documentDirectory: 'file:///documents/',
@@ -136,4 +137,62 @@ test('the web build shows plans from a signed URL instead of storing them', asyn
   const result = await h.api.loadCountReference();
   assert.equal(result.data.images['map-a'], 'https://signed.example/project-a/map-a.png');
   assert.equal(h.calls.downloads.length, 0);
+});
+
+test('every page of a refresh comes from the project it started in, even across project switches', async () => {
+  const many = Array.from({ length: 1500 }, (_, i) => item(`A-${i}`, 'expected', { project_id: 'project-a' }));
+  const other = Array.from({ length: 1200 }, (_, i) => item(`B-${i}`, 'expected', { project_id: 'project-b' }));
+  let pages = 0;
+  const h = setup({ tables: { ...tables, inventory_records: [...many, ...other] }, onQuery: async (state, auth) => {
+    if (state.table !== 'inventory_records') return;
+    pages += 1;
+    // Switch to B before the second page, and back to A before the refresh ends.
+    auth.activeProject = { id: pages === 1 ? 'project-b' : 'project-a', status: 'active' };
+  } });
+  const result = await h.api.loadCountReference();
+  assert.equal(result.source, 'online');
+  assert.equal(pages, 2);
+  const cached = (await h.api.readCachedReference()).items;
+  assert.equal(cached.length, 1500);
+  assert.ok(cached.every(row => row.qr_code.startsWith('A-')), 'no project B rows in project A\'s cache');
+});
+
+test('large tag lists are stored in chunks, and a download replaces counts recorded on the device', async () => {
+  const many = Array.from({ length: 1234 }, (_, i) => item(`T-${i}`, 'expected'));
+  const h = setup({ tables: { ...tables, inventory_records: many } });
+  await h.api.loadCountReference();
+  const chunkKeys = [...h.records.keys()].filter(key => /count_items_\d+$/.test(key));
+  assert.equal(chunkKeys.length, 3);
+  assert.ok(chunkKeys.every(key => h.records.get(key).length < 200000), 'each stored value stays small');
+  const restored = (await h.api.readCachedReference()).items;
+  assert.equal(restored.length, 1234);
+  assert.equal(restored[0].pin_x, null, 'dropped nulls come back as null');
+
+  const before = chunkKeys.map(key => h.records.get(key));
+  await h.api.recordCountLocally({ tag: 'T-5', name: 'Found it', quantity: '1', uom: 'EA', condition: 'good', categoryId: null, siteMapId: null, zoneId: null }, null);
+  assert.equal((await h.api.readCachedReference()).items.find(i => i.qr_code === 'T-5').count_status, 'counted');
+  assert.deepEqual(chunkKeys.map(key => h.records.get(key)), before, 'a saved count does not rewrite the downloaded chunks');
+
+  // The next download is authoritative; the shorter list also empties the old third chunk.
+  h.network.isOnline = true;
+  const fewer = setup({ tables: { ...tables, inventory_records: many.slice(0, 600) } });
+  for (const [key, value] of h.records) fewer.records.set(key, value);
+  await fewer.api.loadCountReference();
+  const after = (await fewer.api.readCachedReference()).items;
+  assert.equal(after.length, 600);
+  assert.equal(after.find(i => i.qr_code === 'T-5').count_status, 'expected');
+});
+
+test('overlapping refreshes for the same project share one download', async () => {
+  const h = setup({ tables });
+  const [first, second] = await Promise.all([h.api.refreshCountReference(), h.api.refreshCountReference()]);
+  assert.equal(first, second);
+  assert.equal(h.calls.clients, 1);
+  assert.equal(h.calls.downloads.length, 1);
+});
+
+test('a slow server answer falls back to the cached tag', async () => {
+  const { api } = setup();
+  await assert.rejects(api.withTimeout(new Promise(() => {}), 10), /too long/);
+  assert.equal(await api.withTimeout(Promise.resolve(7), 10), 7);
 });

@@ -123,5 +123,7 @@ test('Sync describes queued counts and their recovery', () => {
   assert.equal(queueSummary({ action: { type: 'count' } }).title, 'Inventory count');
   assert.match(queueRecoveryMessage({ ...item, lastError: 'Count saved; photo upload will retry: x' }), /count may already be saved/);
   assert.match(queueRecoveryMessage({ ...item, lastError: 'This tag has already been received' }), /received before the count uploaded/);
+  assert.match(queueRecoveryMessage({ ...item, lastError: 'Category is unavailable in this project' }), /archived or changed the category/);
+  assert.match(queueRecoveryMessage({ action: { type: 'receiving' }, lastError: 'Material is unavailable in this project' }), /project access/);
   assert.match(queueRecoveryMessage({ action: { type: 'receiving' }, lastError: 'Receipt saved; photo upload will retry' }), /receipt may already be saved/);
 });

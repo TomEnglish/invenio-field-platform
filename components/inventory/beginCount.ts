@@ -1,7 +1,7 @@
 import { useAuthStore } from '@/stores/authStore';
 import { useCountStore } from '@/stores/countStore';
 import { useNetworkStore } from '@/lib/sync/networkStore';
-import { findInventoryByTag, type CountReference } from '@/lib/api/inventory';
+import { findInventoryByTag, withTimeout, type CountReference } from '@/lib/api/inventory';
 import { lookupMaterialByQR } from '@/lib/api/qrcodes';
 import { countStartPrefill, findItemByTag } from '@/lib/inventory/count';
 
@@ -15,7 +15,7 @@ export async function beginCount(code: string, reference: CountReference): Promi
   const [found, material] = await Promise.all([
     findInventoryByTag(tag).catch(() => findItemByTag(reference.items, tag) ?? null),
     // Receipts made before counting began have no inventory row; only the server knows them.
-    useNetworkStore.getState().isOnline ? lookupMaterialByQR(tag).catch(() => null) : Promise.resolve(null),
+    useNetworkStore.getState().isOnline ? withTimeout(lookupMaterialByQR(tag)).catch(() => null) : Promise.resolve(null),
   ]);
   const now = useAuthStore.getState();
   if (now.user?.id !== user?.id || now.activeProject?.id !== activeProject?.id) return { started: false, message: 'Account or project changed. Scan the tag again.' };

@@ -3,18 +3,18 @@ import { ScrollView, Text, StyleSheet } from 'react-native';
 import { Button } from '@/components/ui/Button';
 import { CategoryPicker } from '@/components/inventory/CategoryPicker';
 import { useCountStore } from '@/stores/countStore';
-import { countCategoryIssue } from '@/lib/inventory/count';
+import { categoryAvailabilityIssue, countCategoryIssue } from '@/lib/inventory/count';
 import type { InventoryCategory } from '@/lib/inventory/categories';
 import { colors, space, fontSize } from '@/lib/design/tokens';
 
-interface Props { categories: InventoryCategory[]; onNext: () => void; onBack: () => void }
+interface Props { categories: InventoryCategory[]; treeKnown: boolean; onNext: () => void; onBack: () => void }
 
 // Step 2: choose from the office tree or propose a missing category.
-export function CountCategoryStep({ categories, onNext, onBack }: Props) {
+export function CountCategoryStep({ categories, treeKnown, onNext, onBack }: Props) {
   const { category, setCategory } = useCountStore();
   const [error, setError] = useState('');
   const handleNext = () => {
-    const issue = countCategoryIssue(category);
+    const issue = countCategoryIssue(category) ?? categoryAvailabilityIssue(category, categories, treeKnown)?.message;
     if (issue) { setError(issue); return; }
     setError('');
     onNext();

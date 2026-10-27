@@ -9,7 +9,10 @@ function setup({ record = null, material = null, online = true, switchDuringLook
     '@/stores/authStore': { useAuthStore: { getState: () => auth } },
     '@/stores/countStore': { useCountStore: { getState: () => ({ start: (tag, prefill) => started.push({ tag, prefill: JSON.parse(JSON.stringify(prefill)) }) }) } },
     '@/lib/sync/networkStore': { useNetworkStore: { getState: () => ({ isOnline: online }) } },
-    '@/lib/api/inventory': { findInventoryByTag: async () => { if (switchDuringLookup) auth.activeProject = { id: 'project-b' }; return record; } },
+    '@/lib/api/inventory': {
+      findInventoryByTag: async () => { if (switchDuringLookup) auth.activeProject = { id: 'project-b' }; return record; },
+      withTimeout: (work) => work,
+    },
     '@/lib/api/qrcodes': { lookupMaterialByQR: async () => material },
   } }).load('./components/inventory/beginCount.ts');
   const reference = { categories: [{ id: 'valve', parent_id: null, name: 'Valves', status: 'active', sort_order: 0 }], maps: [], zones: [], items: [], images: {}, savedAt: null };
