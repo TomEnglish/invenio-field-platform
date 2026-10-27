@@ -66,7 +66,7 @@ function harness() {
       'zustand/middleware': require('zustand/middleware'),
       '@react-native-async-storage/async-storage': storage,
       '@/lib/supabase': { supabase },
-      'stores/receivingStore.ts': { switchReceivingScope: async (userId, projectId) => {
+      'stores/fieldScopes.ts': { switchFieldScopes: async (userId, projectId) => {
         calls.scopes.push([userId, projectId]);
         if (controls.failHydration && userId) throw new Error('Draft hydration unavailable');
       } },

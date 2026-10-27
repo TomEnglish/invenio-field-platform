@@ -15,6 +15,8 @@ import { LocationStep } from '@/components/forms/LocationStep';
 import { DecisionStep } from '@/components/forms/DecisionStep';
 import { ReceivingReviewStep } from '@/components/forms/ReceivingReviewStep';
 import { Button } from '@/components/ui/Button';
+import { Toast } from '@/components/ui/Toast';
+import { countedBannerText } from '@/lib/inventory/count';
 import { colors } from '@/lib/design/tokens';
 
 const STEP_TITLES = ['Material details', 'PO / delivery', 'Photos', 'Inspection', 'Decision', 'Location', 'Review'];
@@ -79,6 +81,7 @@ export function ReceivingScreenContent() {
         {STEP_TITLES.map((title, i) => <View key={title} style={[styles.stepSegment,i<=step&&styles.stepActive]} />)}
       </View>
       <Text style={styles.qrLabel}>QR: {store.qrCodeValue}</Text>
+      {store.countedFrom && <Toast visible tone="info" title={countedBannerText(store.countedFrom.countedAt, store.countedFrom.zoneName)} message={step === 0 ? 'Description, quantity and part number (as spec) came from the count. Choose the material type.' : undefined} />}
       {editing && <><Text style={styles.hint}>{step === 2 ? 'Photo changes are kept as you add or remove them.' : 'Continue to keep changes and return to review.'}</Text><Button title={step === 2 ? "Back to review" : "Cancel edits"} variant="ghost" onPress={() => back(6)} /></>}
     </View>
     {step === 0 && <MaterialStep onNext={() => next(1)} />}

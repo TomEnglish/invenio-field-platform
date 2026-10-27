@@ -60,6 +60,15 @@ export default function FieldLayout() {
           }}
         />
         <Tabs.Screen
+          name="count"
+          options={{
+            title: 'Count',
+            tabBarIcon: ({ color }) => (
+              <FontAwesome name="clipboard" size={24} color={color} />
+            ),
+          }}
+        />
+        <Tabs.Screen
           name="inventory"
           options={{
             title: 'Inventory',
@@ -86,6 +95,13 @@ export default function FieldLayout() {
         />
         <Tabs.Screen
           name="material-detail"
+          options={{
+            href: null,
+            headerShown: false,
+          }}
+        />
+        <Tabs.Screen
+          name="count-item"
           options={{
             href: null,
             headerShown: false,

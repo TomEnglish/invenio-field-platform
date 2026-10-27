@@ -32,6 +32,8 @@ interface ReceivingState {
   location: LocationStepData;
   locationLabel: string;
   decision: DecisionStepData;
+  // Set when the receipt started from an initial-inventory count of this tag.
+  countedFrom: { countedAt: string | null; zoneName: string | null } | null;
 
   // Actions
   setStep: (step: number) => void;
@@ -43,6 +45,7 @@ interface ReceivingState {
   removePhoto: (index: number) => void;
   setLocation: (data: LocationStepData, label?: string) => void;
   setDecision: (data: DecisionStepData) => void;
+  setCountedFrom: (countedFrom: ReceivingState['countedFrom']) => void;
   reset: () => void;
 }
 
@@ -69,6 +72,7 @@ const initialState = {
     status: 'accepted' as const,
     has_exception: false,
   } as DecisionStepData,
+  countedFrom: null as ReceivingState['countedFrom'],
 };
 
 export const useReceivingStore = create<ReceivingState>()(
@@ -89,6 +93,7 @@ export const useReceivingStore = create<ReceivingState>()(
         })),
       setLocation: (location, locationLabel = '') => set({ location, locationLabel }),
       setDecision: (decision) => set({ decision }),
+      setCountedFrom: (countedFrom) => set({ countedFrom }),
       reset: () => set({ ...initialState, operationId: newOperationId() }),
     }),
     {

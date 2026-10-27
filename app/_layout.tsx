@@ -2,7 +2,8 @@ import FontAwesome from '@expo/vector-icons/FontAwesome';
 import { useFonts } from 'expo-font';
 import { Stack } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
-import { AppState, Platform } from 'react-native';
+import { AppState, Platform, StyleSheet } from 'react-native';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { supabase } from '@/lib/supabase';
 import { useAuthStore, handleSignedOut } from '@/stores/authStore';
 import { useEffect } from 'react';
@@ -60,14 +61,21 @@ export default function RootLayout() {
     return null;
   }
 
+  // Gesture root for the site-plan pinch, pan and tap (native in build 5+).
   return (
-    <AppErrorBoundary>
-      <Stack screenOptions={{ headerShown: false }}>
-        <Stack.Screen name="index" />
-        <Stack.Screen name="(auth)" />
-        <Stack.Screen name="(field)" />
-        <Stack.Screen name="(office)" />
-      </Stack>
-    </AppErrorBoundary>
+    <GestureHandlerRootView style={styles.root}>
+      <AppErrorBoundary>
+        <Stack screenOptions={{ headerShown: false }}>
+          <Stack.Screen name="index" />
+          <Stack.Screen name="(auth)" />
+          <Stack.Screen name="(field)" />
+          <Stack.Screen name="(office)" />
+        </Stack>
+      </AppErrorBoundary>
+    </GestureHandlerRootView>
   );
 }
+
+const styles = StyleSheet.create({
+  root: { flex: 1 },
+});
