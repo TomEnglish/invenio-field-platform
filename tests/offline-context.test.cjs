@@ -29,6 +29,7 @@ function setup({ afterWrite } = {}) {
     'lib/api/materials.ts': { transferMaterial: recordWrite, issueMaterial: recordWrite },
     'lib/api/shipments.ts': { createShipment: recordWrite },
     'lib/api/receiving.ts': { lookupOrCreateQRCode: async () => ({ id: 'qr-a' }), submitReceivingRecord: recordWrite },
+    'lib/api/count.ts': { submitCount: recordWrite },
   } });
   return {
     records, writes, auth,

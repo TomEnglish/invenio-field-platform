@@ -146,6 +146,21 @@ export default function OfficeLayout() {
             headerShown: false,
           }}
         />
+        {/* Field count, reached from the Dashboard. */}
+        <Tabs.Screen
+          name="count"
+          options={{
+            title: 'Count',
+            href: null,
+          }}
+        />
+        <Tabs.Screen
+          name="count-item"
+          options={{
+            href: null,
+            headerShown: false,
+          }}
+        />
       </Tabs>
     </View>
   );

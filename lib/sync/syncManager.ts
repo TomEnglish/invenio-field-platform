@@ -3,6 +3,7 @@ import { getQueue, removeFromQueue, markFailed, belongsToCurrentContext, type Qu
 import { submitReceivingRecord } from '../api/receiving';
 import { transferMaterial, issueMaterial } from '../api/materials';
 import { createShipment } from '../api/shipments';
+import { submitCount } from '../api/count';
 import { useNetworkStore } from './networkStore';
 
 let activeRun: Promise<{ processed: number; failed: number }> | null = null;
@@ -75,6 +76,11 @@ async function processItem(item: QueueItem): Promise<void> {
     case 'shipment': {
       const s = action.payload;
       await createShipment(s.materialId, s.destination, s.quantity, s.carrier, s.trackingNumber, s.shippedBy, context);
+      break;
+    }
+    case 'count': {
+      const c = action.payload;
+      await submitCount({ count: c.count, photos: c.photos ?? [], context });
       break;
     }
     default:

@@ -24,7 +24,24 @@ Contracts covered:
 - Receiving drafts preserve separate accounts/projects, photos and operation IDs across restart.
 - Photo upload/reference failures propagate, and a context change during either asynchronous step stops subsequent writes.
 
-All 26 tests pass. `npm run lint` and `npx expo export --platform web` also pass;
+Initial field inventory (Count tab, contract in MSR `docs/INITIAL_INVENTORY.md`):
+
+- `inventory-helpers`: category tree, breadcrumb and whole-tree search; point-in-zone,
+  smallest-zone wins; fit, zoom-about-finger, pan clamping and tap → pin maths;
+  quantity rule; progress and outstanding lists; receiving pre-fill and banner text.
+- `count-draft`: count drafts are scoped per account and project like receiving;
+  "Count next" keeps category, plan view and zone; `switchFieldScopes` moves both drafts.
+- `count-queue`: the `count` action calls `apply_field_operation` with the contract
+  payload, uploads photos to `inventory-photos/<uid>/<operation>-<n>.jpg`, then
+  `attach_inventory_photo`; failures retry the same operation; Sync wording.
+- `count-review`: review validation sends the user to the step to fix; payload shape.
+- `count-cache`: categories, plans, zones and tags are cached per account and project,
+  plan images are downloaded once per version, and a refresh never writes one project's
+  data under another.
+- `count-begin`, `count-screen`, `count-receiving-handoff`: scan → count start rules,
+  the Count screens, and Scan → receiving pre-filled from a count.
+
+All tests pass (108 at the time of the Count tab). `npm run lint` and `npx expo export --platform web` also pass;
 the web login was verified in Chrome without console errors. Native camera,
 force-close/restart and hosted email/storage behavior remain release smoke checks.
 See the sibling MSR `docs/PLATFORM_RELEASE.md` for the coordinated release guide.

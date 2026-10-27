@@ -9,7 +9,7 @@ import {
 } from '@/lib/api/dashboard';
 import { useAuthStore } from '@/stores/authStore';
 import FontAwesome from '@expo/vector-icons/FontAwesome';
-import { useFocusEffect } from 'expo-router';
+import { router, useFocusEffect } from 'expo-router';
 import { useCallback, useState } from 'react';
 import { Alert, RefreshControl, ScrollView, Text, View, type TextStyle, type ViewStyle } from 'react-native';
 import { useTokens, useThemedStyles } from '@/lib/design/useTokens';
@@ -109,6 +109,10 @@ export default function DashboardScreen() {
       textAlign: 'center',
       paddingVertical: 12,
     },
+    countCard: { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 20 },
+    countText: { flex: 1, gap: 2 },
+    countTitle: { fontSize: 15, fontWeight: '600', color: c.textPrimary },
+    countHint: { fontSize: 13, color: c.textMuted },
   }));
 
   const activeProject = useAuthStore((s) => s.activeProject);
@@ -181,6 +185,16 @@ export default function DashboardScreen() {
           styles={styles}
         />
       </View>
+
+      {/* Office users count with the same screens as the field. */}
+      <Card style={styles.countCard} onPress={() => router.push('/(office)/count' as any)}>
+        <FontAwesome name="clipboard" size={22} color={c.brandPrimary} />
+        <View style={styles.countText}>
+          <Text style={styles.countTitle}>Initial field count</Text>
+          <Text style={styles.countHint}>Scan tags, pick categories and pin items on the site plan</Text>
+        </View>
+        <FontAwesome name="chevron-right" size={14} color={c.textSubtle} />
+      </Card>
 
       {/* Inventory by Type */}
       <Text style={styles.sectionTitle}>Inventory by Type</Text>

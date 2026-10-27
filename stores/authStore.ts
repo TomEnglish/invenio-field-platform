@@ -1,6 +1,6 @@
 import { supabase } from '@/lib/supabase';
 import type { Project, User } from '@/types/database';
-import { switchReceivingScope } from './receivingStore';
+import { switchFieldScopes } from './fieldScopes';
 import NetInfo from '@react-native-community/netinfo';
 import { create } from 'zustand';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -82,13 +82,13 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     try {
       await AsyncStorage.setItem(`active-project-${user.id}`, id);
       if (version !== revision) return;
-      await switchReceivingScope(user.id, id);
+      await switchFieldScopes(user.id, id);
       if (version === revision) set({ activeProject: project, loading: false });
     } catch (error) {
       if (version === revision) {
         let restored = false;
         try {
-          await switchReceivingScope(user.id, previous?.id ?? null);
+          await switchFieldScopes(user.id, previous?.id ?? null);
           if (previous) await AsyncStorage.setItem(`active-project-${user.id}`, previous.id);
           restored = true;
         } catch { /* Keep the workspace closed if its draft cannot be restored. */ }
@@ -105,14 +105,14 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       if (error || !data.session) throw new Error(error?.message ?? 'Sign in failed');
       const access = await loadAccess(data.session, version);
       if (version !== revision) return { error: 'Session changed. Please retry.' };
-      await switchReceivingScope(access.user.id, access.activeProject?.id ?? null);
+      await switchFieldScopes(access.user.id, access.activeProject?.id ?? null);
       if (version !== revision) return { error: 'Session changed. Please retry.' };
       set({ ...access, loading: false });
       return { error: null };
     } catch (error: any) {
       if (version === revision) {
         set({ ...cleared, loading: false });
-        await switchReceivingScope(null, null).catch(() => {});
+        await switchFieldScopes(null, null).catch(() => {});
         await supabase.auth.signOut().catch(() => {});
       }
       return { error: error?.message ?? 'Check your connection and retry.' };
@@ -126,7 +126,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     const signedOut = supabase.auth.signOut();
     try {
       await clearOfflineAccess(userId);
-      if (version === revision) await switchReceivingScope(null, null);
+      if (version === revision) await switchFieldScopes(null, null);
       const result = await signedOut;
       if (result.error) throw result.error;
     } finally {
@@ -141,12 +141,12 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       if (!session) throw new Error('No session');
       const access = await loadAccess(session, version);
       if (version !== revision) return;
-      await switchReceivingScope(access.user.id, access.activeProject?.id ?? null);
+      await switchFieldScopes(access.user.id, access.activeProject?.id ?? null);
       if (version === revision) set({ ...access, loading: false });
     } catch {
       if (version === revision) {
         set({ ...cleared, loading: false });
-        await switchReceivingScope(null, null).catch(() => {});
+        await switchFieldScopes(null, null).catch(() => {});
       }
     }
   },
@@ -158,5 +158,5 @@ export function handleSignedOut() {
   ++revision;
   useAuthStore.setState({ ...cleared, loading: false });
   void clearOfflineAccess(userId).catch(() => {});
-  void switchReceivingScope(null, null).catch(() => {});
+  void switchFieldScopes(null, null).catch(() => {});
 }

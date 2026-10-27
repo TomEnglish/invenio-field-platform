@@ -2,7 +2,7 @@
   "expo": {
     "name": "Invenio Field",
     "slug": "QR_Asset_Scanner",
-    "version": "1.0.0",
+    "version": "1.1.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "qrassetscanner",
@@ -16,7 +16,7 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.qrassetscanner.app",
-      "buildNumber": "4",
+      "buildNumber": "5",
       "appleTeamId": "3K94LXF39A",
       "infoPlist": {
         "NSCameraUsageDescription": "This app uses the camera to scan QR codes on materials.",

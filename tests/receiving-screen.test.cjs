@@ -66,6 +66,7 @@ test('a failed queue save keeps the receiving draft and can be retried', async (
     '@/components/forms/DecisionStep': { DecisionStep: EmptyStep },
     '@/components/forms/ReceivingReviewStep': { ReceivingReviewStep: ReviewStep },
     '@/components/ui/Button': { Button: (props) => React.createElement('Button', props) },
+    '@/components/ui/Toast': { Toast: (props) => React.createElement('Toast', props) },
     '@/lib/design/tokens': { colors: new Proxy({}, { get: () => '#000' }) },
   } });
   const { ReceivingScreenContent } = loader.load('./components/screens/ReceivingScreen.tsx');
