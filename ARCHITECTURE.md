@@ -75,13 +75,8 @@ constants/
   materialTypes.ts           — Material type, grade, size enums
 
 supabase/
-  migrations/                — SQL migration files (run in Supabase SQL Editor)
-    001_initial_schema.sql   — users, locations, qr_codes + RLS
-    002_receiving_tables.sql — receiving_records, inspection_photos + RLS
-    003_materials_and_movements.sql — materials, movements, issues, shipments + RLS
-    004_dashboard_views.sql  — Reporting views
-    005_audit_log.sql        — Audit log table with indexes
-    006-010                  — RLS fixes, atomic quantity updates, multi-project support, and user policy hardening
+  README.md                  — Pointer: the shared database's migrations, seeds and
+                               edge functions live in TomEnglish/invenio-tek-msr/supabase
 
 eas.json                     — EAS Build profiles (development, preview, production)
 ```

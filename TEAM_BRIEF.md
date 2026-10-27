@@ -286,8 +286,8 @@ Type the email and password, then tap **Sign In**.
 2. Upgrade to Pro when you have paying clients ($25/month per project)
 3. Create a new Supabase **project** for each client (not a new account)
 4. Each project gets its own database, auth, and storage — fully isolated
-5. Run the 5 SQL migrations on each new project
-6. Optionally run the seed data script for demos
+5. Apply the database migrations from the MSR repository (`TomEnglish/invenio-tek-msr`, `supabase/migrations`) to each new project, in filename order
+6. Optionally load the sample data from that repository's `supabase/seed` for demos
 
 **Alternative (free but messier):**
 - Create a separate Supabase account (new email) for each client
@@ -300,14 +300,12 @@ Type the email and password, then tap **Sign In**.
 
 For each new client:
 1. [ ] Create Supabase project (new project in your account)
-2. [ ] Run all 5 SQL migrations in their SQL Editor
-3. [ ] Create storage bucket: `inspection-photos` (public bucket, with RLS)
-4. [ ] Add storage RLS policies for authenticated users
-5. [ ] Create auth users for their team (email + password per person)
-6. [ ] Insert matching rows in `users` table (with correct roles)
-7. [ ] Build the app with their Supabase URL and anon key
-8. [ ] Distribute via TestFlight (iOS) / install link (Android)
-9. [ ] Optionally run seed data for initial demo
+2. [ ] Apply all migrations from `TomEnglish/invenio-tek-msr` `supabase/migrations` (they also create the private `inspection-photos` bucket and its storage policies)
+3. [ ] Create auth users for their team (email + password per person)
+4. [ ] Insert matching rows in `users` table (with correct roles)
+5. [ ] Build the app with their Supabase URL and anon key
+6. [ ] Distribute via TestFlight (iOS) / install link (Android)
+7. [ ] Optionally run seed data for initial demo
 
 ---
 
