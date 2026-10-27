@@ -1,13 +1,30 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-label="Invenio app icon">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-label="Invenio Field app icon">
   <defs>
-    <linearGradient id="appIcon" x1="0" y1="0" x2="1024" y2="1024" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#0369A1"/>
-      <stop offset="1" stop-color="#0891B2"/>
+    <linearGradient id="graphite" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#2D323B"/>
+      <stop offset="1" stop-color="#0F1115"/>
+    </linearGradient>
+    <radialGradient id="sheen" cx="0.5" cy="0" r="0.8">
+      <stop offset="0" stop-color="#FFFFFF" stop-opacity="0.14"/>
+      <stop offset="1" stop-color="#FFFFFF" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="silver" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#FFFFFF"/>
+      <stop offset="1" stop-color="#9FB0C8"/>
+    </linearGradient>
+    <linearGradient id="red" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#FF3B3B"/>
+      <stop offset="1" stop-color="#C3121B"/>
     </linearGradient>
   </defs>
-  <!-- iOS renders the full square; iOS applies its own rounding.
-       For Android maskable, treat the inner 66% (342px padding) as the safe zone. -->
-  <rect width="1024" height="1024" fill="url(#appIcon)"/>
-  <!-- I letterform, centered, scaled to fit within iOS-safe area (~67%) -->
-  <path d="M336 272h352v112h-120v256h120v112H336V640h120V384H336z" fill="#FFFFFF"/>
+  <!-- Full square: iOS applies its own corner mask. -->
+  <rect width="1024" height="1024" fill="url(#graphite)"/>
+  <rect width="1024" height="1024" fill="url(#sheen)"/>
+  <!-- Invenio V mark, drawn in a 100-unit box: hollow silver V with the red
+       check breaking out top-right. The red's stroke matches the background
+       to cut it cleanly out of the silver where they cross. -->
+  <g transform="translate(200 205) scale(6.24)">
+    <polygon points="12,18 34,18 50,52 66,18 88,18 50,90" fill="none" stroke="url(#silver)" stroke-width="6.5"/>
+    <polygon points="35,31 47,31 52.5,43 73,7 87,7 52.5,69" fill="url(#red)" stroke="#1C1F25" stroke-width="3.6" paint-order="stroke"/>
+  </g>
 </svg>
