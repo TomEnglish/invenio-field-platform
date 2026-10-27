@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "QR_Asset_Scanner",
+    "name": "Invenio Field",
     "slug": "QR_Asset_Scanner",
     "version": "1.0.0",
     "orientation": "portrait",
@@ -11,12 +11,12 @@
     "splash": {
       "image": "./assets/images/splash-icon.png",
       "resizeMode": "contain",
-      "backgroundColor": "#ffffff"
+      "backgroundColor": "#1C1F25"
     },
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.qrassetscanner.app",
-      "buildNumber": "3",
+      "buildNumber": "4",
       "appleTeamId": "3K94LXF39A",
       "infoPlist": {
         "NSCameraUsageDescription": "This app uses the camera to scan QR codes on materials.",
@@ -27,7 +27,7 @@
       "package": "com.qrassetscanner.app",
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/adaptive-icon.png",
-        "backgroundColor": "#ffffff"
+        "backgroundColor": "#1C1F25"
       },
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false,
@@ -47,7 +47,7 @@
       [
         "expo-camera",
         {
-          "cameraPermission": "Allow QR Asset Scanner to access your camera for scanning QR codes."
+          "cameraPermission": "Allow Invenio Field to access your camera for scanning QR codes."
         }
       ],
       "@react-native-community/datetimepicker"

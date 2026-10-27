@@ -1,12 +1,19 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-label="Invenio adaptive icon foreground">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-label="Invenio Field adaptive icon foreground">
   <defs>
-    <linearGradient id="appIconAdaptive" x1="220" y1="220" x2="804" y2="804" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#0369A1"/>
-      <stop offset="1" stop-color="#0891B2"/>
+    <linearGradient id="silver" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#FFFFFF"/>
+      <stop offset="1" stop-color="#9FB0C8"/>
+    </linearGradient>
+    <linearGradient id="red" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#FF3B3B"/>
+      <stop offset="1" stop-color="#C3121B"/>
     </linearGradient>
   </defs>
-  <!-- Android adaptive icon: safe zone is inner 66% (the rounded-square mask).
-       Keep mark centered in that safe zone with its own rounded-square background. -->
-  <rect x="220" y="220" width="584" height="584" rx="132" fill="url(#appIconAdaptive)"/>
-  <path d="M396 352h232v72h-77v176h77v72H396v-72h77V424h-77z" fill="#FFFFFF"/>
+  <!-- Android adaptive icon foreground on a transparent canvas. The graphite
+       background comes from app.json "adaptiveIcon.backgroundColor".
+       The mark stays inside the 66% safe-zone circle (radius ~338px). -->
+  <g transform="translate(252 260) scale(5.2)">
+    <polygon points="12,18 34,18 50,52 66,18 88,18 50,90" fill="none" stroke="url(#silver)" stroke-width="6.5"/>
+    <polygon points="35,31 47,31 52.5,43 73,7 87,7 52.5,69" fill="url(#red)" stroke="#1C1F25" stroke-width="3.6" paint-order="stroke"/>
+  </g>
 </svg>
