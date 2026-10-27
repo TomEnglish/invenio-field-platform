@@ -179,6 +179,32 @@ export function buildCountPayload(draft: CountDraft): CountOperationPayload {
   return payload;
 }
 
+// A queued count the server refused, turned back into a draft so it can be
+// fixed in Count. Opens on the step the refusal points at, else the review.
+export function draftFromQueuedCount(
+  payload: { count: CountOperationPayload; photos?: CountPhoto[]; categoryLabel?: string; zoneName?: string },
+  error = '',
+): { step: number; draft: CountDraft } {
+  const { count } = payload;
+  const step = /categor/i.test(error) ? 1 : /zone|site map|pin/i.test(error) ? 2 : /tag|name|quantity|unit|condition/i.test(error) ? 0 : 3;
+  return {
+    step,
+    draft: {
+      tag: count.tag,
+      match: null,
+      item: {
+        name: count.name, description: count.description ?? '', partNumber: count.partNumber ?? '',
+        quantity: count.quantity, uom: count.uom, condition: count.condition, notes: count.notes ?? '',
+      },
+      category: count.proposedCategory
+        ? { categoryId: null, proposed: count.proposedCategory, label: payload.categoryLabel ?? count.proposedCategory.name }
+        : { categoryId: count.categoryId, proposed: null, label: payload.categoryLabel ?? '' },
+      location: { siteMapId: count.siteMapId, pin: count.pin ?? null, zoneId: count.zoneId, zoneName: payload.zoneName ?? '' },
+      photos: payload.photos ?? [],
+    },
+  };
+}
+
 // Tags match on trimmed, case-sensitive text (unique per project on btrim).
 export function findItemByTag<T extends { qr_code: string }>(items: T[], tag: string): T | undefined {
   const wanted = tag.trim();

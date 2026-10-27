@@ -118,3 +118,26 @@ test('a count draft that cannot be restored reports it after the receiving draft
   useReceivingStore.getState().setQRCode('STILL-SCOPED', null);
   assert.ok(records.get('receiving-wizard-worker-a-project-a')?.includes('STILL-SCOPED'));
 });
+
+test('a count reopened from Sync is restored with a new operation ID and kept per project', async () => {
+  const { useCountStore: store, switchCountScope } = stores();
+  await switchCountScope('worker-a', 'project-a');
+  store.getState().setMapView({ mapId: 'map-a', view: { scale: 2, x: 0, y: 0 } });
+  const before = store.getState().operationId;
+  const draft = {
+    tag: 'REFUSED-1', match: null,
+    item: { name: 'Cooler', description: '', partNumber: '', quantity: '2', uom: 'EA', condition: 'good', notes: '' },
+    category, location, photos: [{ uri: 'file:///documents/r.jpg' }],
+  };
+  store.getState().restore(draft, 1);
+  const restored = store.getState();
+  assert.equal(restored.tag, 'REFUSED-1');
+  assert.equal(restored.step, 1);
+  assert.equal(restored.photos.length, 1);
+  assert.notEqual(restored.operationId, before);
+  assert.equal(restored.mapView.view.scale, 2, 'the map view is kept');
+  await switchCountScope('worker-a', 'project-b');
+  await switchCountScope('worker-a', 'project-a');
+  assert.equal(store.getState().tag, 'REFUSED-1');
+  assert.equal(store.getState().operationId, restored.operationId);
+});

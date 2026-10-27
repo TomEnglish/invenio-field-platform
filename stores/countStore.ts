@@ -3,7 +3,7 @@ import { newOperationId } from '@/lib/utils/operationId';
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import type { CountCategoryChoice, CountItemData, CountLocation, CountMatch, CountPhoto } from '@/lib/inventory/count';
+import type { CountCategoryChoice, CountDraft, CountItemData, CountLocation, CountMatch, CountPhoto } from '@/lib/inventory/count';
 import type { MapView } from '@/lib/inventory/siteMap';
 
 interface CountState {
@@ -26,6 +26,8 @@ interface CountState {
   setMapView: (mapView: { mapId: string; view: MapView } | null) => void;
   addPhoto: (photo: CountPhoto) => void;
   removePhoto: (index: number) => void;
+  // Reopens a count the server refused (from Sync), under a new operation ID.
+  restore: (draft: CountDraft, step: number) => void;
   // Clears the item but keeps the category, site plan, map view and zone.
   countNext: () => void;
   reset: () => void;
@@ -69,6 +71,7 @@ export const useCountStore = create<CountState>()(
       setMapView: (mapView) => set({ mapView }),
       addPhoto: (photo) => set((state) => ({ photos: [...state.photos, photo] })),
       removePhoto: (index) => set((state) => ({ photos: state.photos.filter((_, i) => i !== index) })),
+      restore: (draft, step) => set({ ...draft, step, operationId: newOperationId() }),
       countNext: () => set((state) => ({
         ...initialState,
         operationId: newOperationId(),

@@ -2,7 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { createModuleLoader } = require('./helpers/load-typescript.cjs');
 
-const { countReviewIssue, buildCountPayload, categoryAvailabilityIssue } = createModuleLoader().load('./lib/inventory/count.ts');
+const { countReviewIssue, buildCountPayload, categoryAvailabilityIssue, draftFromQueuedCount } = createModuleLoader().load('./lib/inventory/count.ts');
 const plain = (value) => JSON.parse(JSON.stringify(value));
 
 function draft() {
@@ -84,4 +84,19 @@ test('a category the office archived or merged since it was chosen must be chose
   assert.match(categoryAvailabilityIssue({ categoryId: null, proposed: { parentId: 'old', name: 'New' }, label: '' }, tree, true).message, /parent/);
   assert.equal(categoryAvailabilityIssue({ categoryId: null, proposed: { parentId: null, name: 'New' }, label: '' }, tree, true), null);
   assert.equal(categoryAvailabilityIssue({ ...kept, categoryId: 'gone' }, [], false), null, 'without a downloaded tree the server decides');
+});
+
+test('a refused queued count becomes the same draft again, opening where the server objected', () => {
+  const d = draft();
+  d.category = { categoryId: null, proposed: { parentId: 'oil', name: 'Pressure Valve' }, label: 'Oil System › Pressure Valve' };
+  d.item.notes = 'Under tarp';
+  const payload = { count: plain(buildCountPayload(d)), photos: [{ uri: 'file:///p.jpg' }], categoryLabel: d.category.label, zoneName: 'Zone B' };
+  const restored = draftFromQueuedCount(payload, 'Parent category is unavailable in this project');
+  assert.equal(restored.step, 1);
+  assert.equal(countReviewIssue(restored.draft), null, 'the reopened draft passes review again');
+  assert.deepEqual(plain(buildCountPayload(restored.draft)), payload.count, 'saving it unchanged sends the same payload');
+  assert.equal(restored.draft.category.label, 'Oil System › Pressure Valve');
+  assert.equal(draftFromQueuedCount(payload, 'Zone is unavailable on this map').step, 2);
+  assert.equal(draftFromQueuedCount(payload, 'Quantity must be a positive number with up to 3 decimals').step, 0);
+  assert.equal(draftFromQueuedCount(payload, 'Something else').step, 3);
 });

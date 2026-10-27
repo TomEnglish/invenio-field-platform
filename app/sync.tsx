@@ -2,11 +2,13 @@ import * as Updates from 'expo-updates';
 import Constants from 'expo-constants';
 import { useCallback, useRef, useState, type ReactNode } from 'react';
 import { ScrollView, View, Text, Pressable, StyleSheet } from 'react-native';
-import { Stack, useFocusEffect, Redirect } from 'expo-router';
-import { getQueue, subscribeQueue, retryQueueItem, belongsToCurrentContext, type QueueItem } from '@/lib/sync/offlineQueue';
+import { Stack, useFocusEffect, Redirect, router } from 'expo-router';
+import { getQueue, subscribeQueue, retryQueueItem, removeFromQueue, belongsToCurrentContext, type QueueItem } from '@/lib/sync/offlineQueue';
 import { processQueue } from '@/lib/sync/syncManager';
-import { queueSummary, queueRecoveryMessage } from '@/lib/sync/queuePresentation';
+import { queueSummary, queueRecoveryMessage, countRecoveryAction } from '@/lib/sync/queuePresentation';
+import { draftFromQueuedCount } from '@/lib/inventory/count';
 import { useAuthStore } from '@/stores/authStore';
+import { useCountStore } from '@/stores/countStore';
 import { useNetworkStore } from '@/lib/sync/networkStore';
 import { Button } from '@/components/ui/Button';
 import { colors } from '@/lib/design/tokens';
@@ -26,6 +28,7 @@ export default function SyncScreen() {
   const refreshRequest = useRef(0);
   const [queueLoaded, setQueueLoaded] = useState(false);
   const [queueError, setQueueError] = useState('');
+  const [confirmDiscard, setConfirmDiscard] = useState<string | null>(null);
   const refreshQueue = useCallback(async () => {
     const request = ++refreshRequest.current;
     const current = () => request === refreshRequest.current && useAuthStore.getState().user?.id === user?.id && useAuthStore.getState().activeProject?.id === activeProject?.id;
@@ -64,6 +67,34 @@ export default function SyncScreen() {
     } catch (e: any) { if (sameContext()) setError(e.message); }
     finally { setBusy(false); }
   };
+  // A refused count moves back into the Count draft (new operation ID) for fixing.
+  const fixCount = async (item: QueueItem) => {
+    setError(''); setResult(''); setConfirmDiscard(null);
+    if (item.action.type !== 'count' || !belongsToCurrentContext(item)) return;
+    if (useCountStore.getState().tag) { setError('Finish or discard the count in progress on the Count tab first, then fix this one.'); return; }
+    const { draft, step } = draftFromQueuedCount(item.action.payload, item.lastError);
+    setBusy(true);
+    useCountStore.getState().restore(draft, step);
+    const restored = useCountStore.getState().operationId;
+    try {
+      await removeFromQueue(item.id);
+      router.push((user?.role === 'field_worker' ? '/(field)/count-item' : '/(office)/count-item') as any);
+    } catch (e: any) {
+      // Keep one copy only: the saved submission stays, the reopened draft goes.
+      if (useCountStore.getState().operationId === restored) useCountStore.getState().countNext();
+      setError(`Could not reopen the count: ${e.message}. It is still saved here.`);
+    } finally { setBusy(false); }
+  };
+  const discardCount = async (item: QueueItem) => {
+    setError(''); setResult('');
+    setBusy(true);
+    try {
+      await removeFromQueue(item.id);
+      setConfirmDiscard(null);
+      setResult('Count discarded. It will not be uploaded.');
+    } catch (e: any) { setError(`Could not discard the count: ${e.message}`); }
+    finally { setBusy(false); }
+  };
   if (!user) return <Redirect href="/" />;
   const visible = items.filter(belongsToCurrentContext);
   const canSync = online && !loading && !!activeProject && activeProject.status === 'active';
@@ -85,13 +116,20 @@ export default function SyncScreen() {
     {queueLoaded && !queueError && visible.length === 0 && <View style={styles.empty}><Text style={styles.summaryTitle}>No pending submissions</Text><Text style={styles.muted}>This project's upload queue is clear. Switch projects to review other saved work.</Text></View>}
     {visible.map(item => {
       const summary = queueSummary(item);
+      const recovery = countRecoveryAction(item);
       return <View key={item.id} style={styles.item}>
         <Text style={styles.itemTitle} accessibilityRole="header">{summary.title}</Text>
         <Text style={styles.muted}>{summary.detail}</Text>
         <Text style={item.deadLetter || item.lastError ? styles.warning : styles.status}>{item.deadLetter ? 'Needs attention' : item.lastError ? 'Upload interrupted' : 'Saved on device'}</Text>
         <Text style={styles.muted}>Saved {new Date(item.createdAt).toLocaleString()}</Text>
         <Text style={styles.text}>{queueRecoveryMessage(item)}</Text>
-        <Button title={item.lastError || item.deadLetter ? 'Retry upload' : 'Upload now'} accessibilityLabel={`Upload ${summary.title}`} disabled={!canSync || busy} onPress={() => sync(item.id)} variant="secondary" />
+        {recovery === 'fix' && <Button title="Fix in Count" accessibilityLabel={`Fix ${summary.title} in Count`} disabled={busy} onPress={() => fixCount(item)} />}
+        {recovery !== 'discard' && <Button title={item.lastError || item.deadLetter ? 'Retry upload' : 'Upload now'} accessibilityLabel={`Upload ${summary.title}`} disabled={!canSync || busy} onPress={() => sync(item.id)} variant="secondary" />}
+        {recovery && (confirmDiscard === item.id ? <View style={styles.confirm}>
+          <Text accessibilityRole="alert" style={styles.warning}>Discard this count? It will not be uploaded, and this can't be undone.</Text>
+          <Button title="Discard count" variant="danger" disabled={busy} onPress={() => discardCount(item)} />
+          <Button title="Keep it" variant="ghost" disabled={busy} onPress={() => setConfirmDiscard(null)} />
+        </View> : <Button title="Discard count…" accessibilityLabel={`Discard ${summary.title}`} variant="ghost" disabled={busy} onPress={() => setConfirmDiscard(item.id)} />)}
         <SupportDetails><Text selectable style={styles.supportText}>Submission: {item.id}</Text><Text selectable style={styles.supportText}>Attempts: {item.retryCount ?? 0}</Text>{item.lastError ? <Text selectable style={styles.supportText}>Last error: {item.lastError}</Text> : null}</SupportDetails>
       </View>;
     })}
@@ -100,5 +138,5 @@ export default function SyncScreen() {
 }
 const styles = StyleSheet.create({
   content:{padding:20,gap:16,backgroundColor:colors.canvas,flexGrow:1},title:{fontSize:22,color:colors.textPrimary,fontWeight:'600'},summary:{gap:12},summaryTitle:{fontSize:18,fontWeight:'600',color:colors.textPrimary},text:{fontSize:14,color:colors.textPrimary,lineHeight:20},muted:{fontSize:14,color:colors.textMuted,lineHeight:20},warning:{color:colors.warnDeep,fontSize:14,lineHeight:20},error:{color:colors.danger,fontSize:14},
-  empty:{gap:8,paddingVertical:16},item:{padding:16,gap:10,borderWidth:1,borderColor:colors.border,borderRadius:8,backgroundColor:colors.surface},itemTitle:{fontSize:18,fontWeight:'600',color:colors.textPrimary},status:{fontSize:14,color:colors.brandPrimary,fontWeight:'600'},disclosure:{minHeight:44,justifyContent:'center',paddingVertical:12},link:{color:colors.brandPrimary,fontSize:14,fontWeight:'600'},support:{gap:8,paddingBottom:8},supportText:{fontSize:12,color:colors.textMuted},
+  empty:{gap:8,paddingVertical:16},confirm:{gap:8},item:{padding:16,gap:10,borderWidth:1,borderColor:colors.border,borderRadius:8,backgroundColor:colors.surface},itemTitle:{fontSize:18,fontWeight:'600',color:colors.textPrimary},status:{fontSize:14,color:colors.brandPrimary,fontWeight:'600'},disclosure:{minHeight:44,justifyContent:'center',paddingVertical:12},link:{color:colors.brandPrimary,fontSize:14,fontWeight:'600'},support:{gap:8,paddingBottom:8},supportText:{fontSize:12,color:colors.textMuted},
 });
