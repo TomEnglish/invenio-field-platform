@@ -25,6 +25,7 @@ const reference = {
 };
 
 function setup(location = { siteMapId: null, pin: null, zoneId: null, zoneName: '' }, ref = reference) {
+  const announced = [];
   const store = create((set) => ({
     location, mapView: null,
     setLocation: (next) => set({ location: next }),
@@ -38,6 +39,7 @@ function setup(location = { siteMapId: null, pin: null, zoneId: null, zoneName: 
     'react-native': {
       View: 'View', Text: 'Text', ScrollView: 'ScrollView', Pressable: 'Pressable', KeyboardAvoidingView: 'KeyboardAvoidingView',
       Platform: { OS: 'ios' }, StyleSheet: { create: (styles) => styles },
+      AccessibilityInfo: { announceForAccessibility: (message) => announced.push(message) },
     },
     '@expo/vector-icons/FontAwesome': element('Icon'),
     '@/components/ui/Button': { Button: element('Button') },
@@ -48,7 +50,8 @@ function setup(location = { siteMapId: null, pin: null, zoneId: null, zoneName: 
   } });
   const { CountLocationStep } = loader.load('./components/inventory/CountLocationStep.tsx');
   const { locationRule } = loader.load('./lib/inventory/areas.ts');
-  const rule = locationRule(ref.maps, ref.zones, true);
+  // As in CountItemScreen: no rule until a copy has been downloaded.
+  const rule = locationRule(ref.maps, ref.zones, !!ref.savedAt);
   const scrolls = [];
   const calls = { next: 0 };
   const render = async () => {
@@ -61,7 +64,7 @@ function setup(location = { siteMapId: null, pin: null, zoneId: null, zoneName: 
     });
     return renderer;
   };
-  return { store, render, scrolls, calls };
+  return { store, render, scrolls, calls, announced };
 }
 
 const plain = (value) => JSON.parse(JSON.stringify(value));
@@ -183,7 +186,7 @@ test('a kept plan the office retired is cleared; with no areas left the location
   const h = setup({ siteMapId: 'map-a', pin: { x: 0.3, y: 0.3 }, zoneId: 'rack2', zoneName: 'Rack 2' }, ref);
   const r = await h.render();
   assert.deepEqual(plain(h.store.getState().location), { siteMapId: null, pin: null, zoneId: null, zoneName: '' });
-  assert.ok(texts(r).some(t => /retired the area chosen before/.test(t)));
+  assert.ok(texts(r).some(t => /retired the site plan chosen before/.test(t)));
   await TestRenderer.act(async () => { button(r, 'Skip location').props.onPress(); });
   assert.equal(h.calls.next, 1);
 });
@@ -192,4 +195,32 @@ test('a saved flat area name (from build 5) is replaced by the full path', async
   const h = setup({ siteMapId: 'map-a', pin: null, zoneId: 'rack2', zoneName: 'Rack 2' });
   await h.render();
   assert.equal(h.store.getState().location.zoneName, 'T1 Pipe Racks › Rack 2');
+});
+
+test('a location can always be cleared, and plan taps are announced for VoiceOver', async () => {
+  const h = setup();
+  const r = await h.render();
+  assert.equal(button(r, 'Clear location'), undefined, 'nothing to clear yet');
+  await tapPlan(r, { x: 0.25, y: 0.2 }, zones.find(z => z.id === 'rack2'));
+  assert.deepEqual(h.announced, ['T1 Pipe Racks › Rack 2 chosen']);
+  await tapPlan(r, { x: 0.5, y: 0.9 }, null);
+  assert.equal(h.announced.at(-1), 'Pin dropped outside the marked areas');
+  await TestRenderer.act(async () => { button(r, 'Clear location').props.onPress(); });
+  assert.deepEqual(plain(h.store.getState().location), { siteMapId: null, pin: null, zoneId: null, zoneName: '' });
+});
+
+test('an area named on a different plan is cleared (the server would refuse it)', async () => {
+  const h = setup({ siteMapId: 'map-b', pin: null, zoneId: 'rack2', zoneName: 'T1 Pipe Racks › Rack 2' });
+  const r = await h.render();
+  assert.deepEqual(plain(h.store.getState().location), { siteMapId: 'map-b', pin: null, zoneId: null, zoneName: '' });
+  assert.ok(texts(r).some(t => /on a different site plan/.test(t)));
+});
+
+test('with no site plan on the device, a saved location is shown and can be cleared', async () => {
+  const ref = { ...reference, maps: [], zones: [], savedAt: null };
+  const h = setup({ siteMapId: 'map-a', pin: null, zoneId: 'rack2', zoneName: 'T1 Pipe Racks › Rack 2' }, ref);
+  const r = await h.render();
+  assert.ok(texts(r).includes('Saved location: T1 Pipe Racks › Rack 2'));
+  await TestRenderer.act(async () => { button(r, 'Clear location').props.onPress(); });
+  assert.equal(h.store.getState().location.zoneId, null);
 });

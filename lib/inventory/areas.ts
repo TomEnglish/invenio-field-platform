@@ -122,22 +122,40 @@ export function searchAreas<T extends MapArea>(tree: AreaTree<T>, query: string,
   return results.slice(0, limit).map(({ area, path }) => ({ area, path }));
 }
 
-// The area a tap means: the smallest active outline containing it. Children
-// are drawn inside their parent, so the smallest is the deepest; a child that
-// pokes outside its parent still wins where it is the smaller shape.
+// Segments (a,b) and (c,d) cross at a single interior point.
+function crosses(a: [number, number], b: [number, number], c: [number, number], d: [number, number]) {
+  const side = (p: [number, number], q: [number, number], r: [number, number]) => (q[0] - p[0]) * (r[1] - p[1]) - (q[1] - p[1]) * (r[0] - p[0]);
+  const d1 = side(c, d, a), d2 = side(c, d, b), d3 = side(a, b, c), d4 = side(a, b, d);
+  return ((d1 > 0 && d2 < 0) || (d1 < 0 && d2 > 0)) && ((d3 > 0 && d4 < 0) || (d3 < 0 && d4 > 0));
+}
+
+// A shape a tap can sensibly land in: at least a triangle, with some area,
+// and no edges crossing. A zero-area or bow-tie outline would otherwise
+// "contain" taps it shouldn't, or win every tap by being smallest.
+export function usableShape(shape: Polygon): boolean {
+  if (!Array.isArray(shape) || shape.length < 3 || polygonArea(shape) < 1e-9) return false;
+  for (let i = 0; i < shape.length; i++) {
+    const a = shape[i], b = shape[(i + 1) % shape.length];
+    for (let j = i + 2; j < shape.length; j++) {
+      if (i === 0 && j === shape.length - 1) continue; // edges sharing a corner
+      if (crosses(a, b, shape[j], shape[(j + 1) % shape.length])) return false;
+    }
+  }
+  return true;
+}
+
+// The area a tap means: among active areas with a usable outline containing
+// the point, the deepest in the tree; between equally deep ones, the smaller.
 export function deepestAreaAt<T extends MapArea>(areas: T[], pin: Pin): T | null {
   const live = activeAreas(areas);
   const tree = buildAreaTree(live);
-  let best: T | null = null;
-  let bestArea = Infinity;
+  let best: { area: T; depth: number; size: number } | null = null;
   for (const area of live) {
-    if (!pointInPolygon(pin, area.shape)) continue;
-    const size = polygonArea(area.shape);
-    // Same size (a child traced over its parent): the deeper area wins.
-    const tie = Math.abs(size - bestArea) < 1e-12 && best && areaPath(tree, area.id).length > areaPath(tree, best.id).length;
-    if (size < bestArea - 1e-12 || tie) { best = area; bestArea = size; }
+    if (!usableShape(area.shape) || !pointInPolygon(pin, area.shape)) continue;
+    const depth = areaPath(tree, area.id).length, size = polygonArea(area.shape);
+    if (!best || depth > best.depth || (depth === best.depth && size < best.size)) best = { area, depth, size };
   }
-  return best;
+  return best?.area ?? null;
 }
 
 export interface Bounds { minX: number; minY: number; maxX: number; maxY: number }
@@ -147,10 +165,10 @@ export function areaBounds(shape: Polygon): Bounds {
 }
 
 // Receiving starts at the rack location linked to the area, or the nearest
-// area above it that has one.
-export function linkedLocationId(tree: AreaTree, id: string | null | undefined): string | null {
+// area above it that has one; `owner` is the area that holds the link.
+export function linkedLocation<T extends MapArea>(tree: AreaTree<T>, id: string | null | undefined): { locationId: string; owner: T } | null {
   const path = areaPath(tree, id);
-  for (let i = path.length - 1; i >= 0; i--) if (path[i].location_id) return path[i].location_id;
+  for (let i = path.length - 1; i >= 0; i--) if (path[i].location_id) return { locationId: path[i].location_id!, owner: path[i] };
   return null;
 }
 
@@ -163,12 +181,28 @@ export interface LocationRule {
   activeMapIds: Set<string>;
   liveAreaIds: Set<string>;
   mapsWithAreas: Set<string>;
+  // Live area → the plan it is drawn on.
+  areaMap: Map<string, string>;
 }
 export function locationRule(maps: { id: string }[], areas: MapArea[], treeKnown: boolean): LocationRule | undefined {
   if (!treeKnown) return undefined;
   const activeMapIds = new Set(maps.map(map => map.id));
   const live = activeAreas(areas).filter(area => activeMapIds.has(area.map_id));
-  return { activeMapIds, liveAreaIds: new Set(live.map(area => area.id)), mapsWithAreas: new Set(live.map(area => area.map_id)) };
+  return {
+    activeMapIds, liveAreaIds: new Set(live.map(area => area.id)), mapsWithAreas: new Set(live.map(area => area.map_id)),
+    areaMap: new Map(live.map(area => [area.id, area.map_id])),
+  };
+}
+
+// Why a saved location can no longer be sent: its plan or area was retired,
+// or the area is on another plan than the one named (the server refuses all
+// three). Null when it is usable, or when nothing is known yet.
+export function staleLocation(location: { siteMapId: string | null; zoneId: string | null }, rule: LocationRule | undefined): 'plan' | 'area' | 'other-plan' | null {
+  if (!rule) return null;
+  if (location.siteMapId && !rule.activeMapIds.has(location.siteMapId)) return 'plan';
+  if (location.zoneId && !rule.liveAreaIds.has(location.zoneId)) return 'area';
+  if (location.zoneId && location.siteMapId && rule.areaMap.get(location.zoneId) !== location.siteMapId) return 'other-plan';
+  return null;
 }
 export function areaRequired(rule: LocationRule | undefined, siteMapId: string | null): boolean {
   if (!rule) return false;

@@ -34,7 +34,7 @@ export function ScanScreenContent({ materialDetailRoute, receivingRoute }: ScanS
       const receiving = useReceivingStore.getState();
       if (receiving.qrCodeValue !== code || !receiving.countedFrom) return;
       if (area.path) receiving.setCountedFrom({ countedAt: fromCount.counted_at, zoneName: area.path });
-      if (area.locationId && !receiving.location.location_id) receiving.setLocation({ location_id: area.locationId }, area.path ?? '');
+      if (area.locationId && !receiving.location.location_id) receiving.setLocation({ location_id: area.locationId }, area.locationLabel ?? area.path ?? '');
     }).catch(() => {});
   };
 

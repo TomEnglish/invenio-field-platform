@@ -3,7 +3,7 @@ import { View, Text, Pressable, ScrollView, StyleSheet, type ViewStyle } from 'r
 import FontAwesome from '@expo/vector-icons/FontAwesome';
 import { Input } from '@/components/ui/Input';
 import type { SiteMapZone } from '@/lib/api/inventory';
-import { areaPath, buildAreaTree, searchAreas, visibleAreaRows } from '@/lib/inventory/areas';
+import { areaPath, areaPathLabel, buildAreaTree, searchAreas, visibleAreaRows } from '@/lib/inventory/areas';
 import { colors, radius, space, fontSize, fontWeight, touchTarget } from '@/lib/design/tokens';
 
 interface Props {
@@ -20,6 +20,8 @@ interface Props {
 // every level. The same tree is drawn on the plan above it.
 export function AreaList({ areas, selectedId, reveal, onSelect, style }: Props) {
   const tree = useMemo(() => buildAreaTree(areas), [areas]);
+  // Each area's full path, worked out once per tree rather than per row.
+  const paths = useMemo(() => new Map(areas.map(area => [area.id, areaPathLabel(tree, area.id)])), [areas, tree]);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [searching, setSearching] = useState(false);
   const [query, setQuery] = useState('');
@@ -114,7 +116,7 @@ export function AreaList({ areas, selectedId, reveal, onSelect, style }: Props) 
                   <FontAwesome name={open ? 'chevron-down' : 'chevron-right'} size={12} color={colors.textMuted} />
                 </Pressable>
               ) : <View style={styles.chevron} />}
-              <Pressable accessibilityRole="button" accessibilityState={{ selected: chosen }} accessibilityLabel={`Choose ${areaPath(tree, area.id).map(a => a.name).join(' › ')}`}
+              <Pressable accessibilityRole="button" accessibilityState={{ selected: chosen }} accessibilityLabel={`Choose ${paths.get(area.id) ?? area.name}`}
                 onPress={() => choose(area)} style={({ pressed }) => [styles.rowMain, pressed && styles.rowPressed]}>
                 <Text style={[styles.rowName, chosen && styles.rowNameSelected]}>{area.name}</Text>
                 {chosen ? <FontAwesome name="check" size={14} color={colors.brandPrimary} /> : null}
@@ -131,9 +133,9 @@ const styles = StyleSheet.create({
   container: { gap: space[1] },
   header: { flexDirection: 'row', alignItems: 'center', gap: space[2] },
   breadcrumb: { flex: 1, flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center' },
-  searchToggle: { width: touchTarget, height: touchTarget - 8, alignItems: 'center', justifyContent: 'center' },
+  searchToggle: { width: touchTarget, height: touchTarget, alignItems: 'center', justifyContent: 'center' },
   crumbGroup: { flexDirection: 'row', alignItems: 'center' },
-  crumb: { minHeight: touchTarget - 8, justifyContent: 'center', paddingHorizontal: space[1] },
+  crumb: { minHeight: touchTarget, justifyContent: 'center', paddingHorizontal: space[1] },
   crumbText: { fontSize: fontSize.body, color: colors.brandPrimary, fontWeight: fontWeight.medium },
   crumbCurrent: { color: colors.textPrimary, fontWeight: fontWeight.semibold },
   crumbSeparator: { fontSize: fontSize.body, color: colors.textSubtle },

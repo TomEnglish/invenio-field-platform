@@ -4,6 +4,7 @@ import { useNetworkStore } from '@/lib/sync/networkStore';
 import { findInventoryByTag, withTimeout, type CountReference } from '@/lib/api/inventory';
 import { lookupMaterialByQR } from '@/lib/api/qrcodes';
 import { countStartPrefill, findItemByTag } from '@/lib/inventory/count';
+import { locationRule, staleLocation } from '@/lib/inventory/areas';
 
 // Looks up a scanned (or picked) tag and starts its count. Tags that were
 // already received are refused: a count could never link to that receipt.
@@ -22,6 +23,14 @@ export async function beginCount(code: string, reference: CountReference): Promi
   if (found?.count_status === 'received' || material) {
     return { started: false, message: `Tag ${tag} has already been received, so it doesn't need counting. Scan another tag.` };
   }
-  useCountStore.getState().start(tag, countStartPrefill(found, reference.categories, reference.zones));
+  const prefill = countStartPrefill(found, reference.categories, reference.zones);
+  // A location is carried into the new count only while its plan and area are
+  // still in use: the record's own, else the one kept from the last count.
+  const rule = locationRule(reference.maps, reference.zones, !!reference.savedAt);
+  const kept = useCountStore.getState().location;
+  const location = prefill.location && !staleLocation(prefill.location, rule) ? prefill.location
+    : !staleLocation(kept, rule) ? null
+    : { siteMapId: null, pin: null, zoneId: null, zoneName: '' };
+  useCountStore.getState().start(tag, { ...prefill, location });
   return { started: true };
 }

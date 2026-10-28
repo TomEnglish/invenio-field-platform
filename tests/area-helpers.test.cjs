@@ -87,9 +87,9 @@ test('a tap chooses the deepest (smallest) active area under the finger', () => 
 test('area bounds, the linked rack location and the required-area rule', () => {
   assert.deepEqual(plain(areas.areaBounds(rect(0.2, 0.07, 0.3, 0.43))), { minX: 0.2, minY: 0.07, maxX: 0.3, maxY: 0.43 });
   const all = areas.buildAreaTree(sample);
-  assert.equal(areas.linkedLocationId(all, 'rack2'), 'rack-t1-1-2', 'its own rack');
-  assert.equal(areas.linkedLocationId(all, 'rack3'), 'rack-t1', 'else the nearest parent with one');
-  assert.equal(areas.linkedLocationId(all, 'bayA'), null);
+  assert.deepEqual(plain({ id: areas.linkedLocation(all, 'rack2').locationId, owner: areas.linkedLocation(all, 'rack2').owner.id }), { id: 'rack-t1-1-2', owner: 'rack2' }, 'its own rack');
+  assert.deepEqual(plain({ id: areas.linkedLocation(all, 'rack3').locationId, owner: areas.linkedLocation(all, 'rack3').owner.id }), { id: 'rack-t1', owner: 't1' }, 'else the nearest parent with one, which owns the label');
+  assert.equal(areas.linkedLocation(all, 'bayA'), null);
   const maps = [{ id: 'map-a' }, { id: 'map-plain' }];
   assert.equal(areas.locationRule(maps, sample, false), undefined, 'unknown until the plan has been downloaded');
   const rule = areas.locationRule(maps, sample, true);
@@ -117,4 +117,37 @@ test('picking an area zooms the plan to fit it, centred and within the zoom limi
   assert.equal(tiny.scale, map.MAX_ZOOM);
   const whole = map.viewForBounds({ minX: 0, minY: 0, maxX: 1, maxY: 1 }, image, frame);
   assert.deepEqual(plain(whole), plain(map.centredView(image, frame)));
+});
+
+test('a tap picks the deepest area in the tree, then the smaller; broken outlines never win', () => {
+  // A small top-level area overlapping a deeper bay: the bay (depth 2) wins.
+  const tree = [
+    area('yard', null, 'Yard', rect(0, 0, 0.6, 0.6)),
+    area('bay', 'yard', 'Bay', rect(0.1, 0.1, 0.5, 0.5)),
+    area('sign', null, 'Sign post', rect(0.28, 0.28, 0.32, 0.32)),
+  ];
+  assert.equal(areas.deepestAreaAt(tree, { x: 0.3, y: 0.3 }).id, 'bay');
+  // Equal depth: the smaller wins.
+  const siblings = [area('big', null, 'Big', rect(0, 0, 0.5, 0.5)), area('small', null, 'Small', rect(0.2, 0.2, 0.3, 0.3))];
+  assert.equal(areas.deepestAreaAt(siblings, { x: 0.25, y: 0.25 }).id, 'small');
+  // A zero-area sliver and a bow-tie (self-crossing) outline are ignored.
+  const sliver = area('sliver', 'bay', 'Sliver', [[0.2, 0.2], [0.4, 0.4], [0.3, 0.3]]);
+  const bowtie = area('bowtie', 'bay', 'Bow tie', [[0.2, 0.2], [0.4, 0.4], [0.4, 0.2], [0.2, 0.4]]);
+  assert.equal(areas.usableShape(sliver.shape), false);
+  assert.equal(areas.usableShape(bowtie.shape), false);
+  assert.equal(areas.usableShape(rect(0.1, 0.1, 0.5, 0.5)), true);
+  assert.equal(areas.usableShape([[0, 0], [1, 1]]), false);
+  assert.equal(areas.deepestAreaAt([...tree, sliver, bowtie], { x: 0.3, y: 0.3 }).id, 'bay');
+  assert.equal(areas.deepestAreaAt([...tree, bowtie], { x: 0.25, y: 0.3 }).id, 'bay');
+});
+
+test('a saved location is stale when its plan or area is retired, or the area is on another plan', () => {
+  const rule = areas.locationRule([{ id: 'map-a' }, { id: 'map-b' }], sample, true);
+  assert.equal(areas.staleLocation({ siteMapId: 'map-a', zoneId: 'rack2' }, rule), null);
+  assert.equal(areas.staleLocation({ siteMapId: null, zoneId: 'rack2' }, rule), null, 'no plan named: the server takes the area\'s plan');
+  assert.equal(areas.staleLocation({ siteMapId: 'map-gone', zoneId: null }, rule), 'plan');
+  assert.equal(areas.staleLocation({ siteMapId: 'map-a', zoneId: 'bayC' }, rule), 'area', 'retired area');
+  assert.equal(areas.staleLocation({ siteMapId: 'map-a', zoneId: 'bay10' }, rule), 'area', 'under a retired parent');
+  assert.equal(areas.staleLocation({ siteMapId: 'map-b', zoneId: 'rack2' }, rule), 'other-plan');
+  assert.equal(areas.staleLocation({ siteMapId: 'map-gone', zoneId: 'rack2' }, undefined), null, 'unknown until downloaded');
 });

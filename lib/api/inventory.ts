@@ -6,7 +6,7 @@ import { useNetworkStore } from '@/lib/sync/networkStore';
 import { useAuthStore } from '@/stores/authStore';
 import { findItemByTag, type CountOperationPayload, type InventoryItem } from '@/lib/inventory/count';
 import type { InventoryCategory } from '@/lib/inventory/categories';
-import { areaPathLabel, buildAreaTree, linkedLocationId, type MapArea } from '@/lib/inventory/areas';
+import { areaPathLabel, buildAreaTree, linkedLocation, type MapArea } from '@/lib/inventory/areas';
 
 // Reference data for the Count tab. Everything is cached per user and project
 // (lib/sync/readCache) and site-plan images are downloaded to the device, so
@@ -111,6 +111,12 @@ async function readItems(): Promise<InventoryItem[]> {
   return mergeLocal(parts.flatMap(part => part ?? []).map(expand), local.map(expand));
 }
 
+const AREA_COLUMNS = 'id,map_id,parent_id,name,shape,color,sort_order,is_active,location_id';
+// Before migration 020 (or after a rollback) the nesting columns don't exist;
+// areas are then all top-level and in use.
+const AREA_COLUMNS_BEFORE_020 = 'id,map_id,name,shape,color,sort_order,location_id';
+const missingAreaColumns = (message: string) => /parent_id|is_active/.test(message) && /does not exist|42703|could not find/i.test(message);
+
 // Zones saved by build 5 before migration 020 have no nesting fields.
 const withAreaDefaults = (zone: Partial<SiteMapZone>) => ({ parent_id: null, is_active: true, location_id: null, ...zone }) as SiteMapZone;
 
@@ -174,7 +180,10 @@ async function runRefresh(): Promise<CountReference> {
   const [categories, maps, zones, items] = await Promise.all([
     fetchAll<InventoryCategory>(client, 'inventory_categories', 'id,parent_id,name,status,sort_order', query => query.neq('status', 'archived')),
     fetchAll<SiteMap & { is_active: boolean }>(client, 'site_maps', 'id,name,storage_path,image_width,image_height,updated_at,is_active', query => query.eq('is_active', true)),
-    fetchAll<SiteMapZone>(client, 'site_map_zones', 'id,map_id,parent_id,name,shape,color,sort_order,is_active,location_id'),
+    fetchAll<SiteMapZone>(client, 'site_map_zones', AREA_COLUMNS).catch((error: Error) => {
+      if (!missingAreaColumns(error.message)) throw error;
+      return fetchAll<Partial<SiteMapZone>>(client, 'site_map_zones', AREA_COLUMNS_BEFORE_020).then(rows => rows.map(withAreaDefaults));
+    }),
     fetchAll<InventoryItem>(client, 'inventory_records', ITEM_COLUMNS),
   ]);
   if (!guard.current()) throw new Error('Project changed while loading. Pull to refresh.');
@@ -243,25 +252,29 @@ export async function findInventoryByTag(tag: string): Promise<InventoryItem | n
 // path, and the rack location linked to that area or the nearest one above it.
 // Uses the cached plan areas; asks the server for that plan's areas when the
 // device has none for it, or only a build 5 copy (no nesting or rack links).
-export async function countedAreaInfo(item: Pick<InventoryItem, 'zone_id' | 'site_map_id' | 'location'>): Promise<{ path: string | null; locationId: string | null }> {
-  const fallback = { path: item.location?.trim() || null, locationId: null };
+export async function countedAreaInfo(item: Pick<InventoryItem, 'zone_id' | 'site_map_id' | 'location'>): Promise<{ path: string | null; locationId: string | null; locationLabel: string | null }> {
+  const fallback = { path: item.location?.trim() || null, locationId: null, locationLabel: null };
   if (!item.zone_id) return fallback;
   const cached = (await getCached<Partial<SiteMapZone>[]>(KEYS.zones)) ?? [];
   let flat = cached.some(zone => !('is_active' in zone));
   let zones = cached.map(withAreaDefaults);
   if ((flat || !zones.some(zone => zone.id === item.zone_id)) && item.site_map_id && useNetworkStore.getState().isOnline) {
     try {
-      const { data, error } = await withTimeout<{ data: any[] | null; error: unknown }>(
-        getProjectClient().from('site_map_zones').select('id,map_id,parent_id,name,shape,color,sort_order,is_active,location_id').eq('map_id', item.site_map_id),
+      const read = (columns: string) => withTimeout<{ data: any[] | null; error: { message?: string } | null }>(
+        getProjectClient().from('site_map_zones').select(columns).eq('map_id', item.site_map_id),
       );
+      let { data, error } = await read(AREA_COLUMNS);
+      if (error && missingAreaColumns(error.message ?? '')) ({ data, error } = await read(AREA_COLUMNS_BEFORE_020));
       if (!error && data) { zones = data.map(withAreaDefaults); flat = false; }
     } catch { /* Use what the device has. */ }
   }
   const tree = buildAreaTree(zones);
   if (!tree.byId.has(item.zone_id)) return fallback;
   // A build 5 copy knows only the area's own name; the server's stored path is fuller.
-  if (flat) return { path: fallback.path ?? areaPathLabel(tree, item.zone_id), locationId: null };
-  return { path: areaPathLabel(tree, item.zone_id), locationId: linkedLocationId(tree, item.zone_id) };
+  if (flat) return { ...fallback, path: fallback.path ?? areaPathLabel(tree, item.zone_id) };
+  const link = linkedLocation(tree, item.zone_id);
+  // Labelled with the area that holds the rack link, which may be a parent.
+  return { path: areaPathLabel(tree, item.zone_id), locationId: link?.locationId ?? null, locationLabel: link ? areaPathLabel(tree, link.owner.id) : null };
 }
 
 // Reflect a saved count in the cached tags straight away, so progress and the

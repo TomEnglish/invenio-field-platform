@@ -45,11 +45,14 @@ Initial field inventory (Count tab, contract in MSR `docs/INITIAL_INVENTORY.md`)
   tree, retired branches hidden, path labels, search, the deepest area under a tap,
   zoom-to-area, the linked rack location; the Location step's list ↔ plan sync and the
   required area.
+- `site-map-picker`: the real plan component (gesture and SVG libraries faked):
+  fit, zoom to a picked area, outline tiers, tap → area, and a fitted plan after
+  switching plans and back.
 - `count-sync-recovery`: a count the server refused can be reopened in Count (new
   operation ID, never over a count in progress) or discarded after a confirmation;
   received tags can only be discarded; photo and connection failures just retry.
 
-All tests pass (143 with nested map areas). `npm run lint` and `npx expo export --platform web` also pass;
+All tests pass (154 with nested map areas). `npm run lint` and `npx expo export --platform web` also pass;
 the web login was verified in Chrome without console errors. Native camera,
 force-close/restart and hosted email/storage behavior remain release smoke checks.
 See the sibling MSR `docs/PLATFORM_RELEASE.md` for the coordinated release guide.

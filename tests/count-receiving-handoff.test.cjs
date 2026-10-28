@@ -104,3 +104,12 @@ test('receiving opens at once; the area path and rack fill in after, without ove
   assert.equal(draft.countedFrom.zoneName, 'T1 Pipe Racks › Rack 2');
   assert.equal(draft.location.location_id, 'chosen-by-hand');
 });
+
+test('the receiving location is labelled with the area that holds the rack link', async () => {
+  const h = scanScreen({ counted: countedRecord, area: { path: 'T1 Pipe Racks › Rack 3', locationId: 'rack-t1', locationLabel: 'T1 Pipe Racks' } });
+  await scan(h, 'GT2-LO-001');
+  const draft = h.useReceivingStore.getState();
+  assert.equal(draft.location.location_id, 'rack-t1');
+  assert.equal(draft.locationLabel, 'T1 Pipe Racks', 'the parent that owns the link, not the child');
+  assert.equal(draft.countedFrom.zoneName, 'T1 Pipe Racks › Rack 3');
+});

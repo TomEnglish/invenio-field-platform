@@ -3,7 +3,7 @@
 // and tests. Contract: MSR docs/INITIAL_INVENTORY.md (migration 019).
 import { isValidPin, type Pin } from './siteMap';
 import { buildCategoryTree, categoryPathLabel, type InventoryCategory } from './categories';
-import { areaPathLabel, areaRequired, buildAreaTree, type LocationRule, type MapArea } from './areas';
+import { areaPathLabel, areaRequired, buildAreaTree, staleLocation, type LocationRule, type MapArea } from './areas';
 
 export type CountCondition = 'good' | 'damaged' | 'mixed';
 export type CountStatus = 'expected' | 'counted' | 'received';
@@ -126,8 +126,10 @@ export function countCategoryIssue(category: CountCategoryChoice): string | null
 
 // Mirrors the server's location rules (migration 020); the pin stays optional.
 export function countLocationIssue(location: CountLocation, rule?: LocationRule): string | null {
-  if (rule && location.siteMapId && !rule.activeMapIds.has(location.siteMapId)) return 'The office has retired this site plan. Choose the location again.';
-  if (rule && location.zoneId && !rule.liveAreaIds.has(location.zoneId)) return 'The office has retired this area. Choose the location again.';
+  const stale = staleLocation(location, rule);
+  if (stale === 'plan') return 'The office has retired this site plan. Choose the location again.';
+  if (stale === 'area') return 'The office has retired this area. Choose the location again.';
+  if (stale === 'other-plan') return 'That area is on a different site plan. Choose the location again.';
   if (!location.zoneId && areaRequired(rule, location.siteMapId)) return 'Choose a location: pick an area from the list or tap it on the plan.';
   if (location.pin && !location.siteMapId) return 'A pin needs a site plan. Choose the plan again or clear the pin.';
   if (location.pin && !isValidPin(location.pin)) return 'The pin is off the plan. Place it again.';
