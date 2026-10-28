@@ -3,7 +3,7 @@ import { router } from 'expo-router';
 import { QRScanner } from '@/components/scanning/QRScanner';
 import { useReceivingStore } from '@/stores/receivingStore';
 import { lookupMaterialByQR } from '@/lib/api/qrcodes';
-import { findInventoryByTag, zoneNameFor } from '@/lib/api/inventory';
+import { countedAreaInfo, findInventoryByTag } from '@/lib/api/inventory';
 import { receivingPrefill } from '@/lib/inventory/count';
 
 interface ScanScreenProps {
@@ -16,16 +16,19 @@ export function ScanScreenContent({ materialDetailRoute, receivingRoute }: ScanS
   const [checking, setChecking] = useState(false);
 
   // A tag that was counted but not yet received starts its receipt from the
-  // count (online, or from the Count tab's cache when offline).
+  // count (online, or from the Count tab's cache when offline), including the
+  // rack location linked to its area or the nearest area above it.
   const startReceiving = async (code: string) => {
     reset();
     setQRCode(code, null);
     const counted = await findInventoryByTag(code).catch(() => null);
     if (counted?.count_status === 'counted') {
       const receiving = useReceivingStore.getState();
-      if (receiving.qrCodeValue === code) {
+      const area = await countedAreaInfo(counted).catch(() => ({ path: counted.location, locationId: null }));
+      if (useReceivingStore.getState().qrCodeValue === code) {
         receiving.setMaterial(receivingPrefill(counted));
-        receiving.setCountedFrom({ countedAt: counted.counted_at, zoneName: await zoneNameFor(counted).catch(() => null) });
+        receiving.setCountedFrom({ countedAt: counted.counted_at, zoneName: area.path });
+        if (area.locationId) receiving.setLocation({ location_id: area.locationId }, area.path ?? '');
       }
     }
     router.push(receivingRoute as any);

@@ -6,18 +6,22 @@ import FontAwesome from '@expo/vector-icons/FontAwesome';
 import { Button } from '@/components/ui/Button';
 import type { SiteMap, SiteMapZone } from '@/lib/api/inventory';
 import {
-  centredView, clampView, fitContain, panBy, pinToScreen, polygonPoints, screenToPin, zoneAt, zoomAt,
+  centredView, clampView, fitContain, panBy, pinToScreen, polygonArea, polygonPoints, screenToPin, viewForBounds, zoomAt,
   MAX_ZOOM, MIN_ZOOM, type MapView, type Pin, type Size,
 } from '@/lib/inventory/siteMap';
+import { areaBounds, areaPath, buildAreaTree, deepestAreaAt } from '@/lib/inventory/areas';
 import { colors, radius, space, fontSize, tint } from '@/lib/design/tokens';
 
 interface Props {
   map: SiteMap;
   imageUri: string | null;
+  // The plan's active areas; nested areas are drawn on top of their parents.
   zones: SiteMapZone[];
   pin: Pin | null;
   zoneId: string | null;
   initialView?: MapView | null;
+  // Zooms to an area picked from the list; a new nonce repeats the zoom.
+  focus?: { areaId: string; nonce: number } | null;
   onChange: (value: { pin: Pin | null; zone: SiteMapZone | null }) => void;
   onViewChange?: (view: MapView) => void;
 }
@@ -25,9 +29,10 @@ interface Props {
 const PIN_SIZE = 32;
 const zoneColor = (zone: SiteMapZone) => (zone.color && /^#[0-9A-Fa-f]{6}$/.test(zone.color) ? zone.color : colors.brandPrimary);
 
-// The cached site-plan image with pinch-zoom, pan and tap-to-pin. Zones are
-// drawn from their normalised polygons; the zone under the pin is highlighted.
-export function SiteMapPicker({ map, imageUri, zones, pin, zoneId, initialView, onChange, onViewChange }: Props) {
+// The cached site-plan image with pinch-zoom, pan and tap-to-pin. Areas are
+// drawn from their normalised polygons: the chosen area strongly, the areas
+// above it faintly. A tap chooses the smallest area under the finger.
+export function SiteMapPicker({ map, imageUri, zones, pin, zoneId, initialView, focus, onChange, onViewChange }: Props) {
   const [frame, setFrame] = useState<Size>({ width: 0, height: 0 });
   const [measured, setMeasured] = useState<Size | null>(null);
   const [view, setView] = useState<MapView | null>(null);
@@ -49,6 +54,16 @@ export function SiteMapPicker({ map, imageUri, zones, pin, zoneId, initialView, 
   }, [frame.width, frame.height, image?.width, image?.height, map.id]);
 
   const finish = () => { if (viewRef.current) onViewChange?.(viewRef.current); };
+  // A list pick may arrive before the plan has been measured; it waits here.
+  const pendingFocus = useRef<string | null>(null);
+  useEffect(() => { if (focus) pendingFocus.current = focus.areaId; }, [focus?.nonce]);
+  useEffect(() => {
+    const area = zones.find(zone => zone.id === pendingFocus.current);
+    if (!area || !image || frame.width === 0) return;
+    pendingFocus.current = null;
+    apply(viewForBounds(areaBounds(area.shape), image, frame));
+    finish();
+  }, [focus?.nonce, frame.width, frame.height, image?.width, image?.height, zones]);
   // Gesture handlers read the latest props from here, so the gesture itself is
   // built once and is never re-attached in the middle of a pinch.
   const latest = useRef({ image, frame, zones, onChange, finish });
@@ -87,7 +102,7 @@ export function SiteMapPicker({ map, imageUri, zones, pin, zoneId, initialView, 
       const { image: size, frame: box, zones: shapes, onChange: change } = latest.current;
       if (!success || !size || !viewRef.current) return;
       const next = screenToPin({ x: e.x, y: e.y }, viewRef.current, size, box);
-      if (next) change({ pin: next, zone: zoneAt(shapes, next) });
+      if (next) change({ pin: next, zone: deepestAreaAt(shapes, next) });
     });
     return Gesture.Race(tap, Gesture.Simultaneous(pinch, pan));
   }, []);
@@ -103,6 +118,12 @@ export function SiteMapPicker({ map, imageUri, zones, pin, zoneId, initialView, 
   const shown = view ? { width: base.width * view.scale, height: base.height * view.scale } : base;
   const pinPoint = pin && view && image ? pinToScreen(pin, view, image, frame) : null;
   const activeZone = zones.find(zone => zone.id === zoneId) ?? null;
+  const drawn = useMemo(() => {
+    const ancestors = new Set(areaPath(buildAreaTree(zones), zoneId).map(area => area.id));
+    // Largest first, so nested areas sit on top and stay tappable to the eye.
+    return [...zones].sort((a, b) => polygonArea(b.shape) - polygonArea(a.shape))
+      .map(zone => ({ zone, tier: zone.id === zoneId ? 'selected' : ancestors.has(zone.id) ? 'parent' : 'other' } as const));
+  }, [zones, zoneId]);
 
   return (
     <View style={styles.container}>
@@ -110,20 +131,23 @@ export function SiteMapPicker({ map, imageUri, zones, pin, zoneId, initialView, 
       <View style={styles.border}>
       <GestureDetector gesture={gesture}>
         <View style={styles.frame} collapsable={false} onLayout={(e: LayoutChangeEvent) => setFrame({ width: e.nativeEvent.layout.width, height: e.nativeEvent.layout.height })}
-          accessible accessibilityLabel={`Site plan ${map.name}. Tap to drop a pin; pinch to zoom.`} accessibilityHint={activeZone ? `Pin is in ${activeZone.name}` : undefined}>
+          accessible accessibilityLabel={`Site plan ${map.name}. Tap an area to choose it and drop a pin; pinch to zoom.`} accessibilityHint={activeZone ? `${activeZone.name} is chosen` : undefined}>
           {!imageUri ? (
             <View style={styles.placeholder}>
               <FontAwesome name="map-o" size={28} color={colors.textSubtle} />
-              <Text style={styles.placeholderText}>This site plan isn't on the device yet. Open Count while online to download it, or choose a zone below.</Text>
+              <Text style={styles.placeholderText}>This site plan isn't on the device yet. Open Count while online to download it, or choose an area from the list.</Text>
             </View>
           ) : view && image ? (
             <View style={[styles.content, { left: view.x, top: view.y, width: shown.width, height: shown.height }]}>
               <Image source={{ uri: imageUri }} style={{ width: shown.width, height: shown.height }} resizeMode="stretch" />
               <Svg width={shown.width} height={shown.height} style={StyleSheet.absoluteFill}>
-                {zones.map(zone => {
-                  const active = zone.id === zoneId;
+                {drawn.map(({ zone, tier }) => {
                   const color = zoneColor(zone);
-                  return <SvgPolygon key={zone.id} points={polygonPoints(zone.shape, shown)} fill={tint(color, active ? 0.35 : 0.12)} stroke={color} strokeWidth={active ? 3 : 1.5} />;
+                  return <SvgPolygon key={zone.id} points={polygonPoints(zone.shape, shown)} stroke={color}
+                    fill={tint(color, tier === 'selected' ? 0.32 : tier === 'parent' ? 0.1 : 0.06)}
+                    strokeWidth={tier === 'selected' ? 3 : tier === 'parent' ? 2 : 1}
+                    strokeDasharray={tier === 'parent' ? '6 4' : undefined}
+                    strokeOpacity={tier === 'other' ? 0.6 : 1} />;
                 })}
               </Svg>
             </View>

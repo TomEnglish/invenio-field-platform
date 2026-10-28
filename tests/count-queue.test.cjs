@@ -120,6 +120,7 @@ test('Sync offers to fix refused counts, only to discard received tags, and retr
   assert.equal(countRecoveryAction(item('Category is unavailable in this project')), 'fix');
   assert.equal(countRecoveryAction(item('Quantity must be a positive number with up to 3 decimals')), 'fix');
   assert.equal(countRecoveryAction(item('This tag has already been received')), 'discard');
+  assert.equal(countRecoveryAction(item('Choose a location')), 'fix', 'counts queued on build 5 before areas were required');
   for (const retry of ['Count saved; photo upload will retry: x', 'Photo reference will retry: x', 'Network request failed', 'Reconnect and verify access before uploading.', 'JWT expired', 'Return to the original account and project to finish photo uploads.', 'The count was not confirmed by the server. It will retry.', '']) {
     assert.equal(countRecoveryAction(item(retry)), null, retry);
   }
@@ -137,6 +138,7 @@ test('Sync describes queued counts and their recovery', () => {
   assert.match(queueRecoveryMessage({ ...item, lastError: 'This tag has already been received' }), /received before the count uploaded/);
   assert.match(queueRecoveryMessage({ ...item, lastError: 'Category is unavailable in this project' }), /archived or changed the category/);
   assert.match(queueRecoveryMessage({ ...item, lastError: 'Unit is too long' }), /Fix it in Count, or discard it/);
+  assert.match(queueRecoveryMessage({ ...item, lastError: 'Choose a location' }), /needs a location/);
   assert.match(queueRecoveryMessage({ action: { type: 'receiving' }, lastError: 'Material is unavailable in this project' }), /project access/);
   assert.match(queueRecoveryMessage({ action: { type: 'receiving' }, lastError: 'Receipt saved; photo upload will retry' }), /receipt may already be saved/);
 });

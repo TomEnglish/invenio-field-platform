@@ -21,6 +21,8 @@ function setup({ tables = {}, online = true, failQueries = false, platform = 'io
       eq: (column, value) => { state.filters.push(['eq', column, value]); return builder; },
       order: () => builder,
       limit: () => builder.range(0, 0),
+      // Supabase query builders can be awaited directly.
+      then: (resolve, reject) => builder.range(0, 999).then(resolve, reject),
       range: async (from, to) => {
         calls.queries.push(state);
         if (onQuery) await onQuery(state, auth);
@@ -60,7 +62,8 @@ const tables = {
     { id: 'map-old', name: 'Old', storage_path: null, image_width: null, image_height: null, updated_at: null, is_active: false },
   ],
   site_map_zones: [
-    { id: 'zone-b', map_id: 'map-a', name: 'Zone B', shape: [[0, 0], [1, 0], [1, 1]], color: '#22AA44', sort_order: 0 },
+    { id: 'zone-b', map_id: 'map-a', parent_id: null, name: 'Zone B', shape: [[0, 0], [1, 0], [1, 1]], color: '#22AA44', sort_order: 0, is_active: true, location_id: 'rack-b' },
+    { id: 'zone-b2', map_id: 'map-a', parent_id: 'zone-b', name: 'Bay 2', shape: [[0.5, 0.1], [0.9, 0.1], [0.9, 0.5]], color: null, sort_order: 0, is_active: true, location_id: null },
     { id: 'zone-old', map_id: 'map-old', name: 'Old zone', shape: [[0, 0], [1, 0], [1, 1]], color: null, sort_order: 0 },
   ],
   inventory_records: [item('T-1', 'expected'), item('T-2', 'counted', { zone_id: 'zone-b', location: 'Zone B' })],
@@ -71,7 +74,9 @@ test('Count data and the site-plan image are saved per account and project for o
   const result = await h.api.loadCountReference();
   assert.equal(result.source, 'online');
   assert.deepEqual(plain(result.data.maps.map(m => m.id)), ['map-a'], 'inactive plans are left out');
-  assert.deepEqual(plain(result.data.zones.map(z => z.id)), ['zone-b']);
+  assert.deepEqual(plain(result.data.zones.map(z => z.id)), ['zone-b', 'zone-b2']);
+  assert.equal(result.data.zones[1].parent_id, 'zone-b', 'the cache keeps the area nesting');
+  assert.ok(h.calls.queries.some(q => q.table === 'site_map_zones'));
   assert.equal(result.data.items.length, 2);
   assert.ok(h.calls.queries.some(q => q.table === 'inventory_categories' && q.filters.some(f => f[0] === 'neq' && f[2] === 'archived')));
   assert.deepEqual(h.calls.signed, [['site-plans', 'project-a/map-a.png']]);
@@ -118,8 +123,8 @@ test('tag lookup asks the server online and the cache offline, and saved counts 
   h.network.isOnline = false;
   assert.equal((await h.api.findInventoryByTag('T-1')).count_status, 'expected');
   assert.equal(await h.api.findInventoryByTag('NOPE'), null);
-  assert.equal(await h.api.zoneNameFor({ zone_id: 'zone-b', location: null }), 'Zone B');
-  assert.equal(await h.api.zoneNameFor({ zone_id: null, location: ' Legacy rack ' }), 'Legacy rack');
+  assert.deepEqual(plain(await h.api.countedAreaInfo({ zone_id: 'zone-b2', site_map_id: 'map-a', location: null })), { path: 'Zone B › Bay 2', locationId: 'rack-b' }, 'the nearest linked rack above the area');
+  assert.deepEqual(plain(await h.api.countedAreaInfo({ zone_id: null, site_map_id: null, location: ' Legacy rack ' })), { path: 'Legacy rack', locationId: null });
 
   await h.api.recordCountLocally({ tag: 'T-1', name: 'Cooler', quantity: '2', uom: 'EA', condition: 'good', categoryId: 'gen1', siteMapId: 'map-a', zoneId: 'zone-b', pin: { x: 0.5, y: 0.5 } }, 'Zone B');
   await h.api.recordCountLocally({ tag: 'NEW-1', name: 'Spare', quantity: '1', uom: 'EA', condition: 'good', categoryId: null, siteMapId: null, zoneId: null }, null);
@@ -195,4 +200,22 @@ test('a slow server answer falls back to the cached tag', async () => {
   const { api } = setup();
   await assert.rejects(api.withTimeout(new Promise(() => {}), 10), /too long/);
   assert.equal(await api.withTimeout(Promise.resolve(7), 10), 7);
+});
+
+test('zones cached by build 5 (before nesting) read back as active top-level areas', async () => {
+  const h = setup({ tables });
+  h.records.set('cache_worker-a_project-a_count_site_map_zones', JSON.stringify({ data: [{ id: 'old', map_id: 'map-a', name: 'Old zone', shape: [[0, 0], [1, 0], [1, 1]], color: null, sort_order: 0 }], timestamp: 0 }));
+  h.network.isOnline = false;
+  const [zone] = (await h.api.readCachedReference()).zones;
+  assert.deepEqual(plain({ parent_id: zone.parent_id, is_active: zone.is_active, location_id: zone.location_id }), { parent_id: null, is_active: true, location_id: null });
+});
+
+test('the hand-off asks the server for a plan\'s areas the device has not saved', async () => {
+  const h = setup({ tables });
+  const info = await h.api.countedAreaInfo({ zone_id: 'zone-b2', site_map_id: 'map-a', location: 'Zone B › Bay 2' });
+  assert.deepEqual(plain(info), { path: 'Zone B › Bay 2', locationId: 'rack-b' });
+  assert.ok(h.calls.queries.some(q => q.table === 'site_map_zones' && q.filters.some(f => f[1] === 'map_id' && f[2] === 'map-a')));
+  h.network.isOnline = false;
+  const offline = setup({ tables, online: false });
+  assert.deepEqual(plain(await offline.api.countedAreaInfo({ zone_id: 'zone-b2', site_map_id: 'map-a', location: 'Zone B › Bay 2' })), { path: 'Zone B › Bay 2', locationId: null }, 'offline with no saved areas, the stored path is shown');
 });

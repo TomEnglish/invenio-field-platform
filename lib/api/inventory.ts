@@ -6,7 +6,7 @@ import { useNetworkStore } from '@/lib/sync/networkStore';
 import { useAuthStore } from '@/stores/authStore';
 import { findItemByTag, type CountOperationPayload, type InventoryItem } from '@/lib/inventory/count';
 import type { InventoryCategory } from '@/lib/inventory/categories';
-import type { Polygon } from '@/lib/inventory/siteMap';
+import { areaPathLabel, buildAreaTree, linkedLocationId, type MapArea } from '@/lib/inventory/areas';
 
 // Reference data for the Count tab. Everything is cached per user and project
 // (lib/sync/readCache) and site-plan images are downloaded to the device, so
@@ -20,13 +20,9 @@ export interface SiteMap {
   image_height: number | null;
   updated_at: string | null;
 }
-export interface SiteMapZone {
-  id: string;
-  map_id: string;
-  name: string;
-  shape: Polygon;
+// An area on a site plan; areas nest through parent_id (migration 020).
+export interface SiteMapZone extends MapArea {
   color: string | null;
-  sort_order: number;
 }
 export interface CountReference {
   categories: InventoryCategory[];
@@ -115,13 +111,16 @@ async function readItems(): Promise<InventoryItem[]> {
   return mergeLocal(parts.flatMap(part => part ?? []).map(expand), local.map(expand));
 }
 
+// Zones saved by build 5 before migration 020 have no nesting fields.
+const withAreaDefaults = (zone: Partial<SiteMapZone>) => ({ parent_id: null, is_active: true, location_id: null, ...zone }) as SiteMapZone;
+
 export async function readCachedReference(): Promise<CountReference> {
   const [categories, maps, zones, items, images, savedAt] = await Promise.all([
     getCached<InventoryCategory[]>(KEYS.categories), getCached<SiteMap[]>(KEYS.maps), getCached<SiteMapZone[]>(KEYS.zones),
     readItems(), getCached<Record<string, string>>(KEYS.images), getCached<string>(KEYS.savedAt),
   ]);
   return {
-    categories: categories ?? [], maps: maps ?? [], zones: zones ?? [], items,
+    categories: categories ?? [], maps: maps ?? [], zones: (zones ?? []).map(withAreaDefaults), items,
     images: Platform.OS === 'web' ? {} : images ?? {}, savedAt: savedAt ?? null,
   };
 }
@@ -175,7 +174,7 @@ async function runRefresh(): Promise<CountReference> {
   const [categories, maps, zones, items] = await Promise.all([
     fetchAll<InventoryCategory>(client, 'inventory_categories', 'id,parent_id,name,status,sort_order', query => query.neq('status', 'archived')),
     fetchAll<SiteMap & { is_active: boolean }>(client, 'site_maps', 'id,name,storage_path,image_width,image_height,updated_at,is_active', query => query.eq('is_active', true)),
-    fetchAll<SiteMapZone>(client, 'site_map_zones', 'id,map_id,name,shape,color,sort_order'),
+    fetchAll<SiteMapZone>(client, 'site_map_zones', 'id,map_id,parent_id,name,shape,color,sort_order,is_active,location_id'),
     fetchAll<InventoryItem>(client, 'inventory_records', ITEM_COLUMNS),
   ]);
   if (!guard.current()) throw new Error('Project changed while loading. Pull to refresh.');
@@ -240,12 +239,25 @@ export async function findInventoryByTag(tag: string): Promise<InventoryItem | n
   return findItemByTag(await readItems(), wanted) ?? null;
 }
 
-export async function zoneNameFor(item: Pick<InventoryItem, 'zone_id' | 'location'>): Promise<string | null> {
-  if (item.zone_id) {
-    const zone = ((await getCached<SiteMapZone[]>(KEYS.zones)) ?? []).find(z => z.id === item.zone_id);
-    if (zone) return zone.name;
+// Where a counted item is, for the Scan → receiving hand-off: its full area
+// path, and the rack location linked to that area or the nearest one above it.
+// Uses the cached plan areas; asks the server for that plan's areas when the
+// device has none for it.
+export async function countedAreaInfo(item: Pick<InventoryItem, 'zone_id' | 'site_map_id' | 'location'>): Promise<{ path: string | null; locationId: string | null }> {
+  const fallback = { path: item.location?.trim() || null, locationId: null };
+  if (!item.zone_id) return fallback;
+  let zones = ((await getCached<Partial<SiteMapZone>[]>(KEYS.zones)) ?? []).map(withAreaDefaults);
+  if (!zones.some(zone => zone.id === item.zone_id) && item.site_map_id && useNetworkStore.getState().isOnline) {
+    try {
+      const { data, error } = await withTimeout<{ data: any[] | null; error: unknown }>(
+        getProjectClient().from('site_map_zones').select('id,map_id,parent_id,name,shape,color,sort_order,is_active,location_id').eq('map_id', item.site_map_id),
+      );
+      if (!error && data) zones = data.map(withAreaDefaults);
+    } catch { /* Use what the device has. */ }
   }
-  return item.location?.trim() || null;
+  const tree = buildAreaTree(zones);
+  if (!tree.byId.has(item.zone_id)) return fallback;
+  return { path: areaPathLabel(tree, item.zone_id), locationId: linkedLocationId(tree, item.zone_id) };
 }
 
 // Reflect a saved count in the cached tags straight away, so progress and the

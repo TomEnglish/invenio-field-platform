@@ -2,7 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { createModuleLoader } = require('./helpers/load-typescript.cjs');
 
-const { countReviewIssue, buildCountPayload, categoryAvailabilityIssue, draftFromQueuedCount } = createModuleLoader().load('./lib/inventory/count.ts');
+const { countReviewIssue, countLocationIssue, buildCountPayload, categoryAvailabilityIssue, draftFromQueuedCount, countStartPrefill } = createModuleLoader().load('./lib/inventory/count.ts');
 const plain = (value) => JSON.parse(JSON.stringify(value));
 
 function draft() {
@@ -99,4 +99,39 @@ test('a refused queued count becomes the same draft again, opening where the ser
   assert.equal(draftFromQueuedCount(payload, 'Zone is unavailable on this map').step, 2);
   assert.equal(draftFromQueuedCount(payload, 'Quantity must be a positive number with up to 3 decimals').step, 0);
   assert.equal(draftFromQueuedCount(payload, 'Something else').step, 3);
+});
+
+test('once the plan has areas every count needs one; the pin stays optional', () => {
+  const rule = { required: true, activeIds: new Set(['zone-b', 'rack2']) };
+  const none = draft();
+  none.location = { siteMapId: null, pin: null, zoneId: null, zoneName: '' };
+  assert.equal(countReviewIssue(none, rule).step, 2);
+  assert.match(countLocationIssue(none.location, rule), /Choose a location/);
+  assert.equal(countReviewIssue(none, { required: false, activeIds: new Set() }), null, 'no areas, no requirement');
+  assert.equal(countReviewIssue(none), null, 'unknown rule: the server decides');
+  const areaOnly = draft();
+  areaOnly.location = { siteMapId: 'map-a', pin: null, zoneId: 'rack2', zoneName: 'T1 Pipe Racks › Rack 2' };
+  assert.equal(countReviewIssue(areaOnly, rule), null);
+  const retired = draft();
+  assert.match(countReviewIssue({ ...retired, location: { ...retired.location, zoneId: 'gone' } }, rule).message, /retired this area/);
+  const pinOutside = draft();
+  pinOutside.location = { siteMapId: 'map-a', pin: { x: 0.9, y: 0.9 }, zoneId: null, zoneName: '' };
+  assert.equal(countReviewIssue(pinOutside, rule).step, 2, 'a pin alone is not enough');
+});
+
+test('a count refused for having no location reopens on the Location step', () => {
+  const payload = { count: plain(buildCountPayload(draft())), photos: [] };
+  assert.equal(draftFromQueuedCount(payload, 'Choose a location').step, 2);
+  assert.equal(draftFromQueuedCount(payload, 'Area is inactive').step, 2);
+});
+
+test('a matched record pre-fills its area with the full path', () => {
+  const zones = [
+    { id: 't1', map_id: 'map-a', parent_id: null, name: 'T1 Pipe Racks', shape: [], sort_order: 0, is_active: true, location_id: null },
+    { id: 'rack2', map_id: 'map-a', parent_id: 't1', name: 'Rack 2', shape: [], sort_order: 0, is_active: true, location_id: null },
+  ];
+  const record = { id: 1, uid: 'u', qr_code: 'T', inventory_item: 'Cooler', item_description: null, part_number: null, quantity: 1, uom: 'EA', condition: 'good',
+    count_status: 'counted', category_id: null, site_map_id: 'map-a', pin_x: null, pin_y: null, zone_id: 'rack2', location: 'stale text', counted_at: null };
+  assert.equal(countStartPrefill(record, [], zones).location.zoneName, 'T1 Pipe Racks › Rack 2');
+  assert.equal(countStartPrefill(record, [], []).location.zoneName, 'stale text', 'without saved areas, the stored path');
 });

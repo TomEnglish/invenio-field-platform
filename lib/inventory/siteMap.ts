@@ -128,3 +128,16 @@ export function pinToScreen(pin: Pin, view: MapView, image: Size, frame: Size): 
 export function polygonPoints(shape: Polygon, size: Size): string {
   return shape.map(([x, y]) => `${(x * size.width).toFixed(1)},${(y * size.height).toFixed(1)}`).join(' ');
 }
+
+// Zoom so normalised bounds (an area's outline) fill the frame with a margin,
+// centred, within the zoom limits.
+export function viewForBounds(bounds: { minX: number; minY: number; maxX: number; maxY: number }, image: Size, frame: Size, margin = 0.15): MapView {
+  const base = fitContain(image, frame);
+  if (base.width === 0) return { scale: 1, x: 0, y: 0 };
+  const width = Math.max(bounds.maxX - bounds.minX, 1e-3) * base.width;
+  const height = Math.max(bounds.maxY - bounds.minY, 1e-3) * base.height;
+  const scale = clamp(Math.min(frame.width / (width * (1 + 2 * margin)), frame.height / (height * (1 + 2 * margin))), MIN_ZOOM, MAX_ZOOM);
+  const centreX = ((bounds.minX + bounds.maxX) / 2) * base.width * scale;
+  const centreY = ((bounds.minY + bounds.maxY) / 2) * base.height * scale;
+  return clampView({ scale, x: frame.width / 2 - centreX, y: frame.height / 2 - centreY }, image, frame);
+}
