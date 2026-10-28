@@ -6,7 +6,7 @@ const { createModuleLoader } = require('./helpers/load-typescript.cjs');
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
-function scanScreen({ material = null, counted = null, zoneName = 'Zone B' } = {}) {
+function scanScreen({ material = null, counted = null, area = { path: 'T1 Pipe Racks › Rack 2', locationId: 'rack-t1-1-2' }, areaLater = null } = {}) {
   const routes = [];
   const records = new Map();
   const loader = createModuleLoader({ stubs: {
@@ -25,7 +25,7 @@ function scanScreen({ material = null, counted = null, zoneName = 'Zone B' } = {
     '@/lib/api/qrcodes': { lookupMaterialByQR: async () => { if (material === 'offline') throw new Error('Network request failed'); return material; } },
     '@/lib/api/inventory': {
       findInventoryByTag: async (tag) => (counted && counted.qr_code === tag ? counted : null),
-      zoneNameFor: async () => zoneName,
+      countedAreaInfo: async () => (areaLater ? areaLater : area),
     },
   } });
   const { ScanScreenContent } = loader.load('./components/screens/ScanScreen.tsx');
@@ -56,7 +56,9 @@ test('a counted tag that is not yet received opens receiving pre-filled from the
   assert.equal(draft.material.description, 'Lube oil cooler — Shell and tube');
   assert.equal(draft.material.spec, 'LOC-22');
   assert.equal(draft.countedFrom.countedAt, '2026-10-30T15:00:00Z');
-  assert.equal(draft.countedFrom.zoneName, 'Zone B');
+  assert.equal(draft.countedFrom.zoneName, 'T1 Pipe Racks › Rack 2');
+  assert.equal(draft.location.location_id, 'rack-t1-1-2', 'receiving starts at the rack linked to the area');
+  assert.equal(draft.locationLabel, 'T1 Pipe Racks › Rack 2');
 });
 
 test('offline scans still use the cached count; unknown and expected tags start a blank receipt', async () => {
@@ -79,4 +81,35 @@ test('a received material still opens its detail page', async () => {
   await scan(h, 'GT2-LO-001');
   assert.equal(h.routes[0].params.id, 'material-1');
   assert.equal(h.useReceivingStore.getState().countedFrom, null);
+});
+
+test('an area with no linked rack (and none above it) leaves the receiving location to choose', async () => {
+  const h = scanScreen({ counted: countedRecord, area: { path: 'T2 Laydown › Bay 4', locationId: null } });
+  await scan(h, 'GT2-LO-001');
+  const draft = h.useReceivingStore.getState();
+  assert.equal(draft.countedFrom.zoneName, 'T2 Laydown › Bay 4');
+  assert.equal(draft.location.location_id, '');
+});
+
+test('receiving opens at once; the area path and rack fill in after, without overriding a chosen location', async () => {
+  let release;
+  const slow = new Promise(resolve => { release = resolve; });
+  const h = scanScreen({ counted: { ...countedRecord, location: 'Stored path' }, areaLater: slow });
+  await scan(h, 'GT2-LO-001');
+  assert.deepEqual(h.routes, ['/(field)/receiving'], 'no wait for the area lookup');
+  assert.equal(h.useReceivingStore.getState().countedFrom.zoneName, 'Stored path');
+  h.useReceivingStore.getState().setLocation({ location_id: 'chosen-by-hand' }, 'Hand-picked');
+  await TestRenderer.act(async () => { release({ path: 'T1 Pipe Racks › Rack 2', locationId: 'rack-t1-1-2' }); await slow; });
+  const draft = h.useReceivingStore.getState();
+  assert.equal(draft.countedFrom.zoneName, 'T1 Pipe Racks › Rack 2');
+  assert.equal(draft.location.location_id, 'chosen-by-hand');
+});
+
+test('the receiving location is labelled with the area that holds the rack link', async () => {
+  const h = scanScreen({ counted: countedRecord, area: { path: 'T1 Pipe Racks › Rack 3', locationId: 'rack-t1', locationLabel: 'T1 Pipe Racks' } });
+  await scan(h, 'GT2-LO-001');
+  const draft = h.useReceivingStore.getState();
+  assert.equal(draft.location.location_id, 'rack-t1');
+  assert.equal(draft.locationLabel, 'T1 Pipe Racks', 'the parent that owns the link, not the child');
+  assert.equal(draft.countedFrom.zoneName, 'T1 Pipe Racks › Rack 3');
 });

@@ -3,6 +3,7 @@
 // and tests. Contract: MSR docs/INITIAL_INVENTORY.md (migration 019).
 import { isValidPin, type Pin } from './siteMap';
 import { buildCategoryTree, categoryPathLabel, type InventoryCategory } from './categories';
+import { areaPathLabel, areaRequired, buildAreaTree, staleLocation, type LocationRule, type MapArea } from './areas';
 
 export type CountCondition = 'good' | 'damaged' | 'mixed';
 export type CountStatus = 'expected' | 'counted' | 'received';
@@ -45,9 +46,11 @@ export interface CountCategoryChoice {
 export interface CountLocation {
   siteMapId: string | null;
   pin: Pin | null;
+  // The chosen area (site_map_zones); zoneName holds its full path.
   zoneId: string | null;
   zoneName: string;
 }
+export type { LocationRule } from './areas';
 export interface CountPhoto { uri: string }
 // The record a scanned tag matched, kept for the item step's banner.
 export interface CountMatch {
@@ -121,7 +124,14 @@ export function countCategoryIssue(category: CountCategoryChoice): string | null
   return null;
 }
 
-export function countLocationIssue(location: CountLocation): string | null {
+// Mirrors the server's location rules (migration 020); the pin stays optional.
+// A plan or area missing from an older copy passes: the server decides.
+export function countLocationIssue(location: CountLocation, rule?: LocationRule): string | null {
+  const stale = staleLocation(location, rule);
+  if (stale === 'plan') return 'The office has retired this site plan. Choose the location again.';
+  if (stale === 'area') return 'The office has retired this area. Choose the location again.';
+  if (stale === 'other-plan') return 'That area is on a different site plan. Choose the location again.';
+  if (!location.zoneId && areaRequired(rule, location.siteMapId)) return 'Choose a location: pick an area from the list or tap it on the plan.';
   if (location.pin && !location.siteMapId) return 'A pin needs a site plan. Choose the plan again or clear the pin.';
   if (location.pin && !isValidPin(location.pin)) return 'The pin is off the plan. Place it again.';
   return null;
@@ -143,7 +153,7 @@ export function categoryAvailabilityIssue(
 }
 
 // Steps: 0 item, 1 category, 2 location, 3 photo + review.
-export function countReviewIssue(draft: CountDraft): { step: number; message: string } | null {
+export function countReviewIssue(draft: CountDraft, rule?: LocationRule): { step: number; message: string } | null {
   const tag = draft.tag.trim();
   if (!tag) return { step: 0, message: 'A tag is required. Return to Count and scan the tag.' };
   if (tag.length > 120) return { step: 0, message: 'The tag is too long to save. Check the label and scan again.' };
@@ -151,7 +161,7 @@ export function countReviewIssue(draft: CountDraft): { step: number; message: st
   if (item) return { step: 0, message: item };
   const category = countCategoryIssue(draft.category);
   if (category) return { step: 1, message: category };
-  const location = countLocationIssue(draft.location);
+  const location = countLocationIssue(draft.location, rule);
   if (location) return { step: 2, message: location };
   return null;
 }
@@ -186,7 +196,7 @@ export function draftFromQueuedCount(
   error = '',
 ): { step: number; draft: CountDraft } {
   const { count } = payload;
-  const step = /categor/i.test(error) ? 1 : /zone|site map|pin/i.test(error) ? 2 : /tag|name|quantity|unit|condition/i.test(error) ? 0 : 3;
+  const step = /categor/i.test(error) ? 1 : /zone|area|location|site (map|plan)|pin/i.test(error) ? 2 : /tag|name|quantity|unit|condition/i.test(error) ? 0 : 3;
   return {
     step,
     draft: {
@@ -221,7 +231,7 @@ export function quantityText(quantity: number | string | null | undefined): stri
 export function countStartPrefill(
   item: InventoryItem | null | undefined,
   categories: InventoryCategory[] = [],
-  zones: { id: string; name: string }[] = [],
+  zones: MapArea[] = [],
 ): { match: CountMatch | null; item?: Partial<CountItemData>; category?: CountCategoryChoice | null; location?: CountLocation | null } {
   if (!item) return { match: null };
   const tree = buildCategoryTree(categories);
@@ -236,7 +246,7 @@ export function countStartPrefill(
       ? { categoryId: item.category_id, proposed: null, label: categoryPathLabel(tree, item.category_id) }
       : null,
     location: item.site_map_id && (pin || item.zone_id)
-      ? { siteMapId: item.site_map_id, pin: isValidPin(pin) ? pin : null, zoneId: item.zone_id, zoneName: zones.find(z => z.id === item.zone_id)?.name ?? item.location ?? '' }
+      ? { siteMapId: item.site_map_id, pin: isValidPin(pin) ? pin : null, zoneId: item.zone_id, zoneName: (item.zone_id && areaPathLabel(buildAreaTree(zones), item.zone_id)) || item.location || '' }
       : null,
   };
 }

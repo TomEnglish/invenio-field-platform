@@ -41,11 +41,23 @@ Initial field inventory (Count tab, contract in MSR `docs/INITIAL_INVENTORY.md`)
   started in; overlapping refreshes share one download.
 - `count-begin`, `count-screen`, `count-receiving-handoff`: scan → count start rules,
   the Count screens, and Scan → receiving pre-filled from a count.
+- `area-helpers`, `count-location-step`: nested map areas (migration 020): the area
+  tree, retired branches hidden, path labels, search, the deepest area under a tap,
+  zoom-to-area, the linked rack location; the Location step's list ↔ plan sync and the
+  required area; a plan or area missing from the device's copy kept (not called
+  retired) until a download made for it confirms it; the shown plan's chip choosing
+  it; one tap announcement per platform; outline checks only under the finger.
+- `count-reference-check`: the real reference hook downloads once for each new
+  location to check, even with a saved copy; failed or offline checks stay unconfirmed.
+- `site-map-picker`: the real plan component (gesture and SVG libraries faked):
+  fit, zoom to a picked area, outline tiers, tap → area, and a fitted plan after
+  switching plans and back.
 - `count-sync-recovery`: a count the server refused can be reopened in Count (new
-  operation ID, never over a count in progress) or discarded after a confirmation;
+  operation ID, never over a count in progress, named so Count checks it against a
+  fresh download before judging the location again) or discarded after a confirmation;
   received tags can only be discarded; photo and connection failures just retry.
 
-All tests pass (119 at the time of the Count tab). `npm run lint` and `npx expo export --platform web` also pass;
+All tests pass (164 with nested map areas). `npm run lint` and `npx expo export --platform web` also pass;
 the web login was verified in Chrome without console errors. Native camera,
 force-close/restart and hosted email/storage behavior remain release smoke checks.
 See the sibling MSR `docs/PLATFORM_RELEASE.md` for the coordinated release guide.

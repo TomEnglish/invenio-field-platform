@@ -12,6 +12,7 @@ import { useAuthStore } from '@/stores/authStore';
 import { useNetworkStore } from '@/lib/sync/networkStore';
 import { belongsToCurrentContext, getQueue, subscribeQueue, type QueueItem } from '@/lib/sync/offlineQueue';
 import { countProgress, outstandingTags, recentCounts, shortDate } from '@/lib/inventory/count';
+import { areaPathLabel, buildAreaTree } from '@/lib/inventory/areas';
 import { colors, radius, space, fontSize, fontWeight, touchTarget } from '@/lib/design/tokens';
 
 const LIST_LIMIT = 50;
@@ -50,7 +51,8 @@ export function CountHomeScreenContent({ countItemRoute }: { countItemRoute: str
   const progress = countProgress(data.items, pendingTags);
   const outstanding = outstandingTags(data.items, pendingTags, query);
   const recent = recentCounts(data.items.filter(item => !pending.some(p => p.tag === item.qr_code.trim())), 10);
-  const zoneName = (id: string | null, fallback: string | null) => data.zones.find(z => z.id === id)?.name ?? fallback ?? '';
+  const areaTree = buildAreaTree(data.zones);
+  const zoneName = (id: string | null, fallback: string | null) => (id && areaPathLabel(areaTree, id)) || fallback || '';
   const percent = progress.total ? Math.round((progress.found / progress.total) * 100) : 0;
   const nothingSetUp = !loading && data.items.length === 0 && data.categories.length === 0 && data.maps.length === 0;
 

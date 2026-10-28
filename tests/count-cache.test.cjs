@@ -8,23 +8,27 @@ const item = (qr_code, count_status, extra = {}) => ({
   condition: null, count_status, category_id: null, site_map_id: null, pin_x: null, pin_y: null, zone_id: null, location: null, counted_at: null, ...extra,
 });
 
-function setup({ tables = {}, online = true, failQueries = false, platform = 'ios', onQuery } = {}) {
+function setup({ tables = {}, online = true, failQueries = false, platform = 'ios', onQuery, before020 = false } = {}) {
   const records = new Map();
   const files = new Map();
   const calls = { queries: [], signed: [], downloads: [], clients: 0 };
   const auth = { user: { id: 'worker-a' }, session: { access_token: 'test' }, activeProject: { id: 'project-a', status: 'active' } };
   const network = { isOnline: online };
-  const query = (table, projectId) => {
-    const state = { table, projectId, filters: [] };
+  const query = (table, projectId, columns = '') => {
+    const state = { table, projectId, columns, filters: [] };
     const builder = {
       neq: (column, value) => { state.filters.push(['neq', column, value]); return builder; },
       eq: (column, value) => { state.filters.push(['eq', column, value]); return builder; },
       order: () => builder,
       limit: () => builder.range(0, 0),
+      // Supabase query builders can be awaited directly.
+      then: (resolve, reject) => builder.range(0, 999).then(resolve, reject),
       range: async (from, to) => {
         calls.queries.push(state);
         if (onQuery) await onQuery(state, auth);
         if (failQueries) return { data: null, error: { message: 'column inventory_records.uid does not exist' } };
+        // A database without migration 020 has no nesting columns.
+        if (before020 && table === 'site_map_zones' && /parent_id|is_active/.test(state.columns)) return { data: null, error: { code: '42703', message: 'column site_map_zones.parent_id does not exist' } };
         let rows = (tables[table] ?? []).filter(row => !row.project_id || row.project_id === state.projectId);
         for (const [op, column, value] of state.filters) rows = rows.filter(row => (op === 'eq' ? row[column] === value : row[column] !== value));
         return { data: rows.slice(from, to + 1), error: null };
@@ -38,7 +42,7 @@ function setup({ tables = {}, online = true, failQueries = false, platform = 'io
     '@/stores/authStore': { useAuthStore: { getState: () => auth } },
     '@/lib/sync/networkStore': { useNetworkStore: { getState: () => network } },
     // Like the real client, the project is fixed when the client is created.
-    '@/lib/supabaseProject': { getProjectClient: () => { const projectId = auth.activeProject.id; calls.clients += 1; return { from: (table) => ({ select: () => query(table, projectId) }) }; } },
+    '@/lib/supabaseProject': { getProjectClient: () => { const projectId = auth.activeProject.id; calls.clients += 1; return { from: (table) => ({ select: (columns) => query(table, projectId, columns) }) }; } },
     '@/lib/supabase': { supabase: { storage: { from: (bucket) => ({ createSignedUrl: async (path) => { calls.signed.push([bucket, path]); return { data: { signedUrl: `https://signed.example/${path}` }, error: null }; } }) } } },
     'expo-file-system/legacy': {
       documentDirectory: 'file:///documents/',
@@ -60,7 +64,8 @@ const tables = {
     { id: 'map-old', name: 'Old', storage_path: null, image_width: null, image_height: null, updated_at: null, is_active: false },
   ],
   site_map_zones: [
-    { id: 'zone-b', map_id: 'map-a', name: 'Zone B', shape: [[0, 0], [1, 0], [1, 1]], color: '#22AA44', sort_order: 0 },
+    { id: 'zone-b', map_id: 'map-a', parent_id: null, name: 'Zone B', shape: [[0, 0], [1, 0], [1, 1]], color: '#22AA44', sort_order: 0, is_active: true, location_id: 'rack-b' },
+    { id: 'zone-b2', map_id: 'map-a', parent_id: 'zone-b', name: 'Bay 2', shape: [[0.5, 0.1], [0.9, 0.1], [0.9, 0.5]], color: null, sort_order: 0, is_active: true, location_id: null },
     { id: 'zone-old', map_id: 'map-old', name: 'Old zone', shape: [[0, 0], [1, 0], [1, 1]], color: null, sort_order: 0 },
   ],
   inventory_records: [item('T-1', 'expected'), item('T-2', 'counted', { zone_id: 'zone-b', location: 'Zone B' })],
@@ -71,7 +76,9 @@ test('Count data and the site-plan image are saved per account and project for o
   const result = await h.api.loadCountReference();
   assert.equal(result.source, 'online');
   assert.deepEqual(plain(result.data.maps.map(m => m.id)), ['map-a'], 'inactive plans are left out');
-  assert.deepEqual(plain(result.data.zones.map(z => z.id)), ['zone-b']);
+  assert.deepEqual(plain(result.data.zones.map(z => z.id)), ['zone-b', 'zone-b2']);
+  assert.equal(result.data.zones[1].parent_id, 'zone-b', 'the cache keeps the area nesting');
+  assert.ok(h.calls.queries.some(q => q.table === 'site_map_zones'));
   assert.equal(result.data.items.length, 2);
   assert.ok(h.calls.queries.some(q => q.table === 'inventory_categories' && q.filters.some(f => f[0] === 'neq' && f[2] === 'archived')));
   assert.deepEqual(h.calls.signed, [['site-plans', 'project-a/map-a.png']]);
@@ -118,8 +125,8 @@ test('tag lookup asks the server online and the cache offline, and saved counts 
   h.network.isOnline = false;
   assert.equal((await h.api.findInventoryByTag('T-1')).count_status, 'expected');
   assert.equal(await h.api.findInventoryByTag('NOPE'), null);
-  assert.equal(await h.api.zoneNameFor({ zone_id: 'zone-b', location: null }), 'Zone B');
-  assert.equal(await h.api.zoneNameFor({ zone_id: null, location: ' Legacy rack ' }), 'Legacy rack');
+  assert.deepEqual(plain(await h.api.countedAreaInfo({ zone_id: 'zone-b2', site_map_id: 'map-a', location: null })), { path: 'Zone B › Bay 2', locationId: 'rack-b', locationLabel: 'Zone B' }, 'the nearest linked rack above the area, labelled with that area');
+  assert.deepEqual(plain(await h.api.countedAreaInfo({ zone_id: null, site_map_id: null, location: ' Legacy rack ' })), { path: 'Legacy rack', locationId: null, locationLabel: null });
 
   await h.api.recordCountLocally({ tag: 'T-1', name: 'Cooler', quantity: '2', uom: 'EA', condition: 'good', categoryId: 'gen1', siteMapId: 'map-a', zoneId: 'zone-b', pin: { x: 0.5, y: 0.5 } }, 'Zone B');
   await h.api.recordCountLocally({ tag: 'NEW-1', name: 'Spare', quantity: '1', uom: 'EA', condition: 'good', categoryId: null, siteMapId: null, zoneId: null }, null);
@@ -195,4 +202,47 @@ test('a slow server answer falls back to the cached tag', async () => {
   const { api } = setup();
   await assert.rejects(api.withTimeout(new Promise(() => {}), 10), /too long/);
   assert.equal(await api.withTimeout(Promise.resolve(7), 10), 7);
+});
+
+test('zones cached by build 5 (before nesting) read back as active top-level areas', async () => {
+  const h = setup({ tables });
+  h.records.set('cache_worker-a_project-a_count_site_map_zones', JSON.stringify({ data: [{ id: 'old', map_id: 'map-a', name: 'Old zone', shape: [[0, 0], [1, 0], [1, 1]], color: null, sort_order: 0 }], timestamp: 0 }));
+  h.network.isOnline = false;
+  const [zone] = (await h.api.readCachedReference()).zones;
+  assert.deepEqual(plain({ parent_id: zone.parent_id, is_active: zone.is_active, location_id: zone.location_id }), { parent_id: null, is_active: true, location_id: null });
+});
+
+test('the hand-off asks the server for a plan\'s areas the device has not saved', async () => {
+  const h = setup({ tables });
+  const info = await h.api.countedAreaInfo({ zone_id: 'zone-b2', site_map_id: 'map-a', location: 'Zone B › Bay 2' });
+  assert.deepEqual(plain(info), { path: 'Zone B › Bay 2', locationId: 'rack-b', locationLabel: 'Zone B' });
+  assert.ok(h.calls.queries.some(q => q.table === 'site_map_zones' && q.filters.some(f => f[1] === 'map_id' && f[2] === 'map-a')));
+  h.network.isOnline = false;
+  const offline = setup({ tables, online: false });
+  assert.deepEqual(plain(await offline.api.countedAreaInfo({ zone_id: 'zone-b2', site_map_id: 'map-a', location: 'Zone B › Bay 2' })), { path: 'Zone B › Bay 2', locationId: null, locationLabel: null }, 'offline with no saved areas, the stored path is shown');
+});
+
+test('a build 5 copy of the areas (no nesting or rack links) is not trusted for the hand-off', async () => {
+  const flatCache = JSON.stringify({ data: [
+    { id: 'zone-b', map_id: 'map-a', name: 'Zone B', shape: [[0, 0], [1, 0], [1, 1]], color: null, sort_order: 0 },
+    { id: 'zone-b2', map_id: 'map-a', name: 'Bay 2', shape: [[0.5, 0.1], [0.9, 0.1], [0.9, 0.5]], color: null, sort_order: 0 },
+  ], timestamp: 0 });
+  const online = setup({ tables });
+  online.records.set('cache_worker-a_project-a_count_site_map_zones', flatCache);
+  assert.deepEqual(plain(await online.api.countedAreaInfo({ zone_id: 'zone-b2', site_map_id: 'map-a', location: 'Zone B › Bay 2' })), { path: 'Zone B › Bay 2', locationId: 'rack-b', locationLabel: 'Zone B' }, 'online, the server\'s areas are used');
+  const offline = setup({ tables, online: false });
+  offline.records.set('cache_worker-a_project-a_count_site_map_zones', flatCache);
+  assert.deepEqual(plain(await offline.api.countedAreaInfo({ zone_id: 'zone-b2', site_map_id: 'map-a', location: 'Zone B › Bay 2' })), { path: 'Zone B › Bay 2', locationId: null, locationLabel: null }, 'offline, the stored path rather than the flat name');
+});
+
+test('before migration 020 (or after a rollback) areas still download, as top-level areas in use', async () => {
+  const flat = { ...tables, site_map_zones: tables.site_map_zones.map(({ parent_id, is_active, ...zone }) => zone) };
+  const h = setup({ tables: flat, before020: true });
+  const result = await h.api.loadCountReference();
+  assert.equal(result.source, 'online', 'the Count download does not fail');
+  assert.equal(result.error, undefined);
+  assert.deepEqual(plain(result.data.zones.map(z => [z.id, z.parent_id, z.is_active])), [['zone-b', null, true], ['zone-b2', null, true]]);
+  assert.equal(result.data.items.length, 2);
+  const info = await setup({ tables: flat, before020: true }).api.countedAreaInfo({ zone_id: 'zone-b', site_map_id: 'map-a', location: 'Zone B' });
+  assert.deepEqual(plain(info), { path: 'Zone B', locationId: 'rack-b', locationLabel: 'Zone B' }, 'the hand-off falls back the same way');
 });
