@@ -28,6 +28,7 @@ export function CountLocationStep({ reference, rule, onNext, onBack, nextTitle =
   // A plan or area reopened from Sync (or restored with an old draft) may have
   // been retired, or the area may be on another plan; clear it so the crew can
   // choose again, and refresh the path in case an area was renamed or moved.
+  // One this device hasn't downloaded is kept: it may be newer than the copy.
   useEffect(() => {
     if (!rule) return;
     const current = useCountStore.getState().location;
@@ -35,10 +36,10 @@ export function CountLocationStep({ reference, rule, onNext, onBack, nextTitle =
     if (stale === 'plan') {
       setLocation(NO_LOCATION);
       setError('The office has retired the site plan chosen before. Choose the location again.');
-    } else if (stale) {
+    } else if (stale === 'area' || stale === 'other-plan') {
       setLocation({ ...current, zoneId: null, zoneName: '' });
       setError(stale === 'area' ? 'The office has retired the area chosen before. Choose the location again.' : 'The area chosen before is on a different site plan. Choose the location again.');
-    } else if (current.zoneId) {
+    } else if (!stale && current.zoneId) {
       const label = areaPathLabel(allAreas, current.zoneId);
       if (label && label !== current.zoneName) setLocation({ ...current, zoneName: label });
     }
@@ -51,9 +52,14 @@ export function CountLocationStep({ reference, rule, onNext, onBack, nextTitle =
   const selected = onThisMap && location.zoneId && tree.byId.has(location.zoneId) ? location.zoneId : null;
   const path = selected ? areaPathLabel(tree, selected) : '';
 
+  // Choosing the plan on screen names it, too: a plan with no areas or image
+  // can only be named this way.
   const chooseMap = (id: string) => {
+    if (id === location.siteMapId) return;
+    setLocation({ siteMapId: id, pin: null, zoneId: null, zoneName: '' });
+    setError('');
     // A new plan starts fitted; coming back also starts fitted, not zoomed to an area no longer chosen.
-    if (id !== map?.id) { setLocation({ siteMapId: id, pin: null, zoneId: null, zoneName: '' }); setFocus(null); setMapView(null); setError(''); }
+    if (id !== map?.id) { setFocus(null); setMapView(null); }
   };
   // Always possible, even with no plan on this device: start the location over.
   const clearLocation = () => { setLocation(NO_LOCATION); setFocus(null); setError(''); };
@@ -67,27 +73,35 @@ export function CountLocationStep({ reference, rule, onNext, onBack, nextTitle =
     setError('');
   };
   const required = areaRequired(rule, location.siteMapId);
+  const kept = staleLocation(location, rule) === 'unknown';
+  // Hints name only what this plan offers: its list, taps on its image, its chip.
+  const imageUri = map ? reference.images[map.id] ?? null : null;
+  const nameThisPlan = !map ? '' : imageUri ? 'tap the plan to drop a pin' : maps.length > 1 ? `tap “${map.name}” above to choose this plan` : '';
+  const or = (first: string, second: string) => (first ? `${first}, or ${second}` : second);
+  const sentence = (text: string) => `${text[0].toUpperCase()}${text.slice(1)}.`;
   const handleNext = () => {
     const issue = countLocationIssue(location, rule);
-    // Another plan has areas, this one has none: a pin here names the plan.
-    if (issue && required && !location.zoneId && areas.length === 0) { setError('Choose a location: drop a pin on this plan, or switch to a plan with areas and pick one.'); return; }
+    // Another plan has areas, this one has none: naming this plan will do.
+    if (issue && required && !location.zoneId && areas.length === 0) { setError(`Choose a location: ${or(nameThisPlan, 'switch to a plan with areas and pick one')}.`); return; }
     if (issue) { setError(issue); return; }
     setError('');
     onNext();
   };
 
   const status = !map ? ''
+    : kept ? `Saved location: ${location.zoneName || 'a site plan'}. It isn't on this device yet, so it's kept as it is.`
     : selected ? `${path}${onThisMap && location.pin ? ' · pin placed' : ''}`
-    : areas.length ? (onThisMap && location.pin ? 'The pin is outside the marked areas. Choose an area from the list.' : 'Choose a location: pick an area below or tap it on the plan.')
+    : areas.length ? (onThisMap && location.pin ? 'The pin is outside the marked areas. Choose an area from the list.' : `Choose a location: pick an area from the list${imageUri ? ' or tap it on the plan' : ''}.`)
     : onThisMap && location.pin ? 'Pin dropped.'
-    : required ? 'Drop a pin on this plan, or switch to a plan with areas and pick one.' : 'Tap the plan to drop a pin, or skip the location.';
-  const canSkip = !required && !location.zoneId && !location.pin;
+    : onThisMap ? `${map.name} chosen.${imageUri ? ' Tap the plan to add a pin if it helps.' : ''}`
+    : sentence(or(nameThisPlan, required ? 'switch to a plan with areas and pick one' : 'skip the location'));
+  const canSkip = !required && !hasLocation;
 
   return (
     <KeyboardAvoidingView style={styles.container} behavior={Platform.OS === 'ios' ? 'padding' : undefined} keyboardVerticalOffset={100}>
       {maps.length > 1 ? (
         <ScrollView horizontal style={styles.strip} contentContainerStyle={styles.chips} showsHorizontalScrollIndicator={false}>
-          {maps.map(m => <Button key={m.id} title={m.name} variant={m.id === map?.id ? 'primary' : 'secondary'} onPress={() => chooseMap(m.id)} style={styles.chip} />)}
+          {maps.map(m => <Button key={m.id} title={m.name} accessibilityLabel={m.id === location.siteMapId ? `${m.name}, chosen` : `Choose ${m.name}`} variant={m.id === map?.id ? 'primary' : 'secondary'} onPress={() => chooseMap(m.id)} style={styles.chip} />)}
         </ScrollView>
       ) : null}
       {map ? (
@@ -95,7 +109,7 @@ export function CountLocationStep({ reference, rule, onNext, onBack, nextTitle =
           <SiteMapPicker
             key={map.id}
             map={map}
-            imageUri={reference.images[map.id] ?? null}
+            imageUri={imageUri}
             zones={areas}
             pin={onThisMap ? location.pin : null}
             zoneId={selected}
@@ -107,8 +121,9 @@ export function CountLocationStep({ reference, rule, onNext, onBack, nextTitle =
               setLocation({ siteMapId: map.id, pin, zoneId: zone?.id ?? null, zoneName: label });
               if (zone) setReveal(current => ({ areaId: zone.id, nonce: (current?.nonce ?? 0) + 1 }));
               setError('');
-              // VoiceOver has no live regions: say what the tap chose.
-              if (pin) AccessibilityInfo.announceForAccessibility(zone ? `${label} chosen` : areas.length ? 'Pin dropped outside the marked areas' : 'Pin dropped');
+              // VoiceOver has no live regions: say what the tap chose. TalkBack
+              // reads the status line below, a live region, so say it once.
+              if (pin && Platform.OS === 'ios') AccessibilityInfo.announceForAccessibility(zone ? `${label} chosen` : areas.length ? 'Pin dropped outside the marked areas' : 'Pin dropped');
             }}
           />
         </View>

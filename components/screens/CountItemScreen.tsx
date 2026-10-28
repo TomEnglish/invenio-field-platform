@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { View, Text, StyleSheet, ScrollView } from 'react-native';
-import { router, Stack, useFocusEffect } from 'expo-router';
+import { router, Stack, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { useCountStore } from '@/stores/countStore';
 import { useAuthStore } from '@/stores/authStore';
 import { processQueue } from '@/lib/sync/syncManager';
@@ -8,7 +8,7 @@ import { useNetworkStore } from '@/lib/sync/networkStore';
 import { addToQueue, getQueue } from '@/lib/sync/offlineQueue';
 import { recordCountLocally } from '@/lib/api/inventory';
 import { buildCountPayload, categoryAvailabilityIssue, countReviewIssue } from '@/lib/inventory/count';
-import { areaPathLabel, buildAreaTree, locationRule } from '@/lib/inventory/areas';
+import { areaPathLabel, buildAreaTree, locationKey, locationRule, staleLocation } from '@/lib/inventory/areas';
 import { QRScanner } from '@/components/scanning/QRScanner';
 import { CountItemStep } from '@/components/inventory/CountItemStep';
 import { CountCategoryStep } from '@/components/inventory/CountCategoryStep';
@@ -28,7 +28,18 @@ const REVIEW = STEP_TITLES.length - 1;
 export function CountItemScreenContent({ homeRoute }: { homeRoute: string }) {
   const store = useCountStore();
   const { user, activeProject, loading } = useAuthStore();
-  const reference = useCountReference({ refresh: false });
+  const online = useNetworkStore(s => s.isOnline);
+  // Sync's "Fix in Count" names the count it reopened. The server refused it
+  // against plans and areas this device may not have yet, so the location is
+  // checked against a fresh download before it is judged again.
+  const { fix } = useLocalSearchParams<{ fix?: string }>();
+  const fixing = !!fix && fix === store.operationId;
+  const key = locationKey(store.location);
+  const [check, setCheck] = useState<string | null>(fixing ? key : null);
+  const [useCopy, setUseCopy] = useState(false);
+  const reference = useCountReference({ refresh: false, check: online ? check : null });
+  // The screen can stay mounted between visits; each reopened count is checked.
+  useEffect(() => { if (fixing) { setCheck(key); setUseCopy(false); } }, [fix, fixing]);
   const [submitting, setSubmitting] = useState(false);
   const submitLock = useRef(false);
   const [editing, setEditing] = useState(false);
@@ -40,7 +51,12 @@ export function CountItemScreenContent({ homeRoute }: { homeRoute: string }) {
   // The confirmation belongs to the visit that saved; leaving by the tab bar ends it.
   useFocusEffect(useCallback(() => () => { setSaved(null); setScanMessage(''); }, []));
   const treeKnown = !!reference.data.savedAt;
-  const rule = useMemo(() => locationRule(reference.data.maps, reference.data.zones, treeKnown), [reference.data.maps, reference.data.zones, treeKnown]);
+  const rule = useMemo(() => locationRule(reference.data.maps, reference.data.zones, treeKnown, reference.checked),
+    [reference.data.maps, reference.data.zones, treeKnown, reference.checked]);
+  // A plan or area missing from the copy may be newer than it: ask the server.
+  const unknown = staleLocation(store.location, rule) === 'unknown';
+  useEffect(() => { if (unknown) setCheck(key); }, [unknown, key]);
+  const checkingFix = fixing && online && !useCopy && !!check && reference.checked !== check && reference.loading;
   const areaTree = useMemo(() => buildAreaTree(reference.data.zones), [reference.data.zones]);
   // Drafts from older versions or reopened from Sync may hold a flat name.
   const areaLabel = (zoneId: string | null, saved: string) => (zoneId && areaPathLabel(areaTree, zoneId)) || saved;
@@ -112,6 +128,14 @@ export function CountItemScreenContent({ homeRoute }: { homeRoute: string }) {
     <View style={styles.footer}><Button title="Back to Count" variant="secondary" onPress={() => router.replace(homeRoute as any)} /></View>
   </View>;
 
+  if (checkingFix) return <View style={styles.container}>
+    <Stack.Screen options={{ headerShown: true, title: STEP_TITLES[step] }} />
+    <View style={styles.checking}>
+      <Text style={styles.hint} accessibilityLiveRegion="polite">Getting the office's latest site plans, areas and categories before you fix this count…</Text>
+      <Button title="Use this device's copy" variant="secondary" onPress={() => setUseCopy(true)} />
+    </View>
+  </View>;
+
   return <View style={styles.container}>
     <Stack.Screen options={{ headerShown: true, title: STEP_TITLES[step], gestureEnabled: !submitting }} />
     <View style={styles.progress}>
@@ -120,6 +144,7 @@ export function CountItemScreenContent({ homeRoute }: { homeRoute: string }) {
         {STEP_TITLES.map((title, i) => <View key={title} style={[styles.stepSegment, i <= step && styles.stepActive]} />)}
       </View>
       <Text style={styles.tagLabel}>Tag: {store.tag}</Text>
+      {fixing && reference.error ? <Text style={styles.hint}>Couldn't get the office's latest site plans ({reference.error}). Using this device's copy.</Text> : null}
       {editing && step !== REVIEW && <><Text style={styles.hint}>Continue to keep changes and return to review.</Text><Button title="Cancel edits" variant="ghost" onPress={() => back(REVIEW)} /></>}
     </View>
     {step === 0 && <CountItemStep onNext={() => next(1)} onBack={editing ? undefined : () => router.replace(homeRoute as any)} />}
@@ -134,5 +159,6 @@ const styles = StyleSheet.create({
   progress: { paddingHorizontal: 20, paddingVertical: 12, gap: 8, backgroundColor: colors.surface, borderBottomWidth: 1, borderBottomColor: colors.border },
   stepLabel: { fontSize: 15, fontWeight: '600', color: colors.textPrimary }, stepBar: { flexDirection: 'row', gap: 6 }, stepSegment: { height: 4, flex: 1, borderRadius: 2, backgroundColor: colors.border }, stepActive: { backgroundColor: colors.brandPrimary }, tagLabel: { fontSize: 12, color: colors.textMuted },
   hint: { fontSize: 14, color: colors.textMuted, lineHeight: 20 }, footer: { padding: 16, backgroundColor: colors.surface },
+  checking: { flex: 1, padding: 24, gap: 16, justifyContent: 'center' },
   confirmation: { flexGrow: 1, padding: 24, gap: 16, backgroundColor: colors.canvas, justifyContent: 'center' }, confirmTitle: { fontSize: 26, fontWeight: '600', color: colors.textPrimary }, confirmItem: { fontSize: 18, color: colors.textPrimary },
 });

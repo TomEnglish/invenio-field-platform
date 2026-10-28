@@ -146,12 +146,14 @@ export function usableShape(shape: Polygon): boolean {
 
 // The area a tap means: among active areas with a usable outline containing
 // the point, the deepest in the tree; between equally deep ones, the smaller.
+// The cheap containment test runs first, so the costlier outline check only
+// runs for the few areas under the finger.
 export function deepestAreaAt<T extends MapArea>(areas: T[], pin: Pin): T | null {
   const live = activeAreas(areas);
   const tree = buildAreaTree(live);
   let best: { area: T; depth: number; size: number } | null = null;
   for (const area of live) {
-    if (!usableShape(area.shape) || !pointInPolygon(pin, area.shape)) continue;
+    if (!pointInPolygon(pin, area.shape) || !usableShape(area.shape)) continue;
     const depth = areaPath(tree, area.id).length, size = polygonArea(area.shape);
     if (!best || depth > best.depth || (depth === best.depth && size < best.size)) best = { area, depth, size };
   }
@@ -183,26 +185,47 @@ export interface LocationRule {
   mapsWithAreas: Set<string>;
   // Live area → the plan it is drawn on.
   areaMap: Map<string, string>;
+  // Areas in the copy that the office has retired (or that sit under one).
+  retiredAreaIds: Set<string>;
+  // The location (see locationKey) this copy was downloaded afresh for. A
+  // plan or area missing from such a copy is no longer in use; missing from
+  // an older copy, it may simply be newer than the download.
+  confirmedFor: string | null;
 }
-export function locationRule(maps: { id: string }[], areas: MapArea[], treeKnown: boolean): LocationRule | undefined {
+export function locationKey(location: { siteMapId: string | null; zoneId: string | null }): string {
+  return `${location.siteMapId ?? ''}|${location.zoneId ?? ''}`;
+}
+export function locationRule(maps: { id: string }[], areas: MapArea[], treeKnown: boolean, confirmedFor: string | null = null): LocationRule | undefined {
   if (!treeKnown) return undefined;
   const activeMapIds = new Set(maps.map(map => map.id));
-  const live = activeAreas(areas).filter(area => activeMapIds.has(area.map_id));
+  const known = areas.filter(area => activeMapIds.has(area.map_id));
+  const live = activeAreas(known);
+  const liveAreaIds = new Set(live.map(area => area.id));
   return {
-    activeMapIds, liveAreaIds: new Set(live.map(area => area.id)), mapsWithAreas: new Set(live.map(area => area.map_id)),
+    activeMapIds, liveAreaIds, mapsWithAreas: new Set(live.map(area => area.map_id)),
     areaMap: new Map(live.map(area => [area.id, area.map_id])),
+    retiredAreaIds: new Set(known.filter(area => !liveAreaIds.has(area.id)).map(area => area.id)),
+    confirmedFor,
   };
 }
 
 // Why a saved location can no longer be sent: its plan or area was retired,
 // or the area is on another plan than the one named (the server refuses all
-// three). Null when it is usable, or when nothing is known yet.
-export function staleLocation(location: { siteMapId: string | null; zoneId: string | null }, rule: LocationRule | undefined): 'plan' | 'area' | 'other-plan' | null {
+// three). 'unknown' when the plan or area is missing from a copy that wasn't
+// downloaded for it: keep it, check online, and let the server decide. Null
+// when it is usable, or when nothing is known yet.
+export function staleLocation(location: { siteMapId: string | null; zoneId: string | null }, rule: LocationRule | undefined): 'plan' | 'area' | 'other-plan' | 'unknown' | null {
   if (!rule) return null;
-  if (location.siteMapId && !rule.activeMapIds.has(location.siteMapId)) return 'plan';
-  if (location.zoneId && !rule.liveAreaIds.has(location.zoneId)) return 'area';
+  const confirmed = rule.confirmedFor === locationKey(location);
+  if (location.siteMapId && !rule.activeMapIds.has(location.siteMapId)) return confirmed ? 'plan' : 'unknown';
+  if (location.zoneId && !rule.liveAreaIds.has(location.zoneId)) return confirmed || rule.retiredAreaIds.has(location.zoneId) ? 'area' : 'unknown';
   if (location.zoneId && location.siteMapId && rule.areaMap.get(location.zoneId) !== location.siteMapId) return 'other-plan';
   return null;
+}
+// A location that can't be sent as it is; an unknown one is kept.
+export function retiredLocation(location: { siteMapId: string | null; zoneId: string | null }, rule: LocationRule | undefined): boolean {
+  const stale = staleLocation(location, rule);
+  return !!stale && stale !== 'unknown';
 }
 export function areaRequired(rule: LocationRule | undefined, siteMapId: string | null): boolean {
   if (!rule) return false;

@@ -36,7 +36,7 @@ function countDraft(overrides = {}) {
   return draft;
 }
 
-function screenLoader({ draft, queueStorage, reference, beginCount = async () => ({ started: true }), routes = [], localCounts = [] }) {
+function screenLoader({ draft, queueStorage, reference, beginCount = async () => ({ started: true }), routes = [], localCounts = [], params = {}, online = false, useReference }) {
   const useCountStore = Object.assign(() => draft, { getState: () => draft });
   return createModuleLoader({ stubs: {
     react: React,
@@ -49,14 +49,16 @@ function screenLoader({ draft, queueStorage, reference, beginCount = async () =>
       router: { replace: (route) => routes.push(['replace', route]), push: (route) => routes.push(['push', route]), back() {} },
       Stack: { Screen: () => React.createElement('StackScreen') },
       useFocusEffect: (effect) => React.useEffect(effect, [effect]),
+      useLocalSearchParams: () => params,
     },
     '@/stores/countStore': { useCountStore },
     '@/stores/authStore': { useAuthStore },
-    '@/lib/sync/networkStore': { useNetworkStore: Object.assign((select) => select({ isOnline: false }), { getState: () => ({ isOnline: false }) }) },
+    '@/lib/sync/networkStore': { useNetworkStore: Object.assign((select) => select({ isOnline: online }), { getState: () => ({ isOnline: online }) }) },
     '@react-native-async-storage/async-storage': queueStorage,
     '@/lib/sync/syncManager': { processQueue: async () => ({ processed: 0, failed: 0 }) },
     '@/lib/api/inventory': { recordCountLocally: async (count, zoneName) => { localCounts.push({ count, zoneName }); } },
-    '@/components/inventory/useCountReference': { useCountReference: () => ({ data: reference, loading: false, source: 'cache', error: '', reload: async () => {} }) },
+    '@/components/inventory/useCountReference': { useCountReference: (options) => (useReference ? useReference(options)
+      : { data: reference, loading: false, source: 'cache', error: '', reload: async () => {}, checked: null }) },
     '@/components/inventory/beginCount': { beginCount },
     '@/components/scanning/QRScanner': { QRScanner: element('QRScanner') },
     '@/components/inventory/CountItemStep': { CountItemStep: element('CountItemStep') },
@@ -169,5 +171,83 @@ test('Count home shows progress, the outstanding tags and Continue for a saved d
   assert.ok(texts(renderer).includes('T-9 · Spare valve'));
   assert.equal(renderer.root.findAll(node => node.type === 'Button' && node.props.title === 'Continue').length, 1);
   assert.equal(renderer.root.findAll(node => node.type === 'Button' && node.props.title === 'Scan a tag').length, 0);
+  await TestRenderer.act(async () => { renderer.unmount(); });
+});
+
+// Plan map-a with Zone B, as on the device before the office retired it.
+const plan = (id) => ({ id, name: id, storage_path: null, image_width: 2000, image_height: 1000, updated_at: null });
+const deviceCopy = { ...emptyReference, savedAt: '2026-10-27T09:00:00Z', maps: [plan('map-a')],
+  zones: [{ id: 'zone-b', map_id: 'map-a', parent_id: null, name: 'Zone B', shape: [], color: null, sort_order: 0, is_active: true, location_id: null }] };
+
+test('a count reopened from Sync waits for a fresh download before its location is judged again', async () => {
+  const draft = countDraft({ step: 2 });
+  const asked = [];
+  // The hook: loading until the download for the asked location comes back.
+  let answer = { data: deviceCopy, loading: true, error: '', checked: null };
+  const loader = screenLoader({ draft, queueStorage: { getItem: async () => null, setItem: async () => {} }, reference: deviceCopy,
+    params: { fix: OPERATION }, online: true, useReference: (options) => { asked.push(options.check); return { source: 'cache', reload: async () => {}, ...answer }; } });
+  const { CountItemScreenContent } = loader.load('./components/screens/CountItemScreen.tsx');
+  const { staleLocation } = loader.load('./lib/inventory/areas.ts');
+  const screen = () => React.createElement(CountItemScreenContent, { homeRoute: '/(field)/count' });
+  let renderer;
+  await TestRenderer.act(async () => { renderer = TestRenderer.create(screen()); });
+  assert.equal(asked[0], 'map-a|zone-b', 'asks for the reopened location from the first render');
+  assert.equal(renderer.root.findAllByType('CountLocationStep').length, 0, 'not judged against the old copy');
+  assert.ok(texts(renderer).some(t => /Getting the office's latest site plans/.test(t)));
+
+  // The office has since retired map-a: the fresh copy no longer has it.
+  answer = { data: { ...deviceCopy, maps: [plan('map-b')], zones: [] }, loading: false, error: '', checked: 'map-a|zone-b' };
+  await TestRenderer.act(async () => { renderer.update(screen()); });
+  const step = renderer.root.findByType('CountLocationStep');
+  assert.equal(step.props.rule.confirmedFor, 'map-a|zone-b');
+  assert.equal(staleLocation(draft.location, step.props.rule), 'plan', 'now known retired, so the step clears it');
+  await TestRenderer.act(async () => { renderer.unmount(); });
+});
+
+test('the wait for a fresh download can be skipped, and is not asked for offline or for an ordinary count', async () => {
+  const run = async ({ params = {}, online = true, location } = {}) => {
+    const draft = countDraft({ step: 2, ...(location ? { location } : {}) });
+    const asked = [];
+    const loader = screenLoader({ draft, queueStorage: { getItem: async () => null, setItem: async () => {} }, reference: deviceCopy, params, online,
+      useReference: (options) => { asked.push(options.check); return { data: deviceCopy, loading: true, source: 'cache', error: '', reload: async () => {}, checked: null }; } });
+    const { CountItemScreenContent } = loader.load('./components/screens/CountItemScreen.tsx');
+    let renderer;
+    await TestRenderer.act(async () => { renderer = TestRenderer.create(React.createElement(CountItemScreenContent, { homeRoute: '/(field)/count' })); });
+    return { renderer, asked };
+  };
+  const fixing = await run({ params: { fix: OPERATION } });
+  await TestRenderer.act(async () => { fixing.renderer.root.findAll(n => n.type === 'Button' && n.props.title === "Use this device's copy")[0].props.onPress(); });
+  assert.equal(fixing.renderer.root.findAllByType('CountLocationStep').length, 1, 'the crew can carry on with the copy');
+
+  const offline = await run({ params: { fix: OPERATION }, online: false });
+  assert.equal(offline.renderer.root.findAllByType('CountLocationStep').length, 1);
+  assert.ok(offline.asked.every(check => check === null), 'nothing to ask offline');
+
+  const ordinary = await run();
+  assert.equal(ordinary.renderer.root.findAllByType('CountLocationStep').length, 1);
+  assert.ok(ordinary.asked.every(check => check === null), 'a location in the copy needs no download');
+
+  // A plan the copy doesn't have may be newer than it: ask, without holding the crew up.
+  const newer = await run({ location: { siteMapId: 'map-new', pin: null, zoneId: null, zoneName: '' } });
+  assert.equal(newer.asked.at(-1), 'map-new|');
+  assert.equal(newer.renderer.root.findAllByType('CountLocationStep').length, 1);
+  for (const { renderer } of [fixing, offline, ordinary, newer]) await TestRenderer.act(async () => { renderer.unmount(); });
+});
+
+test('a count reopened while Count is still mounted (tabs keep it) is checked too', async () => {
+  const draft = countDraft({ step: 2 });
+  const params = {};
+  const asked = [];
+  const loader = screenLoader({ draft, queueStorage: { getItem: async () => null, setItem: async () => {} }, reference: deviceCopy, params, online: true,
+    useReference: (options) => { asked.push(options.check); return { data: deviceCopy, loading: true, source: 'cache', error: '', reload: async () => {}, checked: null }; } });
+  const { CountItemScreenContent } = loader.load('./components/screens/CountItemScreen.tsx');
+  const screen = () => React.createElement(CountItemScreenContent, { homeRoute: '/(field)/count' });
+  let renderer;
+  await TestRenderer.act(async () => { renderer = TestRenderer.create(screen()); });
+  assert.equal(asked.at(-1), null);
+  params.fix = OPERATION;
+  await TestRenderer.act(async () => { renderer.update(screen()); });
+  assert.equal(asked.at(-1), 'map-a|zone-b');
+  assert.equal(renderer.root.findAllByType('CountLocationStep').length, 0);
   await TestRenderer.act(async () => { renderer.unmount(); });
 });

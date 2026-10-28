@@ -125,6 +125,7 @@ export function countCategoryIssue(category: CountCategoryChoice): string | null
 }
 
 // Mirrors the server's location rules (migration 020); the pin stays optional.
+// A plan or area missing from an older copy passes: the server decides.
 export function countLocationIssue(location: CountLocation, rule?: LocationRule): string | null {
   const stale = staleLocation(location, rule);
   if (stale === 'plan') return 'The office has retired this site plan. Choose the location again.';

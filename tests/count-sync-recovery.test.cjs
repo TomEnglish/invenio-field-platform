@@ -81,7 +81,7 @@ test('a refused count reopens in Count on the step to fix, under a new operation
   assert.deepEqual(h.calls.restored[0].draft.location, { siteMapId: 'map-a', pin: { x: 0.4, y: 0.6 }, zoneId: 'zone-b', zoneName: 'Zone B' });
   assert.deepEqual(h.calls.restored[0].draft.photos, [{ uri: 'file:///documents/c.jpg' }]);
   assert.deepEqual(h.calls.removed, ['op-1']);
-  assert.deepEqual(h.calls.routes, ['/(field)/count-item']);
+  assert.deepEqual(h.calls.routes, ['/(field)/count-item?fix=restored-op'], 'names the reopened count, so Count checks it against a fresh download');
   await TestRenderer.act(async () => { renderer.unmount(); });
 });
 

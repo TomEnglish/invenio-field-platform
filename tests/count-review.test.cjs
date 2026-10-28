@@ -101,10 +101,12 @@ test('a refused queued count becomes the same draft again, opening where the ser
   assert.equal(draftFromQueuedCount(payload, 'Something else').step, 3);
 });
 
-// Plan map-a has areas; plan map-b (also in use) has none; map-old is retired.
+// Plan map-a has areas; plan map-b (also in use) has none; area "gone" is
+// retired. map-old is missing from the copy: retired only once a download made
+// for that location confirms it (confirmedFor).
 const rule = {
   activeMapIds: new Set(['map-a', 'map-b']), liveAreaIds: new Set(['zone-b', 'rack2']), mapsWithAreas: new Set(['map-a']),
-  areaMap: new Map([['zone-b', 'map-a'], ['rack2', 'map-a']]),
+  areaMap: new Map([['zone-b', 'map-a'], ['rack2', 'map-a']]), retiredAreaIds: new Set(['gone']), confirmedFor: null,
 };
 
 test('a count needs an area when the plan it names has areas (or, with no plan, when any does)', () => {
@@ -112,7 +114,7 @@ test('a count needs an area when the plan it names has areas (or, with no plan, 
   none.location = { siteMapId: null, pin: null, zoneId: null, zoneName: '' };
   assert.equal(countReviewIssue(none, rule).step, 2);
   assert.match(countLocationIssue(none.location, rule), /Choose a location/);
-  assert.equal(countReviewIssue(none, { activeMapIds: new Set(['map-a']), liveAreaIds: new Set(), mapsWithAreas: new Set(), areaMap: new Map() }), null, 'no areas, no requirement');
+  assert.equal(countReviewIssue(none, { ...rule, liveAreaIds: new Set(), mapsWithAreas: new Set(), areaMap: new Map() }), null, 'no areas, no requirement');
   const pinOnPlainPlan = draft();
   pinOnPlainPlan.location = { siteMapId: 'map-b', pin: { x: 0.5, y: 0.5 }, zoneId: null, zoneName: '' };
   assert.equal(countReviewIssue(pinOnPlainPlan, rule), null, 'a plan with no areas takes a pin on its own');
@@ -124,7 +126,12 @@ test('a count needs an area when the plan it names has areas (or, with no plan, 
   assert.match(countReviewIssue({ ...retired, location: { ...retired.location, zoneId: 'gone' } }, rule).message, /retired this area/);
   const retiredPlan = draft();
   retiredPlan.location = { siteMapId: 'map-old', pin: { x: 0.2, y: 0.2 }, zoneId: null, zoneName: '' };
-  assert.match(countReviewIssue(retiredPlan, rule).message, /retired this site plan/);
+  assert.equal(countReviewIssue(retiredPlan, rule), null, 'missing from an older copy: maybe a new plan, so the server decides');
+  assert.match(countReviewIssue(retiredPlan, { ...rule, confirmedFor: 'map-old|' }).message, /retired this site plan/, 'missing from a download made for it: retired');
+  const newArea = draft();
+  newArea.location = { siteMapId: 'map-a', pin: null, zoneId: 'zone-new', zoneName: 'New bay' };
+  assert.equal(countReviewIssue(newArea, rule), null, 'an area newer than the copy is kept');
+  assert.match(countReviewIssue(newArea, { ...rule, confirmedFor: 'map-a|zone-new' }).message, /retired this area/);
   // The server: 42501 "Zone is unavailable on this map".
   const otherPlan = draft();
   otherPlan.location = { siteMapId: 'map-b', pin: null, zoneId: 'rack2', zoneName: 'T1 Pipe Racks › Rack 2' };

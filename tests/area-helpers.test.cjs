@@ -141,11 +141,33 @@ test('a tap picks the deepest area in the tree, then the smaller; broken outline
   assert.equal(areas.deepestAreaAt([...tree, bowtie], { x: 0.25, y: 0.3 }).id, 'bay');
 });
 
+test('a tap checks outlines only for the areas under the finger', () => {
+  // 300 areas of 200 points each, none under the tap. Checking every outline
+  // for crossings first read each one tens of thousands of times per tap.
+  const circle = (cx, cy, r, n) => Array.from({ length: n }, (_, i) => [cx + r * Math.cos((2 * Math.PI * i) / n), cy + r * Math.sin((2 * Math.PI * i) / n)]);
+  let reads = 0;
+  const counted = (shape) => new Proxy(shape, { get: (target, key) => { if (typeof key === 'string' && /^\d+$/.test(key)) reads += 1; return target[key]; } });
+  const many = Array.from({ length: 300 }, (_, i) => area(`a${i}`, null, `Area ${i}`, counted(circle(0.6 + (i % 20) * 0.02, 0.6 + Math.floor(i / 20) * 0.02, 0.008, 200))));
+  const target = area('target', null, 'Target', rect(0.1, 0.1, 0.2, 0.2));
+  assert.equal(areas.deepestAreaAt([...many, target], { x: 0.15, y: 0.15 }).id, 'target');
+  assert.ok(reads < 300 * 200 * 4, `${reads} reads of outline points for one tap`);
+});
+
 test('a saved location is stale when its plan or area is retired, or the area is on another plan', () => {
   const rule = areas.locationRule([{ id: 'map-a' }, { id: 'map-b' }], sample, true);
   assert.equal(areas.staleLocation({ siteMapId: 'map-a', zoneId: 'rack2' }, rule), null);
   assert.equal(areas.staleLocation({ siteMapId: null, zoneId: 'rack2' }, rule), null, 'no plan named: the server takes the area\'s plan');
-  assert.equal(areas.staleLocation({ siteMapId: 'map-gone', zoneId: null }, rule), 'plan');
+  // Missing from the copy: a newer plan or a retired one. Unknown until a
+  // download made for that location confirms it is gone.
+  assert.equal(areas.staleLocation({ siteMapId: 'map-gone', zoneId: null }, rule), 'unknown');
+  assert.equal(areas.retiredLocation({ siteMapId: 'map-gone', zoneId: null }, rule), false, 'kept');
+  assert.equal(areas.locationKey({ siteMapId: 'map-gone', zoneId: null }), 'map-gone|');
+  const confirmed = areas.locationRule([{ id: 'map-a' }, { id: 'map-b' }], sample, true, 'map-gone|');
+  assert.equal(areas.staleLocation({ siteMapId: 'map-gone', zoneId: null }, confirmed), 'plan');
+  assert.equal(areas.retiredLocation({ siteMapId: 'map-gone', zoneId: null }, confirmed), true);
+  assert.equal(areas.staleLocation({ siteMapId: 'map-gone', zoneId: 'rack2' }, confirmed), 'unknown', 'confirmed for another location only');
+  assert.equal(areas.staleLocation({ siteMapId: 'map-a', zoneId: 'bay99' }, rule), 'unknown', 'an area newer than the copy');
+  assert.equal(areas.staleLocation({ siteMapId: 'map-a', zoneId: 'bay99' }, areas.locationRule([{ id: 'map-a' }], sample, true, 'map-a|bay99')), 'area');
   assert.equal(areas.staleLocation({ siteMapId: 'map-a', zoneId: 'bayC' }, rule), 'area', 'retired area');
   assert.equal(areas.staleLocation({ siteMapId: 'map-a', zoneId: 'bay10' }, rule), 'area', 'under a retired parent');
   assert.equal(areas.staleLocation({ siteMapId: 'map-b', zoneId: 'rack2' }, rule), 'other-plan');

@@ -24,7 +24,8 @@ const reference = {
   maps: [plan('map-a', 'Training Yard'), plan('map-b', 'Warehouse')], zones,
 };
 
-function setup(location = { siteMapId: null, pin: null, zoneId: null, zoneName: '' }, ref = reference) {
+// `confirmedFor`: the location a fresh download was made for (see locationKey).
+function setup(location = { siteMapId: null, pin: null, zoneId: null, zoneName: '' }, ref = reference, { platform = 'ios', confirmedFor = null } = {}) {
   const announced = [];
   const store = create((set) => ({
     location, mapView: null,
@@ -38,7 +39,7 @@ function setup(location = { siteMapId: null, pin: null, zoneId: null, zoneName: 
     'react/jsx-runtime': require('react/jsx-runtime'),
     'react-native': {
       View: 'View', Text: 'Text', ScrollView: 'ScrollView', Pressable: 'Pressable', KeyboardAvoidingView: 'KeyboardAvoidingView',
-      Platform: { OS: 'ios' }, StyleSheet: { create: (styles) => styles },
+      Platform: { OS: platform }, StyleSheet: { create: (styles) => styles },
       AccessibilityInfo: { announceForAccessibility: (message) => announced.push(message) },
     },
     '@expo/vector-icons/FontAwesome': element('Icon'),
@@ -51,7 +52,7 @@ function setup(location = { siteMapId: null, pin: null, zoneId: null, zoneName: 
   const { CountLocationStep } = loader.load('./components/inventory/CountLocationStep.tsx');
   const { locationRule } = loader.load('./lib/inventory/areas.ts');
   // As in CountItemScreen: no rule until a copy has been downloaded.
-  const rule = locationRule(ref.maps, ref.zones, !!ref.savedAt);
+  const rule = locationRule(ref.maps, ref.zones, !!ref.savedAt, confirmedFor);
   const scrolls = [];
   const calls = { next: 0 };
   const render = async () => {
@@ -81,7 +82,7 @@ const next = (r) => TestRenderer.act(async () => { button(r, 'Next: photo & revi
 test('the step cannot continue without an area on a plan that has areas', async () => {
   const h = setup();
   const r = await h.render();
-  assert.ok(texts(r).includes('Choose a location: pick an area below or tap it on the plan.'));
+  assert.ok(texts(r).includes('Choose a location: pick an area from the list or tap it on the plan.'));
   await next(r);
   assert.equal(h.calls.next, 0);
   assert.ok(texts(r).some(t => /Choose a location: pick an area from the list/.test(t)));
@@ -163,11 +164,34 @@ test('with no plan chosen, a plan without areas asks for a pin or another plan',
   const ref = { ...reference, maps: [plan('map-b', 'Warehouse'), plan('map-a', 'Training Yard')] };
   const h = setup(undefined, ref);
   const r = await h.render();
-  assert.ok(texts(r).includes('Drop a pin on this plan, or switch to a plan with areas and pick one.'));
+  assert.ok(texts(r).includes('Tap the plan to drop a pin, or switch to a plan with areas and pick one.'));
   assert.equal(button(r, 'Skip location'), undefined);
   await next(r);
   assert.equal(h.calls.next, 0);
-  assert.ok(texts(r).some(t => /drop a pin on this plan, or switch to a plan with areas/.test(t)));
+  assert.ok(texts(r).includes('Choose a location: tap the plan to drop a pin, or switch to a plan with areas and pick one.'));
+});
+
+test('the chip of the plan on screen chooses it: a plan with no areas or image can still be named', async () => {
+  // Warehouse (shown first) has no areas and no image on the device.
+  const ref = { ...reference, images: { 'map-a': 'file:///a.png' }, maps: [plan('map-b', 'Warehouse'), plan('map-a', 'Training Yard')] };
+  const h = setup(undefined, ref);
+  const r = await h.render();
+  const hint = 'Tap “Warehouse” above to choose this plan, or switch to a plan with areas and pick one.';
+  assert.ok(texts(r).includes(hint), 'the hint names what this plan offers: no pin, no list');
+  assert.ok(!texts(r).some(t => /list|drop a pin/.test(t)));
+  await next(r);
+  assert.ok(texts(r).includes('Choose a location: tap “Warehouse” above to choose this plan, or switch to a plan with areas and pick one.'));
+  await TestRenderer.act(async () => { button(r, 'Warehouse').props.onPress(); });
+  assert.deepEqual(plain(h.store.getState().location), { siteMapId: 'map-b', pin: null, zoneId: null, zoneName: '' });
+  assert.equal(button(r, 'Warehouse').props.accessibilityLabel, 'Warehouse, chosen');
+  assert.ok(texts(r).includes('Warehouse chosen.'));
+  await next(r);
+  assert.equal(h.calls.next, 1, 'the server takes a plan with no areas on its own');
+  // Tapping the chosen plan again keeps what was chosen on it.
+  await TestRenderer.act(async () => { button(r, 'Training Yard').props.onPress(); });
+  await tapPlan(r, { x: 0.25, y: 0.2 }, zones.find(z => z.id === 'rack2'));
+  await TestRenderer.act(async () => { button(r, 'Training Yard').props.onPress(); });
+  assert.equal(h.store.getState().location.zoneId, 'rack2');
 });
 
 test('an area kept from an earlier count but since retired is cleared so the crew can choose again', async () => {
@@ -181,9 +205,24 @@ test('an area kept from an earlier count but since retired is cleared so the cre
   assert.equal(h.calls.next, 1);
 });
 
-test('a kept plan the office retired is cleared; with no areas left the location can be skipped', async () => {
+test('a plan or area missing from the copy is kept, not called retired: it may be newer than the download', async () => {
   const ref = { ...reference, maps: [plan('map-b', 'Warehouse')], zones: [] };
-  const h = setup({ siteMapId: 'map-a', pin: { x: 0.3, y: 0.3 }, zoneId: 'rack2', zoneName: 'Rack 2' }, ref);
+  const newer = { siteMapId: 'map-new', pin: { x: 0.3, y: 0.3 }, zoneId: 'bay9', zoneName: 'New Laydown › Bay 9' };
+  const h = setup(newer, ref);
+  const r = await h.render();
+  assert.deepEqual(plain(h.store.getState().location), newer);
+  assert.ok(!texts(r).some(t => /retired/.test(t)));
+  assert.ok(texts(r).includes("Saved location: New Laydown › Bay 9. It isn't on this device yet, so it's kept as it is."));
+  await next(r);
+  assert.equal(h.calls.next, 1, 'the server decides');
+  const area = setup({ siteMapId: 'map-a', pin: null, zoneId: 'bay9', zoneName: 'Bay 9' });
+  await area.render();
+  assert.equal(area.store.getState().location.zoneId, 'bay9', 'an area newer than the copy is kept too');
+});
+
+test('a kept plan the office retired is cleared once a fresh download confirms it; with no areas left the location can be skipped', async () => {
+  const ref = { ...reference, maps: [plan('map-b', 'Warehouse')], zones: [] };
+  const h = setup({ siteMapId: 'map-a', pin: { x: 0.3, y: 0.3 }, zoneId: 'rack2', zoneName: 'Rack 2' }, ref, { confirmedFor: 'map-a|rack2' });
   const r = await h.render();
   assert.deepEqual(plain(h.store.getState().location), { siteMapId: null, pin: null, zoneId: null, zoneName: '' });
   assert.ok(texts(r).some(t => /retired the site plan chosen before/.test(t)));
@@ -195,6 +234,15 @@ test('a saved flat area name (from build 5) is replaced by the full path', async
   const h = setup({ siteMapId: 'map-a', pin: null, zoneId: 'rack2', zoneName: 'Rack 2' });
   await h.render();
   assert.equal(h.store.getState().location.zoneName, 'T1 Pipe Racks › Rack 2');
+});
+
+test('TalkBack hears a plan tap once, from the status line, not a second announcement', async () => {
+  const h = setup(undefined, reference, { platform: 'android' });
+  const r = await h.render();
+  await tapPlan(r, { x: 0.25, y: 0.2 }, zones.find(z => z.id === 'rack2'));
+  assert.deepEqual(h.announced, []);
+  const [status] = r.root.findAll(n => n.type === 'Text' && n.props.accessibilityLiveRegion === 'polite');
+  assert.equal(texts({ root: status }).join(''), 'T1 Pipe Racks › Rack 2 · pin placed');
 });
 
 test('a location can always be cleared, and plan taps are announced for VoiceOver', async () => {

@@ -135,7 +135,7 @@ export function SiteMapPicker({ map, imageUri, zones, pin, zoneId, initialView, 
           {!imageUri ? (
             <View style={styles.placeholder}>
               <FontAwesome name="map-o" size={28} color={colors.textSubtle} />
-              <Text style={styles.placeholderText}>This site plan isn't on the device yet. Open Count while online to download it, or choose an area from the list.</Text>
+              <Text style={styles.placeholderText}>This site plan's image isn't on the device yet. Open Count while online to download it{zones.length ? ', or choose an area from the list' : ''}.</Text>
             </View>
           ) : view && image ? (
             <View style={[styles.content, { left: view.x, top: view.y, width: shown.width, height: shown.height }]}>

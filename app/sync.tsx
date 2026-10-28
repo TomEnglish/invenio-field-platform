@@ -78,7 +78,8 @@ export default function SyncScreen() {
     const restored = useCountStore.getState().operationId;
     try {
       await removeFromQueue(item.id);
-      router.push((user?.role === 'field_worker' ? '/(field)/count-item' : '/(office)/count-item') as any);
+      // Named so Count checks the location against a fresh download first.
+      router.push(`${user?.role === 'field_worker' ? '/(field)/count-item' : '/(office)/count-item'}?fix=${encodeURIComponent(restored)}` as any);
     } catch (e: any) {
       // Keep one copy only: the saved submission stays, the reopened draft goes.
       if (useCountStore.getState().operationId === restored) useCountStore.getState().countNext();

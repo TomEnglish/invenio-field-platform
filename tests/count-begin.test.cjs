@@ -71,18 +71,25 @@ test('blank and oversized codes are refused before any lookup', async () => {
   assert.equal(h.started.length, 0);
 });
 
-test('a kept location that is no longer usable is not carried into the next count', async () => {
+test('a kept location the office retired is not carried into the next count', async () => {
   const keepUsable = setup({ reference: downloaded, kept: { siteMapId: 'map-a', pin: null, zoneId: 'rack2', zoneName: 'Rack 2' } });
   await keepUsable.start('NEW-1');
   assert.equal(keepUsable.started[0].prefill.location, null, 'a usable kept area carries over');
-  for (const kept of [
-    { siteMapId: 'map-a', pin: null, zoneId: 'old', zoneName: 'Old bay' },          // retired area
-    { siteMapId: 'map-gone', pin: { x: 0.1, y: 0.1 }, zoneId: null, zoneName: '' },  // retired plan
-  ]) {
-    const h = setup({ reference: downloaded, kept });
-    await h.start('NEW-2');
-    assert.deepEqual(h.started[0].prefill.location, { siteMapId: null, pin: null, zoneId: null, zoneName: '' }, JSON.stringify(kept));
-  }
+  const h = setup({ reference: downloaded, kept: { siteMapId: 'map-a', pin: null, zoneId: 'old', zoneName: 'Old bay' } });
+  await h.start('NEW-2');
+  assert.deepEqual(h.started[0].prefill.location, { siteMapId: null, pin: null, zoneId: null, zoneName: '' }, 'a retired area is dropped');
+});
+
+test('a location on a plan or area missing from the copy is kept: it may be newer than the download', async () => {
+  // The device downloaded map-a; the office has since added map-new with Bay 9.
+  const kept = setup({ reference: downloaded, kept: { siteMapId: 'map-new', pin: { x: 0.1, y: 0.1 }, zoneId: null, zoneName: '' } });
+  await kept.start('NEW-1');
+  assert.equal(kept.started[0].prefill.location, null, 'the kept pin on the newer plan carries over');
+  const recorded = { ...expected, count_status: 'counted', site_map_id: 'map-new', zone_id: 'bay9', location: 'Bay 9' };
+  const own = setup({ record: recorded, reference: downloaded });
+  await own.start('T-1');
+  assert.equal(own.started[0].prefill.location.siteMapId, 'map-new', 'the record\'s own newer plan is used, not called retired');
+  assert.equal(own.started[0].prefill.location.zoneId, 'bay9');
 });
 
 test('a record\'s own location on a retired plan or area gives way to the kept one', async () => {
