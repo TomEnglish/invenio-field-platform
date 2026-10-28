@@ -6,7 +6,7 @@ const { createModuleLoader } = require('./helpers/load-typescript.cjs');
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
-function scanScreen({ material = null, counted = null, area = { path: 'T1 Pipe Racks › Rack 2', locationId: 'rack-t1-1-2' } } = {}) {
+function scanScreen({ material = null, counted = null, area = { path: 'T1 Pipe Racks › Rack 2', locationId: 'rack-t1-1-2' }, areaLater = null } = {}) {
   const routes = [];
   const records = new Map();
   const loader = createModuleLoader({ stubs: {
@@ -25,7 +25,7 @@ function scanScreen({ material = null, counted = null, area = { path: 'T1 Pipe R
     '@/lib/api/qrcodes': { lookupMaterialByQR: async () => { if (material === 'offline') throw new Error('Network request failed'); return material; } },
     '@/lib/api/inventory': {
       findInventoryByTag: async (tag) => (counted && counted.qr_code === tag ? counted : null),
-      countedAreaInfo: async () => area,
+      countedAreaInfo: async () => (areaLater ? areaLater : area),
     },
   } });
   const { ScanScreenContent } = loader.load('./components/screens/ScanScreen.tsx');
@@ -89,4 +89,18 @@ test('an area with no linked rack (and none above it) leaves the receiving locat
   const draft = h.useReceivingStore.getState();
   assert.equal(draft.countedFrom.zoneName, 'T2 Laydown › Bay 4');
   assert.equal(draft.location.location_id, '');
+});
+
+test('receiving opens at once; the area path and rack fill in after, without overriding a chosen location', async () => {
+  let release;
+  const slow = new Promise(resolve => { release = resolve; });
+  const h = scanScreen({ counted: { ...countedRecord, location: 'Stored path' }, areaLater: slow });
+  await scan(h, 'GT2-LO-001');
+  assert.deepEqual(h.routes, ['/(field)/receiving'], 'no wait for the area lookup');
+  assert.equal(h.useReceivingStore.getState().countedFrom.zoneName, 'Stored path');
+  h.useReceivingStore.getState().setLocation({ location_id: 'chosen-by-hand' }, 'Hand-picked');
+  await TestRenderer.act(async () => { release({ path: 'T1 Pipe Racks › Rack 2', locationId: 'rack-t1-1-2' }); await slow; });
+  const draft = h.useReceivingStore.getState();
+  assert.equal(draft.countedFrom.zoneName, 'T1 Pipe Racks › Rack 2');
+  assert.equal(draft.location.location_id, 'chosen-by-hand');
 });

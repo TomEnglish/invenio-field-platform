@@ -21,6 +21,7 @@ interface Props {
 export function AreaList({ areas, selectedId, reveal, onSelect, style }: Props) {
   const tree = useMemo(() => buildAreaTree(areas), [areas]);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [searching, setSearching] = useState(false);
   const [query, setQuery] = useState('');
   const scrollRef = useRef<ScrollView>(null);
   const rowY = useRef(new Map<string, number>());
@@ -32,26 +33,36 @@ export function AreaList({ areas, selectedId, reveal, onSelect, style }: Props) 
     const parents = areaPath(tree, selectedId).slice(0, -1).map(area => area.id);
     if (parents.some(id => !expanded.has(id))) setExpanded(current => new Set([...current, ...parents]));
   }, [selectedId, tree]);
+  const rows = visibleAreaRows(tree, expanded);
+  // Positions of rows that are no longer shown are out of date.
+  useEffect(() => {
+    const shown = new Set(rows.map(row => row.area.id));
+    for (const id of [...rowY.current.keys()]) if (!shown.has(id)) rowY.current.delete(id);
+  });
   useEffect(() => {
     if (!reveal) return;
-    setQuery('');
-    const y = rowY.current.get(reveal.areaId);
-    if (y !== undefined) scrollRef.current?.scrollTo({ y: Math.max(0, y - space[2]), animated: true });
-    // Rows that are about to appear scroll once they are laid out.
-    pendingScroll.current = reveal.areaId;
+    setQuery(''); setSearching(false);
+    const y = rows.some(row => row.area.id === reveal.areaId) ? rowY.current.get(reveal.areaId) : undefined;
+    if (y !== undefined) {
+      pendingScroll.current = null;
+      scrollRef.current?.scrollTo({ y: Math.max(0, y - space[2]), animated: true });
+    } else {
+      // The row appears once its parents open; it scrolls when laid out.
+      pendingScroll.current = reveal.areaId;
+    }
   }, [reveal?.nonce]);
 
-  const rows = visibleAreaRows(tree, expanded);
   const results = query.trim() ? searchAreas(tree, query) : [];
   const toggle = (id: string) => setExpanded(current => {
     const next = new Set(current);
     if (next.has(id)) next.delete(id); else next.add(id);
     return next;
   });
-  const choose = (area: SiteMapZone) => { setQuery(''); onSelect(area); };
+  const choose = (area: SiteMapZone) => { setQuery(''); setSearching(false); onSelect(area); };
 
   return (
     <View style={[styles.container, style]}>
+      <View style={styles.header}>
       <View style={styles.breadcrumb} accessibilityRole="toolbar" accessibilityLabel="Chosen location">
         <Pressable accessibilityRole="button" accessibilityLabel="Show all areas" style={styles.crumb}
           onPress={() => { setExpanded(new Set(crumbs.slice(0, -1).map(area => area.id))); setQuery(''); scrollRef.current?.scrollTo({ y: 0, animated: true }); }}>
@@ -66,7 +77,12 @@ export function AreaList({ areas, selectedId, reveal, onSelect, style }: Props) 
           </View>
         ))}
       </View>
-      <Input label="Search areas" value={query} onChangeText={setQuery} placeholder="e.g. rack 2" autoCorrect={false} autoCapitalize="none" returnKeyType="search" />
+      <Pressable accessibilityRole="button" accessibilityLabel={searching ? 'Close search' : 'Search areas'} accessibilityState={{ expanded: searching }} hitSlop={8} style={styles.searchToggle}
+        onPress={() => { setSearching(!searching); setQuery(''); }}>
+        <FontAwesome name={searching ? 'times' : 'search'} size={16} color={colors.brandPrimary} />
+      </Pressable>
+      </View>
+      {searching ? <Input label="Search areas" value={query} onChangeText={setQuery} placeholder="e.g. rack 2" autoFocus autoCorrect={false} autoCapitalize="none" returnKeyType="search" /> : null}
       <ScrollView ref={scrollRef} style={styles.list} contentContainerStyle={styles.listContent} keyboardShouldPersistTaps="handled" nestedScrollEnabled>
         {query.trim() ? (
           results.length === 0
@@ -113,7 +129,9 @@ export function AreaList({ areas, selectedId, reveal, onSelect, style }: Props) 
 
 const styles = StyleSheet.create({
   container: { gap: space[1] },
-  breadcrumb: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center' },
+  header: { flexDirection: 'row', alignItems: 'center', gap: space[2] },
+  breadcrumb: { flex: 1, flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center' },
+  searchToggle: { width: touchTarget, height: touchTarget - 8, alignItems: 'center', justifyContent: 'center' },
   crumbGroup: { flexDirection: 'row', alignItems: 'center' },
   crumb: { minHeight: touchTarget - 8, justifyContent: 'center', paddingHorizontal: space[1] },
   crumbText: { fontSize: fontSize.body, color: colors.brandPrimary, fontWeight: fontWeight.medium },

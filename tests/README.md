@@ -49,7 +49,7 @@ Initial field inventory (Count tab, contract in MSR `docs/INITIAL_INVENTORY.md`)
   operation ID, never over a count in progress) or discarded after a confirmation;
   received tags can only be discarded; photo and connection failures just retry.
 
-All tests pass (137 with nested map areas). `npm run lint` and `npx expo export --platform web` also pass;
+All tests pass (143 with nested map areas). `npm run lint` and `npx expo export --platform web` also pass;
 the web login was verified in Chrome without console errors. Native camera,
 force-close/restart and hosted email/storage behavior remain release smoke checks.
 See the sibling MSR `docs/PLATFORM_RELEASE.md` for the coordinated release guide.

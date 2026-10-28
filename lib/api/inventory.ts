@@ -242,21 +242,25 @@ export async function findInventoryByTag(tag: string): Promise<InventoryItem | n
 // Where a counted item is, for the Scan → receiving hand-off: its full area
 // path, and the rack location linked to that area or the nearest one above it.
 // Uses the cached plan areas; asks the server for that plan's areas when the
-// device has none for it.
+// device has none for it, or only a build 5 copy (no nesting or rack links).
 export async function countedAreaInfo(item: Pick<InventoryItem, 'zone_id' | 'site_map_id' | 'location'>): Promise<{ path: string | null; locationId: string | null }> {
   const fallback = { path: item.location?.trim() || null, locationId: null };
   if (!item.zone_id) return fallback;
-  let zones = ((await getCached<Partial<SiteMapZone>[]>(KEYS.zones)) ?? []).map(withAreaDefaults);
-  if (!zones.some(zone => zone.id === item.zone_id) && item.site_map_id && useNetworkStore.getState().isOnline) {
+  const cached = (await getCached<Partial<SiteMapZone>[]>(KEYS.zones)) ?? [];
+  let flat = cached.some(zone => !('is_active' in zone));
+  let zones = cached.map(withAreaDefaults);
+  if ((flat || !zones.some(zone => zone.id === item.zone_id)) && item.site_map_id && useNetworkStore.getState().isOnline) {
     try {
       const { data, error } = await withTimeout<{ data: any[] | null; error: unknown }>(
         getProjectClient().from('site_map_zones').select('id,map_id,parent_id,name,shape,color,sort_order,is_active,location_id').eq('map_id', item.site_map_id),
       );
-      if (!error && data) zones = data.map(withAreaDefaults);
+      if (!error && data) { zones = data.map(withAreaDefaults); flat = false; }
     } catch { /* Use what the device has. */ }
   }
   const tree = buildAreaTree(zones);
   if (!tree.byId.has(item.zone_id)) return fallback;
+  // A build 5 copy knows only the area's own name; the server's stored path is fuller.
+  if (flat) return { path: fallback.path ?? areaPathLabel(tree, item.zone_id), locationId: null };
   return { path: areaPathLabel(tree, item.zone_id), locationId: linkedLocationId(tree, item.zone_id) };
 }
 

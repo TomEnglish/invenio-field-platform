@@ -219,3 +219,16 @@ test('the hand-off asks the server for a plan\'s areas the device has not saved'
   const offline = setup({ tables, online: false });
   assert.deepEqual(plain(await offline.api.countedAreaInfo({ zone_id: 'zone-b2', site_map_id: 'map-a', location: 'Zone B › Bay 2' })), { path: 'Zone B › Bay 2', locationId: null }, 'offline with no saved areas, the stored path is shown');
 });
+
+test('a build 5 copy of the areas (no nesting or rack links) is not trusted for the hand-off', async () => {
+  const flatCache = JSON.stringify({ data: [
+    { id: 'zone-b', map_id: 'map-a', name: 'Zone B', shape: [[0, 0], [1, 0], [1, 1]], color: null, sort_order: 0 },
+    { id: 'zone-b2', map_id: 'map-a', name: 'Bay 2', shape: [[0.5, 0.1], [0.9, 0.1], [0.9, 0.5]], color: null, sort_order: 0 },
+  ], timestamp: 0 });
+  const online = setup({ tables });
+  online.records.set('cache_worker-a_project-a_count_site_map_zones', flatCache);
+  assert.deepEqual(plain(await online.api.countedAreaInfo({ zone_id: 'zone-b2', site_map_id: 'map-a', location: 'Zone B › Bay 2' })), { path: 'Zone B › Bay 2', locationId: 'rack-b' }, 'online, the server\'s areas are used');
+  const offline = setup({ tables, online: false });
+  offline.records.set('cache_worker-a_project-a_count_site_map_zones', flatCache);
+  assert.deepEqual(plain(await offline.api.countedAreaInfo({ zone_id: 'zone-b2', site_map_id: 'map-a', location: 'Zone B › Bay 2' })), { path: 'Zone B › Bay 2', locationId: null }, 'offline, the stored path rather than the flat name');
+});

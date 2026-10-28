@@ -78,6 +78,10 @@ test('a tap chooses the deepest (smallest) active area under the finger', () => 
   const sloppy = [area('p', null, 'Parent', rect(0, 0, 0.5, 0.5)), area('c', 'p', 'Child', rect(0.4, 0.4, 0.6, 0.6))];
   assert.equal(areas.deepestAreaAt(sloppy, { x: 0.55, y: 0.55 }).id, 'c');
   assert.equal(areas.deepestAreaAt(sloppy, { x: 0.45, y: 0.45 }).id, 'c');
+  // A child traced exactly over its parent: the child wins, whatever the order.
+  const same = rect(0.2, 0.2, 0.4, 0.4);
+  assert.equal(areas.deepestAreaAt([area('kid', 'mum', 'Kid', same), area('mum', null, 'Mum', same)], { x: 0.3, y: 0.3 }).id, 'kid');
+  assert.equal(areas.deepestAreaAt([area('mum', null, 'Mum', same), area('kid', 'mum', 'Kid', same)], { x: 0.3, y: 0.3 }).id, 'kid');
 });
 
 test('area bounds, the linked rack location and the required-area rule', () => {
@@ -86,13 +90,18 @@ test('area bounds, the linked rack location and the required-area rule', () => {
   assert.equal(areas.linkedLocationId(all, 'rack2'), 'rack-t1-1-2', 'its own rack');
   assert.equal(areas.linkedLocationId(all, 'rack3'), 'rack-t1', 'else the nearest parent with one');
   assert.equal(areas.linkedLocationId(all, 'bayA'), null);
-  assert.equal(areas.areaRule(sample, false), undefined, 'unknown until the plan has been downloaded');
-  const rule = areas.areaRule(sample, true);
-  assert.equal(rule.required, true);
-  assert.equal(rule.activeIds.has('rack2'), true);
-  assert.equal(rule.activeIds.has('bayC'), false);
-  assert.equal(areas.areaRule([], true).required, false, 'no areas, no requirement');
-  assert.equal(areas.areaRule([area('x', null, 'X', rect(0, 0, 1, 1), { is_active: false })], true).required, false);
+  const maps = [{ id: 'map-a' }, { id: 'map-plain' }];
+  assert.equal(areas.locationRule(maps, sample, false), undefined, 'unknown until the plan has been downloaded');
+  const rule = areas.locationRule(maps, sample, true);
+  assert.equal(rule.liveAreaIds.has('rack2'), true);
+  assert.equal(rule.liveAreaIds.has('bayC'), false);
+  assert.equal(rule.liveAreaIds.has('other-map'), false, 'areas on a plan no longer in use are not live');
+  assert.equal(areas.areaRequired(rule, 'map-a'), true);
+  assert.equal(areas.areaRequired(rule, 'map-plain'), false, 'a plan with no areas takes a pin on its own');
+  assert.equal(areas.areaRequired(rule, null), true, 'no plan named: required while any plan has areas');
+  assert.equal(areas.areaRequired(areas.locationRule(maps, [], true), null), false, 'no areas, no requirement');
+  assert.equal(areas.areaRequired(areas.locationRule(maps, [area('x', null, 'X', rect(0, 0, 1, 1), { is_active: false })], true), null), false);
+  assert.equal(areas.areaRequired(undefined, 'map-a'), false);
 });
 
 test('picking an area zooms the plan to fit it, centred and within the zoom limits', () => {

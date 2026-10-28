@@ -22,16 +22,20 @@ export function ScanScreenContent({ materialDetailRoute, receivingRoute }: ScanS
     reset();
     setQRCode(code, null);
     const counted = await findInventoryByTag(code).catch(() => null);
-    if (counted?.count_status === 'counted') {
-      const receiving = useReceivingStore.getState();
-      const area = await countedAreaInfo(counted).catch(() => ({ path: counted.location, locationId: null }));
-      if (useReceivingStore.getState().qrCodeValue === code) {
-        receiving.setMaterial(receivingPrefill(counted));
-        receiving.setCountedFrom({ countedAt: counted.counted_at, zoneName: area.path });
-        if (area.locationId) receiving.setLocation({ location_id: area.locationId }, area.path ?? '');
-      }
+    const fromCount = counted?.count_status === 'counted' && useReceivingStore.getState().qrCodeValue === code ? counted : null;
+    if (fromCount) {
+      useReceivingStore.getState().setMaterial(receivingPrefill(fromCount));
+      useReceivingStore.getState().setCountedFrom({ countedAt: fromCount.counted_at, zoneName: fromCount.location?.trim() || null });
     }
     router.push(receivingRoute as any);
+    // The area path and its rack may need the server: fill them in once known,
+    // unless this receipt has moved on or a location was already chosen.
+    if (fromCount) void countedAreaInfo(fromCount).then(area => {
+      const receiving = useReceivingStore.getState();
+      if (receiving.qrCodeValue !== code || !receiving.countedFrom) return;
+      if (area.path) receiving.setCountedFrom({ countedAt: fromCount.counted_at, zoneName: area.path });
+      if (area.locationId && !receiving.location.location_id) receiving.setLocation({ location_id: area.locationId }, area.path ?? '');
+    }).catch(() => {});
   };
 
   const handleScan = async (code: string) => {

@@ -101,19 +101,27 @@ test('a refused queued count becomes the same draft again, opening where the ser
   assert.equal(draftFromQueuedCount(payload, 'Something else').step, 3);
 });
 
-test('once the plan has areas every count needs one; the pin stays optional', () => {
-  const rule = { required: true, activeIds: new Set(['zone-b', 'rack2']) };
+// Plan map-a has areas; plan map-b (also in use) has none; map-old is retired.
+const rule = { activeMapIds: new Set(['map-a', 'map-b']), liveAreaIds: new Set(['zone-b', 'rack2']), mapsWithAreas: new Set(['map-a']) };
+
+test('a count needs an area when the plan it names has areas (or, with no plan, when any does)', () => {
   const none = draft();
   none.location = { siteMapId: null, pin: null, zoneId: null, zoneName: '' };
   assert.equal(countReviewIssue(none, rule).step, 2);
   assert.match(countLocationIssue(none.location, rule), /Choose a location/);
-  assert.equal(countReviewIssue(none, { required: false, activeIds: new Set() }), null, 'no areas, no requirement');
+  assert.equal(countReviewIssue(none, { activeMapIds: new Set(['map-a']), liveAreaIds: new Set(), mapsWithAreas: new Set() }), null, 'no areas, no requirement');
+  const pinOnPlainPlan = draft();
+  pinOnPlainPlan.location = { siteMapId: 'map-b', pin: { x: 0.5, y: 0.5 }, zoneId: null, zoneName: '' };
+  assert.equal(countReviewIssue(pinOnPlainPlan, rule), null, 'a plan with no areas takes a pin on its own');
   assert.equal(countReviewIssue(none), null, 'unknown rule: the server decides');
   const areaOnly = draft();
   areaOnly.location = { siteMapId: 'map-a', pin: null, zoneId: 'rack2', zoneName: 'T1 Pipe Racks › Rack 2' };
   assert.equal(countReviewIssue(areaOnly, rule), null);
   const retired = draft();
   assert.match(countReviewIssue({ ...retired, location: { ...retired.location, zoneId: 'gone' } }, rule).message, /retired this area/);
+  const retiredPlan = draft();
+  retiredPlan.location = { siteMapId: 'map-old', pin: { x: 0.2, y: 0.2 }, zoneId: null, zoneName: '' };
+  assert.match(countReviewIssue(retiredPlan, rule).message, /retired this site plan/);
   const pinOutside = draft();
   pinOutside.location = { siteMapId: 'map-a', pin: { x: 0.9, y: 0.9 }, zoneId: null, zoneName: '' };
   assert.equal(countReviewIssue(pinOutside, rule).step, 2, 'a pin alone is not enough');
@@ -123,6 +131,8 @@ test('a count refused for having no location reopens on the Location step', () =
   const payload = { count: plain(buildCountPayload(draft())), photos: [] };
   assert.equal(draftFromQueuedCount(payload, 'Choose a location').step, 2);
   assert.equal(draftFromQueuedCount(payload, 'Area is inactive').step, 2);
+  assert.equal(draftFromQueuedCount(payload, 'This area is no longer in use; choose another').step, 2);
+  assert.equal(draftFromQueuedCount(payload, 'This site plan is no longer in use').step, 2, 'a retired plan does not loop back to review');
 });
 
 test('a matched record pre-fills its area with the full path', () => {

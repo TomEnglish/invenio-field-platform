@@ -126,12 +126,16 @@ export function searchAreas<T extends MapArea>(tree: AreaTree<T>, query: string,
 // are drawn inside their parent, so the smallest is the deepest; a child that
 // pokes outside its parent still wins where it is the smaller shape.
 export function deepestAreaAt<T extends MapArea>(areas: T[], pin: Pin): T | null {
+  const live = activeAreas(areas);
+  const tree = buildAreaTree(live);
   let best: T | null = null;
   let bestArea = Infinity;
-  for (const area of activeAreas(areas)) {
+  for (const area of live) {
     if (!pointInPolygon(pin, area.shape)) continue;
     const size = polygonArea(area.shape);
-    if (size < bestArea) { best = area; bestArea = size; }
+    // Same size (a child traced over its parent): the deeper area wins.
+    const tie = Math.abs(size - bestArea) < 1e-12 && best && areaPath(tree, area.id).length > areaPath(tree, best.id).length;
+    if (size < bestArea - 1e-12 || tie) { best = area; bestArea = size; }
   }
   return best;
 }
@@ -150,11 +154,23 @@ export function linkedLocationId(tree: AreaTree, id: string | null | undefined):
   return null;
 }
 
-// Whether a count must name an area: the project has an active area on an
-// active plan (the cache only holds active plans). Unknown without a
-// downloaded copy; the server still enforces it.
-export function areaRule(areas: MapArea[], treeKnown: boolean): { required: boolean; activeIds: Set<string> } | undefined {
+// What the server accepts as a count location (migration 020), from the
+// downloaded plans and areas. The cache holds only plans in use. A count needs
+// an area when the plan it names has areas in use, or, with no plan, when any
+// plan does; a plan with no areas takes a pin on its own. Unknown without a
+// downloaded copy; the server still decides.
+export interface LocationRule {
+  activeMapIds: Set<string>;
+  liveAreaIds: Set<string>;
+  mapsWithAreas: Set<string>;
+}
+export function locationRule(maps: { id: string }[], areas: MapArea[], treeKnown: boolean): LocationRule | undefined {
   if (!treeKnown) return undefined;
-  const live = activeAreas(areas);
-  return { required: live.length > 0, activeIds: new Set(live.map(area => area.id)) };
+  const activeMapIds = new Set(maps.map(map => map.id));
+  const live = activeAreas(areas).filter(area => activeMapIds.has(area.map_id));
+  return { activeMapIds, liveAreaIds: new Set(live.map(area => area.id)), mapsWithAreas: new Set(live.map(area => area.map_id)) };
+}
+export function areaRequired(rule: LocationRule | undefined, siteMapId: string | null): boolean {
+  if (!rule) return false;
+  return siteMapId ? rule.mapsWithAreas.has(siteMapId) : rule.mapsWithAreas.size > 0;
 }

@@ -4,16 +4,16 @@ import * as ImagePicker from 'expo-image-picker';
 import { Button } from '@/components/ui/Button';
 import { useCountStore } from '@/stores/countStore';
 import { saveCountPhoto } from '@/lib/utils/saveCountPhoto';
-import { COUNT_CONDITIONS, categoryAvailabilityIssue, countReviewIssue, type AreaRule } from '@/lib/inventory/count';
+import { COUNT_CONDITIONS, categoryAvailabilityIssue, countReviewIssue, type LocationRule } from '@/lib/inventory/count';
 import type { InventoryCategory } from '@/lib/inventory/categories';
 import { colors, radius, space, fontSize, fontWeight } from '@/lib/design/tokens';
 
-interface Props { categories: InventoryCategory[]; treeKnown: boolean; areaRule?: AreaRule; onEdit: (step: number) => void; onSubmit: () => void; submitting: boolean; error?: string }
+interface Props { categories: InventoryCategory[]; treeKnown: boolean; rule?: LocationRule; areaLabel?: string; onEdit: (step: number) => void; onSubmit: () => void; submitting: boolean; error?: string }
 
 // Step 4: photo, then the receiving-style review with Edit per section.
-export function CountReviewStep({ categories, treeKnown, areaRule, onEdit, onSubmit, submitting, error }: Props) {
+export function CountReviewStep({ categories, treeKnown, rule, areaLabel, onEdit, onSubmit, submitting, error }: Props) {
   const draft = useCountStore();
-  const issue = countReviewIssue(draft, areaRule) ?? categoryAvailabilityIssue(draft.category, categories, treeKnown);
+  const issue = countReviewIssue(draft, rule) ?? categoryAvailabilityIssue(draft.category, categories, treeKnown);
   const [busy, setBusy] = useState(false);
   const [photoError, setPhotoError] = useState('');
   const capturing = useRef(false);
@@ -38,7 +38,7 @@ export function CountReviewStep({ categories, treeKnown, areaRule, onEdit, onSub
   const sections: { title: string; step: number; rows: [string, string | undefined][] }[] = [
     { title: 'Item', step: 0, rows: [['Tag', draft.tag], ['Name', item.name], ['Part number', item.partNumber], ['Quantity', `${item.quantity} ${item.uom}`], ['Condition', condition], ['Description', item.description], ['Notes', item.notes]] },
     { title: 'Category', step: 1, rows: [[category.proposed ? 'Proposed category' : 'Category', category.label || undefined]] },
-    { title: 'Location', step: 2, rows: [['Area', location.zoneName || undefined], ['Pin', location.pin ? 'Placed on the site plan' : undefined]] },
+    { title: 'Location', step: 2, rows: [['Area', areaLabel || location.zoneName || undefined], ['Pin', location.pin ? 'Placed on the site plan' : undefined]] },
   ];
 
   return <ScrollView contentContainerStyle={styles.content}>

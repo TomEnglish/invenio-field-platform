@@ -174,7 +174,7 @@ export function SiteMapPicker({ map, imageUri, zones, pin, zoneId, initialView, 
 
 const styles = StyleSheet.create({
   container: { flex: 1, gap: space[2] },
-  border: { flex: 1, minHeight: 240, overflow: 'hidden', borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.raised },
+  border: { flex: 1, minHeight: 150, overflow: 'hidden', borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.raised },
   frame: { flex: 1, overflow: 'hidden' },
   content: { position: 'absolute', pointerEvents: 'none' },
   pin: { position: 'absolute', width: PIN_SIZE, height: PIN_SIZE, alignItems: 'center', pointerEvents: 'none' },

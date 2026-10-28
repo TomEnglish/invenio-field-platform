@@ -1,26 +1,46 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { View, Text, ScrollView, StyleSheet, KeyboardAvoidingView, Platform } from 'react-native';
 import { Button } from '@/components/ui/Button';
 import { SiteMapPicker } from '@/components/inventory/SiteMapPicker';
 import { AreaList } from '@/components/inventory/AreaList';
 import { useCountStore } from '@/stores/countStore';
 import type { CountReference, SiteMapZone } from '@/lib/api/inventory';
-import { activeAreas, areaPathLabel, buildAreaTree } from '@/lib/inventory/areas';
-import { countLocationIssue, type AreaRule } from '@/lib/inventory/count';
+import { activeAreas, areaPathLabel, areaRequired, buildAreaTree, type LocationRule } from '@/lib/inventory/areas';
+import { countLocationIssue } from '@/lib/inventory/count';
 import { pointInPolygon } from '@/lib/inventory/siteMap';
-import { colors, space, fontSize } from '@/lib/design/tokens';
+import { colors, space, fontSize, fontWeight } from '@/lib/design/tokens';
 
-interface Props { reference: CountReference; areaRule: AreaRule; onNext: () => void; onBack: () => void; nextTitle?: string }
+interface Props { reference: CountReference; rule: LocationRule | undefined; onNext: () => void; onBack: () => void; nextTitle?: string }
 
 // Step 3: the location. The area list and the site plan are one tree: picking
 // from the list zooms the plan to the area; tapping the plan chooses the
 // smallest area under the finger and opens the list to it. An area is
-// required once the project's plan has areas; the pin stays optional.
-export function CountLocationStep({ reference, areaRule, onNext, onBack, nextTitle = 'Next: photo & review' }: Props) {
+// required when the plan has areas; the pin stays optional.
+export function CountLocationStep({ reference, rule, onNext, onBack, nextTitle = 'Next: photo & review' }: Props) {
   const { location, setLocation, mapView, setMapView } = useCountStore();
   const [focus, setFocus] = useState<{ areaId: string; nonce: number } | null>(null);
   const [reveal, setReveal] = useState<{ areaId: string; nonce: number } | null>(null);
   const [error, setError] = useState('');
+  const allAreas = useMemo(() => buildAreaTree(reference.zones), [reference.zones]);
+
+  // A plan or area kept by "Count next", pre-filled from a record or reopened
+  // from Sync may have been retired since; clear it so the crew can choose
+  // again, and refresh the path in case an area was renamed or moved.
+  useEffect(() => {
+    if (!rule) return;
+    const current = useCountStore.getState().location;
+    let next = current;
+    if (next.siteMapId && !rule.activeMapIds.has(next.siteMapId)) next = { siteMapId: null, pin: null, zoneId: null, zoneName: '' };
+    if (next.zoneId && !rule.liveAreaIds.has(next.zoneId)) next = { ...next, zoneId: null, zoneName: '' };
+    else if (next.zoneId) {
+      const label = areaPathLabel(allAreas, next.zoneId);
+      if (label && label !== next.zoneName) next = { ...next, zoneName: label };
+    }
+    if (next === current) return;
+    setLocation(next);
+    if (current.zoneId && !next.zoneId) setError('The office has retired the area chosen before. Choose the location again.');
+    else if (current.siteMapId && !next.siteMapId) setError('The office has retired the site plan chosen before. Choose the location again.');
+  }, [rule, allAreas]);
   const maps = reference.maps;
   const map = maps.find(m => m.id === location.siteMapId) ?? maps[0] ?? null;
   const areas = useMemo(() => (map ? activeAreas(reference.zones.filter(zone => zone.map_id === map.id)) : []), [reference.zones, map?.id]);
@@ -30,7 +50,7 @@ export function CountLocationStep({ reference, areaRule, onNext, onBack, nextTit
   const path = selected ? areaPathLabel(tree, selected) : '';
 
   const chooseMap = (id: string) => {
-    if (id !== map?.id) { setLocation({ siteMapId: id, pin: null, zoneId: null, zoneName: '' }); setError(''); }
+    if (id !== map?.id) { setLocation({ siteMapId: id, pin: null, zoneId: null, zoneName: '' }); setFocus(null); setError(''); }
   };
   // From the list: keep the pin only if it is on this plan and inside the area.
   const chooseArea = (area: SiteMapZone) => {
@@ -40,8 +60,11 @@ export function CountLocationStep({ reference, areaRule, onNext, onBack, nextTit
     setFocus(current => ({ areaId: area.id, nonce: (current?.nonce ?? 0) + 1 }));
     setError('');
   };
+  const required = areaRequired(rule, location.siteMapId);
   const handleNext = () => {
-    const issue = countLocationIssue(location, areaRule);
+    const issue = countLocationIssue(location, rule);
+    // Another plan has areas, this one has none: a pin here names the plan.
+    if (issue && required && !location.zoneId && areas.length === 0) { setError('Choose a location: drop a pin on this plan, or switch to a plan with areas and pick one.'); return; }
     if (issue) { setError(issue); return; }
     setError('');
     onNext();
@@ -50,8 +73,9 @@ export function CountLocationStep({ reference, areaRule, onNext, onBack, nextTit
   const status = !map ? ''
     : selected ? `${path}${onThisMap && location.pin ? ' · pin placed' : ''}`
     : areas.length ? (onThisMap && location.pin ? 'The pin is outside the marked areas. Choose an area from the list.' : 'Choose a location: pick an area below or tap it on the plan.')
-    : onThisMap && location.pin ? 'Pin dropped.' : 'Tap the plan to drop a pin, or skip the location.';
-  const canSkip = !areaRule?.required && !location.zoneId && !location.pin;
+    : onThisMap && location.pin ? 'Pin dropped.'
+    : required ? 'Drop a pin on this plan, or switch to a plan with areas and pick one.' : 'Tap the plan to drop a pin, or skip the location.';
+  const canSkip = !required && !location.zoneId && !location.pin;
 
   return (
     <KeyboardAvoidingView style={styles.container} behavior={Platform.OS === 'ios' ? 'padding' : undefined} keyboardVerticalOffset={100}>
@@ -88,8 +112,8 @@ export function CountLocationStep({ reference, areaRule, onNext, onBack, nextTit
       {areas.length > 0 ? <AreaList areas={areas} selectedId={selected} reveal={reveal} onSelect={chooseArea} style={styles.list} /> : null}
       {error ? <Text style={styles.error} accessibilityRole="alert">{error}</Text> : null}
       <View style={styles.actions}>
-        <Button title={canSkip && map ? 'Skip location' : nextTitle} onPress={handleNext} />
-        <Button title="Back" variant="secondary" onPress={onBack} />
+        <Button title="Back" variant="secondary" onPress={onBack} style={styles.back} />
+        <Button title={canSkip && map ? 'Skip location' : nextTitle} onPress={handleNext} style={styles.next} />
       </View>
     </KeyboardAvoidingView>
   );
@@ -100,12 +124,14 @@ const styles = StyleSheet.create({
   strip: { flexGrow: 0 },
   chips: { gap: space[2] },
   chip: { paddingHorizontal: space[3], paddingVertical: space[2] },
-  map: { flex: 5, minHeight: 220 },
-  list: { flex: 4, minHeight: 180 },
+  map: { flex: 5, minHeight: 210 },
+  list: { flex: 4, minHeight: 150 },
   empty: { flex: 1, justifyContent: 'center', padding: space[4] },
   text: { fontSize: fontSize.body, color: colors.textMuted, lineHeight: 20, textAlign: 'center' },
   status: { fontSize: fontSize.body, color: colors.textMuted },
-  chosen: { fontSize: fontSize.body, color: colors.textPrimary, fontWeight: '600' },
+  chosen: { fontSize: fontSize.body, color: colors.textPrimary, fontWeight: fontWeight.semibold },
   error: { color: colors.danger, fontSize: fontSize.body },
-  actions: { gap: space[2] },
+  actions: { flexDirection: 'row', gap: space[2] },
+  back: { flex: 1 },
+  next: { flex: 2 },
 });

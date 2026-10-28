@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { View, Text, StyleSheet, ScrollView } from 'react-native';
 import { router, Stack, useFocusEffect } from 'expo-router';
 import { useCountStore } from '@/stores/countStore';
@@ -8,7 +8,7 @@ import { useNetworkStore } from '@/lib/sync/networkStore';
 import { addToQueue, getQueue } from '@/lib/sync/offlineQueue';
 import { recordCountLocally } from '@/lib/api/inventory';
 import { buildCountPayload, categoryAvailabilityIssue, countReviewIssue } from '@/lib/inventory/count';
-import { areaRule as buildAreaRule } from '@/lib/inventory/areas';
+import { areaPathLabel, buildAreaTree, locationRule } from '@/lib/inventory/areas';
 import { QRScanner } from '@/components/scanning/QRScanner';
 import { CountItemStep } from '@/components/inventory/CountItemStep';
 import { CountCategoryStep } from '@/components/inventory/CountCategoryStep';
@@ -40,7 +40,10 @@ export function CountItemScreenContent({ homeRoute }: { homeRoute: string }) {
   // The confirmation belongs to the visit that saved; leaving by the tab bar ends it.
   useFocusEffect(useCallback(() => () => { setSaved(null); setScanMessage(''); }, []));
   const treeKnown = !!reference.data.savedAt;
-  const areaRule = buildAreaRule(reference.data.zones, treeKnown);
+  const rule = useMemo(() => locationRule(reference.data.maps, reference.data.zones, treeKnown), [reference.data.maps, reference.data.zones, treeKnown]);
+  const areaTree = useMemo(() => buildAreaTree(reference.data.zones), [reference.data.zones]);
+  // Drafts from older versions or reopened from Sync may hold a flat name.
+  const areaLabel = (zoneId: string | null, saved: string) => (zoneId && areaPathLabel(areaTree, zoneId)) || saved;
   const step = Math.max(0, Math.min(store.step, REVIEW));
   const next = (number: number) => { store.setStep(editing ? REVIEW : number); setEditing(false); setError(''); };
   const back = (number: number) => { store.setStep(editing ? REVIEW : number); setEditing(false); };
@@ -59,7 +62,7 @@ export function CountItemScreenContent({ homeRoute }: { homeRoute: string }) {
   const handleSubmit = async () => {
     if (submitLock.current || !user || !activeProject || loading) return;
     const draft = useCountStore.getState();
-    const issue = countReviewIssue(draft, areaRule) ?? categoryAvailabilityIssue(draft.category, reference.data.categories, treeKnown);
+    const issue = countReviewIssue(draft, rule) ?? categoryAvailabilityIssue(draft.category, reference.data.categories, treeKnown);
     if (issue) { setError(issue.message); return; }
     const accountId = user.id, projectId = activeProject.id, operationId = draft.operationId;
     const sameContext = () => {
@@ -69,7 +72,7 @@ export function CountItemScreenContent({ homeRoute }: { homeRoute: string }) {
     submitLock.current = true; setSubmitting(true); setError('');
     try {
       const count = buildCountPayload(draft);
-      const zoneName = draft.location.zoneName || undefined;
+      const zoneName = areaLabel(draft.location.zoneId, draft.location.zoneName) || undefined;
       await addToQueue({ type: 'count', payload: { count, photos: draft.photos, categoryLabel: draft.category.label || undefined, zoneName } }, operationId);
       if (sameContext()) await recordCountLocally(count, zoneName ?? null).catch(() => {});
       // Only clear the exact draft that was persisted; keep its category and zone for the next item.
@@ -101,7 +104,7 @@ export function CountItemScreenContent({ homeRoute }: { homeRoute: string }) {
   if (!store.tag) return <View style={styles.container}>
     <Stack.Screen options={{ headerShown: true, title: 'Scan a tag' }} />
     <View style={styles.progress}>
-      <Text style={styles.hint}>Scan the item's tag. The QR value is the tag number.{store.category.label ? ` Category kept: ${store.category.label}.` : ''}{store.location.zoneName ? ` Zone kept: ${store.location.zoneName}.` : ''}</Text>
+      <Text style={styles.hint}>Scan the item's tag. The QR value is the tag number.{store.category.label ? ` Category kept: ${store.category.label}.` : ''}{store.location.zoneName ? ` Location kept: ${areaLabel(store.location.zoneId, store.location.zoneName)}.` : ''}</Text>
       {lookingUp ? <Text style={styles.hint} accessibilityLiveRegion="polite">Looking up tag…</Text> : null}
       <Toast visible={!!scanMessage} tone="warn" title="Can't count this tag" message={scanMessage} />
     </View>
@@ -121,8 +124,8 @@ export function CountItemScreenContent({ homeRoute }: { homeRoute: string }) {
     </View>
     {step === 0 && <CountItemStep onNext={() => next(1)} onBack={editing ? undefined : () => router.replace(homeRoute as any)} />}
     {step === 1 && <CountCategoryStep categories={reference.data.categories} treeKnown={treeKnown} onNext={() => next(2)} onBack={() => back(0)} />}
-    {step === 2 && <CountLocationStep reference={reference.data} areaRule={areaRule} onNext={() => next(3)} onBack={() => back(1)} />}
-    {step === 3 && <CountReviewStep categories={reference.data.categories} treeKnown={treeKnown} areaRule={areaRule} onEdit={edit} onSubmit={handleSubmit} submitting={submitting || loading} error={error} />}
+    {step === 2 && <CountLocationStep reference={reference.data} rule={rule} onNext={() => next(3)} onBack={() => back(1)} />}
+    {step === 3 && <CountReviewStep categories={reference.data.categories} treeKnown={treeKnown} rule={rule} areaLabel={areaLabel(store.location.zoneId, store.location.zoneName)} onEdit={edit} onSubmit={handleSubmit} submitting={submitting || loading} error={error} />}
   </View>;
 }
 
