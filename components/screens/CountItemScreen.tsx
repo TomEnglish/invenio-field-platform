@@ -18,6 +18,7 @@ import { useCountReference } from '@/components/inventory/useCountReference';
 import { beginCount } from '@/components/inventory/beginCount';
 import { Button } from '@/components/ui/Button';
 import { Toast } from '@/components/ui/Toast';
+import { PackedInNote } from '@/components/logistics/PackedInNote';
 import { colors } from '@/lib/design/tokens';
 
 const STEP_TITLES = ['Item', 'Category', 'Location', 'Photo & review'];
@@ -144,6 +145,7 @@ export function CountItemScreenContent({ homeRoute }: { homeRoute: string }) {
         {STEP_TITLES.map((title, i) => <View key={title} style={[styles.stepSegment, i <= step && styles.stepActive]} />)}
       </View>
       <Text style={styles.tagLabel}>Tag: {store.tag}</Text>
+      <PackedInNote tag={store.tag} />
       {fixing && reference.error ? <Text style={styles.hint}>Couldn't get the office's latest site plans ({reference.error}). Using this device's copy.</Text> : null}
       {editing && step !== REVIEW && <><Text style={styles.hint}>Continue to keep changes and return to review.</Text><Button title="Cancel edits" variant="ghost" onPress={() => back(REVIEW)} /></>}
     </View>

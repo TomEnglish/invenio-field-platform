@@ -57,7 +57,33 @@ Initial field inventory (Count tab, contract in MSR `docs/INITIAL_INVENTORY.md`)
   fresh download before judging the location again) or discarded after a confirmation;
   received tags can only be discarded; photo and connection failures just retry.
 
-All tests pass (164 with nested map areas). `npm run lint` and `npx expo export --platform web` also pass;
+Crates (logistics phase 1, contract in MSR migration 021):
+
+- `crate-rules`: labels in any case; scanned items and crates checked against the
+  device's copy as the server checks them (another crate, not counted or received,
+  in itself, a loop, more than 5 levels, 500 tags), with tags it doesn't know added
+  unchecked; review rules (no empty seal, an area to seal a crate on its own, no
+  tag the server has refused, nothing taken out that has already left); the pack
+  payload sending details and location only when they differ from the server's
+  (a waiting pack's are sent again); saved packs, unpacks and counts laid over the
+  copy, idempotently; fresh server rows (whole crate trees) replacing it.
+- `crate-sync`: crates, places (shared and this project's, active), in-yard materials
+  by tag and inventory records cached per account and project in chunks; a queued
+  `pack` / `unpack` sent to `apply_field_operation` unchanged and shown before the next
+  download, even when it lands mid-download; nothing written under another project;
+  refusals recognised by the server's wording (not by words in a tag) and kept in
+  Sync with its reason; refused changes left out of the device's picture; lookups.
+- `crate-scan`: the scanner's repeat filter and continuous mode (live camera, tick,
+  running count, manual entry); Scan sends `HU-` labels to the Crate screen with no
+  lookup, and offers Pack a crate / Continue packing.
+- `crate-screens`: the Pack flow from label (looked up online) to one queued pack under
+  the draft's operation ID: the server asked before answering about refusals and
+  unknown tags, accepted tags checked in the background and marked if refused, Save
+  waiting for checks in flight; a draft already queued starts over; the pack draft kept
+  per account and project and across restarts; the Crate screen from the device's copy,
+  refused changes named, nested crates, packing, and unpacking (not while packing it).
+
+All tests pass (192 with crates). `npm run lint` and `npx expo export --platform web` also pass;
 the web login was verified in Chrome without console errors. Native camera,
 force-close/restart and hosted email/storage behavior remain release smoke checks.
 See the sibling MSR `docs/PLATFORM_RELEASE.md` for the coordinated release guide.

@@ -31,6 +31,7 @@ import { useNetworkStore } from '@/lib/sync/networkStore';
 import { addToQueue } from '@/lib/sync/offlineQueue';
 import type { Location } from '@/types/database';
 import { colors } from '@/lib/design/tokens';
+import { PackedInNote } from '@/components/logistics/PackedInNote';
 
 export default function MaterialDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -203,6 +204,8 @@ export default function MaterialDetailScreen() {
         )}
         <DetailRow label="Received" value={new Date(material.created_at).toLocaleDateString()} />
       </View>
+
+      <PackedInNote tag={material.qr_code_value} />
 
       {material.status === 'in_yard' && material.current_quantity > 0 && (
         <View style={styles.actions}>

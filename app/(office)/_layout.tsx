@@ -161,6 +161,21 @@ export default function OfficeLayout() {
             headerShown: false,
           }}
         />
+        {/* Crates: opened from Scan. */}
+        <Tabs.Screen
+          name="crate"
+          options={{
+            href: null,
+            headerShown: false,
+          }}
+        />
+        <Tabs.Screen
+          name="pack"
+          options={{
+            href: null,
+            headerShown: false,
+          }}
+        />
       </Tabs>
     </View>
   );

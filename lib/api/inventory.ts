@@ -71,8 +71,9 @@ function contextGuard() {
   };
 }
 
-type ProjectClient = ReturnType<typeof getProjectClient>;
-async function fetchAll<T>(client: ProjectClient, table: string, columns: string, filter: (query: any) => any = query => query): Promise<T[]> {
+// Every page of a table, in id order. Also used by the crate cache.
+export type ProjectClient = Pick<ReturnType<typeof getProjectClient>, 'from'>;
+export async function fetchAll<T>(client: ProjectClient, table: string, columns: string, filter: (query: any) => any = query => query): Promise<T[]> {
   const rows: T[] = [];
   for (let from = 0; ; from += PAGE) {
     const { data, error } = await filter(client.from(table).select(columns)).order('id').range(from, from + PAGE - 1);

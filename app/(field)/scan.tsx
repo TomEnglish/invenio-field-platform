@@ -5,6 +5,8 @@ export default function ScanScreen() {
     <ScanScreenContent
       materialDetailRoute="/(field)/material-detail"
       receivingRoute="/(field)/receiving"
+      crateRoute="/(field)/crate"
+      packRoute="/(field)/pack"
     />
   );
 }

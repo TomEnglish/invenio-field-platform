@@ -66,6 +66,7 @@ function screenLoader({ draft, queueStorage, reference, beginCount = async () =>
     '@/components/inventory/CountLocationStep': { CountLocationStep: element('CountLocationStep') },
     '@/components/inventory/CountReviewStep': { CountReviewStep: element('CountReviewStep') },
     '@/components/ui/Button': { Button: element('Button') },
+    '@/components/logistics/PackedInNote': { PackedInNote: element('PackedInNote') },
     '@/components/ui/Card': { Card: (props) => React.createElement('Card', props, props.children) },
     '@/components/ui/Input': { Input: element('Input') },
     '@/components/ui/Toast': { Toast: (props) => (props.visible ? React.createElement('Toast', props) : null) },
