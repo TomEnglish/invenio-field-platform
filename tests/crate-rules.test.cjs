@@ -47,7 +47,7 @@ test('crate labels are read in any case and must look like HU- plus 4 to 20 lett
   assert.equal(crates.isCrateCode('HU-AB 12'), false);
   assert.match(crates.labelIssue(index(), 'GT2-LO-001'), /item tag/);
   assert.match(crates.labelIssue(index(), 'hu-ab'), /isn't a crate label/);
-  assert.match(crates.labelIssue(index(), 'HU-LOAD05'), /on a load/);
+  assert.match(crates.labelIssue(index(), 'HU-LOAD05'), /HU-LOAD05 is on load \?; unload it first/);
   assert.equal(crates.labelIssue(index(), 'hu-new123'), null, 'an unused label becomes a crate when packed');
   assert.equal(crates.labelIssue(index(), 'HU-DONE04'), null, 'an unpacked label can be packed again');
 });

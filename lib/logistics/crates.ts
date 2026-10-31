@@ -1,14 +1,16 @@
 // Crates (handling units): the device's picture of what is packed where, the
 // pack draft's checks and the `pack` / `unpack` operation payloads. Pure so
-// they are shared by screens, the queue and tests. Contract: MSR migration 021.
+// they are shared by screens, the queue and tests. Contract: MSR migrations
+// 021 and 022 (crates on loads).
+import type { Load, LoadCompany, LoadLine, LoadStop } from './loads';
 
 export type UnitKind = 'crate' | 'skid' | 'bundle' | 'basket' | 'container' | 'other';
-export type UnitStatus = 'open' | 'sealed' | 'on_load' | 'delivered' | 'unpacked';
+export type UnitStatus = 'open' | 'sealed' | 'on_load' | 'delivered' | 'unpacked' | 'missing';
 export const UNIT_KINDS: { value: UnitKind; label: string }[] = [
   { value: 'crate', label: 'Crate' }, { value: 'skid', label: 'Skid' }, { value: 'bundle', label: 'Bundle' },
   { value: 'basket', label: 'Basket' }, { value: 'container', label: 'Container' }, { value: 'other', label: 'Other' },
 ];
-export const STATUS_LABELS: Record<UnitStatus, string> = { open: 'Open', sealed: 'Sealed', on_load: 'On a load', delivered: 'Delivered', unpacked: 'Unpacked' };
+export const STATUS_LABELS: Record<UnitStatus, string> = { open: 'Open', sealed: 'Sealed', on_load: 'On a load', delivered: 'Delivered', unpacked: 'Unpacked', missing: 'Missing' };
 export const kindLabel = (kind: string) => UNIT_KINDS.find(k => k.value === kind)?.label ?? 'Crate';
 
 // One row of handling_unit_overview. The place and area are where its
@@ -30,6 +32,12 @@ export interface HandlingUnit {
   location: string | null;
   item_count: number;
   unit_count: number;
+  // 022: the outermost crate's status and the load it is planned on, on board
+  // or missing from. Absent in a copy saved before 022.
+  top_status?: UnitStatus | null;
+  load_id?: string | null;
+  load_number?: string | null;
+  load_line_status?: 'planned' | 'on_board' | 'missing' | null;
 }
 // One row of handling_unit_items: an item packed in a unit now.
 export interface UnitItem {
@@ -52,9 +60,14 @@ export interface LoadReference {
   places: Place[];
   materials: YardMaterial[];
   counted: CountedItem[];
+  // Loads (022): open and recent ones, their stops, manifest lines and companies.
+  loads: Load[];
+  stops: LoadStop[];
+  lines: LoadLine[];
+  companies: LoadCompany[];
   savedAt: string | null;
 }
-export const EMPTY_LOAD: LoadReference = { units: [], items: [], places: [], materials: [], counted: [], savedAt: null };
+export const EMPTY_LOAD: LoadReference = { units: [], items: [], places: [], materials: [], counted: [], loads: [], stops: [], lines: [], companies: [], savedAt: null };
 
 export interface PackOperationPayload {
   unitCode: string;
@@ -91,6 +104,8 @@ export interface LoadIndex {
   crateOf: Map<string, string>;
   materials: Map<string, YardMaterial>;
   counted: Map<string, CountedItem>;
+  // A piece's line on an open load (planned, on board or missing), by tag.
+  onLoad: Map<string, LoadLine>;
 }
 export function indexLoad(ref: LoadReference): LoadIndex {
   const units = new Map(ref.units.map(unit => [unit.code, unit]));
@@ -104,7 +119,33 @@ export function indexLoad(ref: LoadReference): LoadIndex {
     ref, units, contents, children, crateOf,
     materials: new Map(ref.materials.map(material => [material.tag.trim(), material])),
     counted: new Map(ref.counted.map(item => [item.tag.trim(), item])),
+    onLoad: new Map((ref.lines ?? []).filter(line => line.status === 'planned' || line.status === 'on_board' || line.status === 'missing').map(line => [line.tag, line])),
   };
+}
+const ON_TRUCK = ['on_load', 'missing'];
+// "Planned on L-0003", "On load L-0003" or "Missing from L-0003", for the crate
+// (or the crate it is in) on a load.
+export function unitLoadText(unit: Pick<HandlingUnit, 'load_number' | 'load_line_status'>): string {
+  const number = unit.load_number ?? 'a new load';
+  return unit.load_line_status === 'planned' ? `Planned on ${number}` : unit.load_line_status === 'on_board' ? `On load ${number}`
+    : unit.load_line_status === 'missing' ? `Missing from ${number}` : '';
+}
+// Why a crate can't be packed or unpacked while it (or its outermost crate)
+// is on a truck or missing, in 022's words.
+function onTruckIssue(unit: HandlingUnit): string | null {
+  const top = unit.top_status ?? unit.status;
+  if (!ON_TRUCK.includes(top)) return null;
+  const number = unit.load_number ?? '?', outer = unit.top_code && unit.top_code !== unit.code ? unit.top_code : null;
+  if (top === 'missing') return `${outer ?? unit.code} is missing from load ${number}; the office marks it found first.`;
+  return outer ? `${unit.code} is inside ${outer}, which is on load ${number}; unload it first.` : `${unit.code} is on load ${number}; unload it first.`;
+}
+// Why a crate can't be unpacked now, or null.
+export function unpackIssue(unit: HandlingUnit): string | null {
+  const truck = onTruckIssue(unit);
+  if (truck) return truck;
+  if (!['open', 'sealed', 'delivered'].includes(unit.status)) return `This crate is ${(STATUS_LABELS[unit.status] ?? unit.status).toLowerCase()}; it can't be unpacked.`;
+  if (unit.load_line_status && !unit.parent_code) return `${unit.code} is planned on load ${unit.load_number ?? '?'}; take it off the load first.`;
+  return null;
 }
 
 // The saved actions this overlay understands. Queued counts make a tag
@@ -153,7 +194,7 @@ export function applyPending(ref: LoadReference, actions: LoadAction[]): LoadRef
       const code = crateCode(pack.unitCode);
       let unit = units.get(code);
       if (!unit) { unit = blankUnit(code); units.set(code, unit); }
-      if (unit.status !== 'open' && unit.status !== 'sealed' && unit.status !== 'unpacked') continue;
+      if (!['open', 'sealed', 'unpacked', 'delivered'].includes(unit.status) || ON_TRUCK.includes(unit.top_status ?? unit.status)) continue;
       if (pack.kind) unit.kind = pack.kind;
       if (pack.description !== undefined) unit.description = pack.description.trim() || null;
       if (pack.isHighValue !== undefined) unit.is_high_value = pack.isHighValue;
@@ -169,7 +210,7 @@ export function applyPending(ref: LoadReference, actions: LoadAction[]): LoadRef
       for (const raw of pack.add ?? []) {
         if (looksLikeCrate(raw)) {
           const child = units.get(crateCode(raw));
-          if (child && child !== unit && !child.parent_code && (child.status === 'open' || child.status === 'sealed')) Object.assign(child, { parent_id: unit.id || null, parent_code: code });
+          if (child && child !== unit && !child.parent_code && ['open', 'sealed', 'delivered'].includes(child.status) && !child.load_line_status) Object.assign(child, { parent_id: unit.id || null, parent_code: code });
         } else {
           const tag = raw.trim();
           if (items.some(item => item.tag.trim() === tag)) continue;
@@ -185,7 +226,7 @@ export function applyPending(ref: LoadReference, actions: LoadAction[]): LoadRef
     } else {
       const code = crateCode((action as Extract<LoadAction, { type: 'unpack' }>).payload.unitCode);
       const unit = units.get(code);
-      if (!unit || (unit.status !== 'open' && unit.status !== 'sealed')) continue;
+      if (!unit || unpackIssue(unit)) continue;
       items = items.filter(item => item.unit_code !== code);
       for (const child of units.values()) if (child.parent_code === code) { placeAt(child, unit); Object.assign(child, { parent_id: null, parent_code: null }); }
       placeAt(unit, unit);
@@ -309,7 +350,9 @@ export function labelIssue(index: LoadIndex, text: string): string | null {
   if (!looksLikeCrate(text)) return 'That is an item tag. Scan the crate’s label (HU-…) first.';
   if (!isCrateCode(text)) return `${crateCode(text)} isn't a crate label. Labels read HU- and 4 to 20 letters or numbers.`;
   const unit = index.units.get(crateCode(text));
-  if (unit && unit.status !== 'open' && unit.status !== 'sealed' && unit.status !== 'unpacked') return 'This crate is on a load; unload it before repacking.';
+  const truck = unit && onTruckIssue(unit);
+  if (truck) return truck;
+  if (unit && !['open', 'sealed', 'unpacked', 'delivered'].includes(unit.status)) return `This crate is ${(STATUS_LABELS[unit.status] ?? unit.status).toLowerCase()}; it can't be repacked.`;
   return null;
 }
 
@@ -356,7 +399,9 @@ export function classifyScan(index: LoadIndex, draft: Pick<PackDraft, 'code' | '
         : { kind: 'add', entry: { tag, name: 'Crate not on this device yet', crate: true, unchecked: true }, message: `${tag} added. It isn't on this device yet; the server checks it when this uploads.` };
     }
     if (unit.parent_code) return { kind: 'refuse', message: `${tag} is already inside ${unit.parent_code}; take it out first.`, recheck: true };
-    if (unit.status !== 'open' && unit.status !== 'sealed') return { kind: 'refuse', message: `${tag} is ${STATUS_LABELS[unit.status].toLowerCase()}; it can’t go inside another crate.`, recheck: true };
+    if (!['open', 'sealed', 'delivered'].includes(unit.status)) return { kind: 'refuse', message: `${tag} is ${(STATUS_LABELS[unit.status] ?? unit.status).toLowerCase()}; it can’t go inside another crate.`, recheck: true };
+    const planned = index.onLoad.get(tag);
+    if (planned || unit.load_line_status) return { kind: 'refuse', message: `${tag} is planned on load ${planned?.load_number ?? unit.load_number ?? '?'}; take it off the load first.`, recheck: true };
     const ancestors = unitAncestors(index, draft.code);
     if (ancestors.some(outer => outer.code === tag)) return { kind: 'refuse', message: 'A crate cannot go inside itself or a crate it contains.', recheck: true };
     if (ancestors.length + 1 + subtreeHeight(index, tag) > MAX_DEPTH) return { kind: 'refuse', message: `Crates can be nested at most ${MAX_DEPTH} levels deep.`, recheck: true };
@@ -365,6 +410,8 @@ export function classifyScan(index: LoadIndex, draft: Pick<PackDraft, 'code' | '
   const holder = index.crateOf.get(tag);
   if (holder === draft.code) return { kind: 'already', message: `${tag} is already in ${draft.code}.` };
   if (holder) return { kind: 'refuse', message: `${tag} is already in crate ${holder}; take it out of that crate first.`, recheck: true };
+  const load = index.onLoad.get(tag);
+  if (load) return { kind: 'refuse', message: `${tag} is on load ${load.load_number ?? 'a new load'}; take it off the load first.`, recheck: true };
   const material = index.materials.get(tag);
   if (material) return { kind: 'add', entry: { tag, name: material.name, crate: false }, message: `${tag} added.` };
   const record = index.counted.get(tag);

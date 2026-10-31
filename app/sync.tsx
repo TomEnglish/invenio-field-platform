@@ -5,8 +5,9 @@ import { ScrollView, View, Text, Pressable, StyleSheet } from 'react-native';
 import { Stack, useFocusEffect, Redirect, router } from 'expo-router';
 import { getQueue, subscribeQueue, retryQueueItem, removeFromQueue, belongsToCurrentContext, type QueueItem } from '@/lib/sync/offlineQueue';
 import { processQueue } from '@/lib/sync/syncManager';
-import { queueSummary, queueRecoveryMessage, countRecoveryAction, crateRefused } from '@/lib/sync/queuePresentation';
+import { queueSummary, queueRecoveryMessage, countRecoveryAction, canDiscard } from '@/lib/sync/queuePresentation';
 import { draftFromQueuedCount } from '@/lib/inventory/count';
+import { deleteLicencePhotos } from '@/lib/api/licence';
 import { useAuthStore } from '@/stores/authStore';
 import { useCountStore } from '@/stores/countStore';
 import { useNetworkStore } from '@/lib/sync/networkStore';
@@ -89,11 +90,13 @@ export default function SyncScreen() {
   const discardCount = async (item: QueueItem) => {
     setError(''); setResult('');
     setBusy(true);
-    const what = item.action.type === 'count' ? 'count' : 'crate change';
+    const what = item.action.type === 'count' ? 'count' : item.action.type === 'licence' ? 'licence' : item.action.type === 'pack' || item.action.type === 'unpack' ? 'crate change' : 'load change';
     try {
       await removeFromQueue(item.id);
+      // A discarded licence leaves nothing behind: its photos go too.
+      if (item.action.type === 'licence') await deleteLicencePhotos(item.action.payload).catch(() => {});
       setConfirmDiscard(null);
-      setResult(`${what === 'count' ? 'Count' : 'Crate change'} discarded. It will not be uploaded.`);
+      setResult(`${what[0].toUpperCase()}${what.slice(1)} discarded. It will not be uploaded.`);
     } catch (e: any) { setError(`Could not discard the ${what}: ${e.message}`); }
     finally { setBusy(false); }
   };
@@ -119,9 +122,9 @@ export default function SyncScreen() {
     {visible.map(item => {
       const summary = queueSummary(item);
       const recovery = countRecoveryAction(item);
-      // A refused crate change can be retried once the problem is sorted, or discarded.
-      const discardable = !!recovery || crateRefused(item);
-      const what = item.action.type === 'count' ? 'count' : 'change';
+      // A refused change can be retried once the problem is sorted, or discarded; so can one retries gave up on.
+      const discardable = canDiscard(item);
+      const what = item.action.type === 'count' ? 'count' : item.action.type === 'licence' ? 'licence' : 'change';
       return <View key={item.id} style={styles.item}>
         <Text style={styles.itemTitle} accessibilityRole="header">{summary.title}</Text>
         <Text style={styles.muted}>{summary.detail}</Text>
@@ -131,7 +134,7 @@ export default function SyncScreen() {
         {recovery === 'fix' && <Button title="Fix in Count" accessibilityLabel={`Fix ${summary.title} in Count`} disabled={busy} onPress={() => fixCount(item)} />}
         {recovery !== 'discard' && <Button title={item.lastError || item.deadLetter ? 'Retry upload' : 'Upload now'} accessibilityLabel={`Upload ${summary.title}`} disabled={!canSync || busy} onPress={() => sync(item.id)} variant="secondary" />}
         {discardable && (confirmDiscard === item.id ? <View style={styles.confirm}>
-          <Text accessibilityRole="alert" style={styles.warning}>Discard this {what === 'count' ? 'count' : 'crate change'}? It will not be uploaded, and this can't be undone.</Text>
+          <Text accessibilityRole="alert" style={styles.warning}>Discard this {what === 'change' ? (item.action.type === 'pack' || item.action.type === 'unpack' ? 'crate change' : 'load change') : what}? It will not be uploaded, and this can't be undone.</Text>
           <Button title={`Discard ${what}`} variant="danger" disabled={busy} onPress={() => discardCount(item)} />
           <Button title="Keep it" variant="ghost" disabled={busy} onPress={() => setConfirmDiscard(null)} />
         </View> : <Button title={`Discard ${what}…`} accessibilityLabel={`Discard ${summary.title}`} variant="ghost" disabled={busy} onPress={() => setConfirmDiscard(item.id)} />)}

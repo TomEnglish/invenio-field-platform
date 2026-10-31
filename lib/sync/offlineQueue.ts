@@ -4,6 +4,7 @@ import { useAuthStore } from '@/stores/authStore';
 import { newOperationId } from '@/lib/utils/operationId';
 import type { CountOperationPayload, CountPhoto } from '@/lib/inventory/count';
 import type { PackQueuePayload, UnpackOperationPayload } from '@/lib/logistics/crates';
+import type { LicencePayload, LoadDepartPayload, LoadOffPayload, LoadOnPayload, LoadQueuePayload, LoadSavePayload, StopCompletePayload } from '@/lib/logistics/loads';
 
 const QUEUE_KEY = 'offline_queue';
 const MAX_RETRIES = 5;
@@ -22,7 +23,15 @@ export type QueueAction =
   | { type: 'count'; payload: { count: CountOperationPayload; photos: CountPhoto[]; categoryLabel?: string; zoneName?: string } }
   // One whole pack session, and an unpack, as `apply_field_operation` takes them.
   | { type: 'pack'; payload: PackQueuePayload }
-  | { type: 'unpack'; payload: UnpackOperationPayload };
+  | { type: 'unpack'; payload: UnpackOperationPayload }
+  // Loads (022): each sent to apply_field_operation as `op`.
+  | { type: 'load_save'; payload: LoadQueuePayload<LoadSavePayload> }
+  | { type: 'load_on'; payload: LoadQueuePayload<LoadOnPayload> }
+  | { type: 'load_depart'; payload: LoadQueuePayload<LoadDepartPayload> }
+  | { type: 'load_off'; payload: LoadQueuePayload<LoadOffPayload> }
+  | { type: 'stop_complete'; payload: LoadQueuePayload<StopCompletePayload> }
+  // A driver's licence: recorded outside apply_field_operation, then photos.
+  | { type: 'licence'; payload: LicencePayload };
 
 export interface QueueItem {
   id: string;
@@ -67,6 +76,11 @@ export async function addToQueue(action: QueueAction, id = newOperationId()): Pr
     } else queue.push(item);
   });
   return id;
+}
+// Rewrites a saved submission in place, e.g. to drop a licence number once
+// the server has it. The item keeps its place, ID and retry state.
+export async function replaceQueuedAction(id: string, action: QueueAction): Promise<void> {
+  await mutate((queue) => { const item = queue.find((i) => i.id === id); if (item) item.action = action; });
 }
 export async function removeFromQueue(id: string): Promise<void> {
   await mutate((queue) => { const at = queue.findIndex((item) => item.id === id); if (at >= 0) queue.splice(at, 1); });

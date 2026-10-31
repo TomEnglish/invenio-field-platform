@@ -52,6 +52,7 @@ function syncScreen(queue, { draftTag = '', removeFails = false } = {}) {
       },
       belongsToCurrentContext: (item) => item.userId === auth.user.id && item.projectId === auth.activeProject.id,
     },
+    '@/lib/api/licence': { deleteLicencePhotos: async () => {} },
     '@/lib/sync/syncManager': { processQueue: async () => ({ processed: 0, failed: 0 }) },
     '@/components/ui/Button': { Button: (props) => React.createElement('Button', props) },
     '@/lib/design/tokens': { colors: new Proxy({}, { get: () => '#000' }) },

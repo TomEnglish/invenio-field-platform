@@ -69,6 +69,15 @@ export default function FieldLayout() {
           }}
         />
         <Tabs.Screen
+          name="loads"
+          options={{
+            title: 'Loads',
+            tabBarIcon: ({ color }) => (
+              <FontAwesome name="truck" size={24} color={color} />
+            ),
+          }}
+        />
+        <Tabs.Screen
           name="inventory"
           options={{
             title: 'Inventory',
@@ -102,6 +111,49 @@ export default function FieldLayout() {
         />
         <Tabs.Screen
           name="count-item"
+          options={{
+            href: null,
+            headerShown: false,
+          }}
+        />
+        {/* Loads: steps opened from a load. */}
+        <Tabs.Screen
+          name="load"
+          options={{
+            href: null,
+            headerShown: false,
+          }}
+        />
+        <Tabs.Screen
+          name="load-edit"
+          options={{
+            href: null,
+            headerShown: false,
+          }}
+        />
+        <Tabs.Screen
+          name="load-checkin"
+          options={{
+            href: null,
+            headerShown: false,
+          }}
+        />
+        <Tabs.Screen
+          name="load-out"
+          options={{
+            href: null,
+            headerShown: false,
+          }}
+        />
+        <Tabs.Screen
+          name="load-depart"
+          options={{
+            href: null,
+            headerShown: false,
+          }}
+        />
+        <Tabs.Screen
+          name="load-unload"
           options={{
             href: null,
             headerShown: false,

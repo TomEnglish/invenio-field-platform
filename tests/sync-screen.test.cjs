@@ -45,6 +45,7 @@ test('an older queue read cannot replace a newer empty snapshot', async () => {
       removeFromQueue: async () => {},
       belongsToCurrentContext,
     },
+    '@/lib/api/licence': { deleteLicencePhotos: async () => {} },
     '@/lib/sync/syncManager': { processQueue: async () => ({ processed: 0, failed: 0 }) },
     '@/components/ui/Button': { Button: (props) => React.createElement('Button', props) },
     '@/lib/design/tokens': { colors: new Proxy({}, { get: () => '#000' }) },
