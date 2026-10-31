@@ -4,6 +4,7 @@ import { submitReceivingRecord } from '../api/receiving';
 import { transferMaterial, issueMaterial } from '../api/materials';
 import { createShipment } from '../api/shipments';
 import { submitCount } from '../api/count';
+import { submitPack, submitUnpack } from '../api/logistics';
 import { useNetworkStore } from './networkStore';
 
 let activeRun: Promise<{ processed: number; failed: number }> | null = null;
@@ -83,6 +84,12 @@ async function processItem(item: QueueItem): Promise<void> {
       await submitCount({ count: c.count, photos: c.photos ?? [], context });
       break;
     }
+    case 'pack':
+      await submitPack(action.payload, context);
+      break;
+    case 'unpack':
+      await submitUnpack(action.payload, context);
+      break;
     default:
       throw new Error('Unsupported saved submission type. Ask your administrator to review this device.');
   }

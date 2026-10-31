@@ -3,6 +3,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useAuthStore } from '@/stores/authStore';
 import { newOperationId } from '@/lib/utils/operationId';
 import type { CountOperationPayload, CountPhoto } from '@/lib/inventory/count';
+import type { PackQueuePayload, UnpackOperationPayload } from '@/lib/logistics/crates';
 
 const QUEUE_KEY = 'offline_queue';
 const MAX_RETRIES = 5;
@@ -18,7 +19,10 @@ export type QueueAction =
   | { type: 'issue'; payload: { materialId: string; jobNumber: string; quantity: number; issuedBy: string; workOrder?: string } }
   | { type: 'shipment'; payload: { materialId: string; destination: string; quantity: number; carrier?: string; trackingNumber?: string; shippedBy?: string } }
   // `count` is sent to the server unchanged; the labels are only for Sync.
-  | { type: 'count'; payload: { count: CountOperationPayload; photos: CountPhoto[]; categoryLabel?: string; zoneName?: string } };
+  | { type: 'count'; payload: { count: CountOperationPayload; photos: CountPhoto[]; categoryLabel?: string; zoneName?: string } }
+  // One whole pack session, and an unpack, as `apply_field_operation` takes them.
+  | { type: 'pack'; payload: PackQueuePayload }
+  | { type: 'unpack'; payload: UnpackOperationPayload };
 
 export interface QueueItem {
   id: string;

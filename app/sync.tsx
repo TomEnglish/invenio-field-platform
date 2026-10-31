@@ -5,7 +5,7 @@ import { ScrollView, View, Text, Pressable, StyleSheet } from 'react-native';
 import { Stack, useFocusEffect, Redirect, router } from 'expo-router';
 import { getQueue, subscribeQueue, retryQueueItem, removeFromQueue, belongsToCurrentContext, type QueueItem } from '@/lib/sync/offlineQueue';
 import { processQueue } from '@/lib/sync/syncManager';
-import { queueSummary, queueRecoveryMessage, countRecoveryAction } from '@/lib/sync/queuePresentation';
+import { queueSummary, queueRecoveryMessage, countRecoveryAction, crateRefused } from '@/lib/sync/queuePresentation';
 import { draftFromQueuedCount } from '@/lib/inventory/count';
 import { useAuthStore } from '@/stores/authStore';
 import { useCountStore } from '@/stores/countStore';
@@ -89,11 +89,12 @@ export default function SyncScreen() {
   const discardCount = async (item: QueueItem) => {
     setError(''); setResult('');
     setBusy(true);
+    const what = item.action.type === 'count' ? 'count' : 'crate change';
     try {
       await removeFromQueue(item.id);
       setConfirmDiscard(null);
-      setResult('Count discarded. It will not be uploaded.');
-    } catch (e: any) { setError(`Could not discard the count: ${e.message}`); }
+      setResult(`${what === 'count' ? 'Count' : 'Crate change'} discarded. It will not be uploaded.`);
+    } catch (e: any) { setError(`Could not discard the ${what}: ${e.message}`); }
     finally { setBusy(false); }
   };
   if (!user) return <Redirect href="/" />;
@@ -118,6 +119,9 @@ export default function SyncScreen() {
     {visible.map(item => {
       const summary = queueSummary(item);
       const recovery = countRecoveryAction(item);
+      // A refused crate change can be retried once the problem is sorted, or discarded.
+      const discardable = !!recovery || crateRefused(item);
+      const what = item.action.type === 'count' ? 'count' : 'change';
       return <View key={item.id} style={styles.item}>
         <Text style={styles.itemTitle} accessibilityRole="header">{summary.title}</Text>
         <Text style={styles.muted}>{summary.detail}</Text>
@@ -126,11 +130,11 @@ export default function SyncScreen() {
         <Text style={styles.text}>{queueRecoveryMessage(item)}</Text>
         {recovery === 'fix' && <Button title="Fix in Count" accessibilityLabel={`Fix ${summary.title} in Count`} disabled={busy} onPress={() => fixCount(item)} />}
         {recovery !== 'discard' && <Button title={item.lastError || item.deadLetter ? 'Retry upload' : 'Upload now'} accessibilityLabel={`Upload ${summary.title}`} disabled={!canSync || busy} onPress={() => sync(item.id)} variant="secondary" />}
-        {recovery && (confirmDiscard === item.id ? <View style={styles.confirm}>
-          <Text accessibilityRole="alert" style={styles.warning}>Discard this count? It will not be uploaded, and this can't be undone.</Text>
-          <Button title="Discard count" variant="danger" disabled={busy} onPress={() => discardCount(item)} />
+        {discardable && (confirmDiscard === item.id ? <View style={styles.confirm}>
+          <Text accessibilityRole="alert" style={styles.warning}>Discard this {what === 'count' ? 'count' : 'crate change'}? It will not be uploaded, and this can't be undone.</Text>
+          <Button title={`Discard ${what}`} variant="danger" disabled={busy} onPress={() => discardCount(item)} />
           <Button title="Keep it" variant="ghost" disabled={busy} onPress={() => setConfirmDiscard(null)} />
-        </View> : <Button title="Discard count…" accessibilityLabel={`Discard ${summary.title}`} variant="ghost" disabled={busy} onPress={() => setConfirmDiscard(item.id)} />)}
+        </View> : <Button title={`Discard ${what}…`} accessibilityLabel={`Discard ${summary.title}`} variant="ghost" disabled={busy} onPress={() => setConfirmDiscard(item.id)} />)}
         <SupportDetails><Text selectable style={styles.supportText}>Submission: {item.id}</Text><Text selectable style={styles.supportText}>Attempts: {item.retryCount ?? 0}</Text>{item.lastError ? <Text selectable style={styles.supportText}>Last error: {item.lastError}</Text> : null}</SupportDetails>
       </View>;
     })}

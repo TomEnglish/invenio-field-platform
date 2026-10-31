@@ -15,6 +15,7 @@ function setup(write=async()=>{}) {
     'lib/api/materials.ts':{issueMaterial:async(...args)=>{writes.push(args);await write(...args);},transferMaterial:async()=>{}},
     'lib/api/shipments.ts':{createShipment:async()=>{}},
     'lib/api/count.ts':{submitCount:async()=>{}},
+    'lib/api/logistics.ts':{submitPack:async()=>{},submitUnpack:async()=>{}},
   }});
   return{auth,network,records,writes,checks,queue:loader.load('./lib/sync/offlineQueue.ts'),sync:loader.load('./lib/sync/syncManager.ts')};
 }

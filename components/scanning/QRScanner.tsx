@@ -1,19 +1,73 @@
-import { useState } from 'react';
-import { View, Text, StyleSheet, Modal } from 'react-native';
+import { useRef, useState, type ReactNode } from 'react';
+import { View, Text, StyleSheet, Modal, Platform, AccessibilityInfo } from 'react-native';
 import { CameraView, useCameraPermissions } from 'expo-camera';
+import FontAwesome from '@expo/vector-icons/FontAwesome';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
-import { colors } from '@/lib/design/tokens';
+import { createRepeatFilter } from './repeatFilter';
+import { colors, radius, space, fontSize, fontWeight } from '@/lib/design/tokens';
+
+// What a continuous scan did, shown over the camera: a tick for one taken.
+export interface ScanFeedback { tone: 'ok' | 'warn' | 'info'; message: string }
 
 interface QRScannerProps {
-  onScan: (code: string) => void;
+  onScan: (code: string) => void | Promise<ScanFeedback | void | null>;
+  // Keep the camera live scan after scan (packing). A code is ignored until it
+  // has been out of view for about 2 s; manual entry is never ignored.
+  continuous?: boolean;
+  // The running count shown in continuous mode, e.g. "12 in HU-ABC123".
+  countLabel?: string;
+  // Extra buttons under the camera.
+  actions?: ReactNode;
 }
 
-export function QRScanner({ onScan }: QRScannerProps) {
+export function QRScanner({ onScan, continuous = false, countLabel, actions }: QRScannerProps) {
   const [permission, requestPermission] = useCameraPermissions();
   const [scanned, setScanned] = useState(false);
   const [showManual, setShowManual] = useState(false);
   const [manualCode, setManualCode] = useState('');
+  const [feedback, setFeedback] = useState<ScanFeedback | null>(null);
+  const fresh = useRef(createRepeatFilter()).current;
+  const latest = useRef(0);
+
+  // Only the most recent scan's result is shown.
+  const deliver = async (code: string) => {
+    const id = ++latest.current;
+    const result = await Promise.resolve(onScan(code)).catch((): ScanFeedback => ({ tone: 'warn', message: 'That scan could not be checked. Try again.' }));
+    if (!continuous || !result || id !== latest.current) return;
+    setFeedback(result);
+    // VoiceOver has no live regions; TalkBack reads the banner below. No
+    // vibration: the installed Android build doesn't hold that permission.
+    if (Platform.OS === 'ios') AccessibilityInfo.announceForAccessibility(result.message);
+  };
+
+  const submitManual = () => {
+    if (manualCode.trim()) {
+      void deliver(manualCode.trim());
+      setManualCode('');
+      setShowManual(false);
+    }
+  };
+  const manualModal = (
+    <ManualEntryModal
+      visible={showManual}
+      code={manualCode}
+      onChangeCode={setManualCode}
+      onSubmit={submitManual}
+      onClose={() => setShowManual(false)}
+    />
+  );
+  const banner = continuous && (countLabel || feedback) ? (
+    <View style={styles.feedback}>
+      {countLabel ? <Text style={styles.count} accessibilityRole="header">{countLabel}</Text> : null}
+      {feedback ? (
+        <View style={[styles.result, feedback.tone === 'ok' ? styles.ok : feedback.tone === 'warn' ? styles.warn : styles.info]}>
+          <FontAwesome name={feedback.tone === 'ok' ? 'check-circle' : feedback.tone === 'warn' ? 'exclamation-triangle' : 'info-circle'} size={18} color={feedback.tone === 'ok' ? colors.success : feedback.tone === 'warn' ? colors.warnDeep : colors.brandPrimary} />
+          <Text style={styles.resultText} accessibilityLiveRegion="polite">{feedback.message}</Text>
+        </View>
+      ) : null}
+    </View>
+  ) : null;
 
   if (!permission) {
     return (
@@ -34,19 +88,9 @@ export function QRScanner({ onScan }: QRScannerProps) {
           onPress={() => setShowManual(true)}
           style={{ marginTop: 12 }}
         />
-        <ManualEntryModal
-          visible={showManual}
-          code={manualCode}
-          onChangeCode={setManualCode}
-          onSubmit={() => {
-            if (manualCode.trim()) {
-              onScan(manualCode.trim());
-              setManualCode('');
-              setShowManual(false);
-            }
-          }}
-          onClose={() => setShowManual(false)}
-        />
+        {banner}
+        {actions}
+        {manualModal}
       </View>
     );
   }
@@ -60,12 +104,14 @@ export function QRScanner({ onScan }: QRScannerProps) {
           barcodeTypes: ['qr'],
         }}
         onBarcodeScanned={
-          scanned
-            ? undefined
-            : ({ data }) => {
-                setScanned(true);
-                onScan(data);
-              }
+          continuous
+            ? ({ data }) => { if (fresh(data)) void deliver(data.trim()); }
+            : scanned
+              ? undefined
+              : ({ data }) => {
+                  setScanned(true);
+                  onScan(data);
+                }
         }
       >
         <View style={styles.overlay}>
@@ -73,8 +119,9 @@ export function QRScanner({ onScan }: QRScannerProps) {
         </View>
       </CameraView>
 
+      {banner}
       <View style={styles.controls}>
-        {scanned && (
+        {scanned && !continuous && (
           <Button title="Scan Again" onPress={() => setScanned(false)} style={{ marginBottom: 8 }} />
         )}
         <Button
@@ -82,21 +129,10 @@ export function QRScanner({ onScan }: QRScannerProps) {
           variant="secondary"
           onPress={() => setShowManual(true)}
         />
+        {actions}
       </View>
 
-      <ManualEntryModal
-        visible={showManual}
-        code={manualCode}
-        onChangeCode={setManualCode}
-        onSubmit={() => {
-          if (manualCode.trim()) {
-            onScan(manualCode.trim());
-            setManualCode('');
-            setShowManual(false);
-          }
-        }}
-        onClose={() => setShowManual(false)}
-      />
+      {manualModal}
     </View>
   );
 }
@@ -175,8 +211,16 @@ const styles = StyleSheet.create({
   },
   controls: {
     padding: 16,
+    gap: 8,
     backgroundColor: colors.surface,
   },
+  feedback: { paddingHorizontal: space[4], paddingTop: space[3], gap: space[2], backgroundColor: colors.surface, alignSelf: 'stretch' },
+  count: { fontSize: fontSize.lg, fontWeight: fontWeight.semibold, color: colors.textPrimary },
+  result: { flexDirection: 'row', alignItems: 'center', gap: space[2], padding: space[3], borderRadius: radius.md },
+  ok: { backgroundColor: colors.successSoft },
+  warn: { backgroundColor: colors.warnSoft },
+  info: { backgroundColor: colors.brandPrimarySoft },
+  resultText: { flex: 1, fontSize: fontSize.body, color: colors.textPrimary, lineHeight: 20 },
   modalOverlay: {
     flex: 1,
     justifyContent: 'center',

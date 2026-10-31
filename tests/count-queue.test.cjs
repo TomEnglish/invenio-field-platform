@@ -90,6 +90,7 @@ function queueSetup() {
     'lib/api/materials.ts': { transferMaterial: async () => {}, issueMaterial: async () => {} },
     'lib/api/shipments.ts': { createShipment: async () => {} },
     'lib/api/count.ts': { submitCount: async (input) => { writes.push(JSON.parse(JSON.stringify(input))); } },
+    'lib/api/logistics.ts': { submitPack: async () => { throw new Error('unexpected pack'); }, submitUnpack: async () => { throw new Error('unexpected unpack'); } },
   } });
   return { records, writes, auth, queue: loader.load('./lib/sync/offlineQueue.ts'), sync: loader.load('./lib/sync/syncManager.ts') };
 }

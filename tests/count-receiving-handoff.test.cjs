@@ -22,6 +22,7 @@ function scanScreen({ material = null, counted = null, area = { path: 'T1 Pipe R
     },
     'expo-router': { router: { push: (route) => routes.push(route) } },
     '@/components/scanning/QRScanner': { QRScanner: (props) => React.createElement('QRScanner', props) },
+    '@/components/ui/Button': { Button: (props) => React.createElement('Button', props) },
     '@/lib/api/qrcodes': { lookupMaterialByQR: async () => { if (material === 'offline') throw new Error('Network request failed'); return material; } },
     '@/lib/api/inventory': {
       findInventoryByTag: async (tag) => (counted && counted.qr_code === tag ? counted : null),

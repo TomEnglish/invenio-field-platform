@@ -5,6 +5,8 @@ export default function ScanScreen() {
     <ScanScreenContent
       materialDetailRoute="/(office)/material-detail"
       receivingRoute="/(office)/receiving"
+      crateRoute="/(office)/crate"
+      packRoute="/(office)/pack"
     />
   );
 }

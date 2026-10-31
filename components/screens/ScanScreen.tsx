@@ -5,14 +5,20 @@ import { useReceivingStore } from '@/stores/receivingStore';
 import { lookupMaterialByQR } from '@/lib/api/qrcodes';
 import { countedAreaInfo, findInventoryByTag } from '@/lib/api/inventory';
 import { receivingPrefill } from '@/lib/inventory/count';
+import { crateCode, looksLikeCrate } from '@/lib/logistics/crates';
+import { usePackStore } from '@/stores/packStore';
+import { Button } from '@/components/ui/Button';
 
 interface ScanScreenProps {
   materialDetailRoute: string;
   receivingRoute: string;
+  crateRoute: string;
+  packRoute: string;
 }
 
-export function ScanScreenContent({ materialDetailRoute, receivingRoute }: ScanScreenProps) {
+export function ScanScreenContent({ materialDetailRoute, receivingRoute, crateRoute, packRoute }: ScanScreenProps) {
   const { setQRCode, reset } = useReceivingStore();
+  const packing = usePackStore(s => s.code);
   const [checking, setChecking] = useState(false);
 
   // A tag that was counted but not yet received starts its receipt from the
@@ -40,6 +46,11 @@ export function ScanScreenContent({ materialDetailRoute, receivingRoute }: ScanS
 
   const handleScan = async (code: string) => {
     if (checking) return;
+    // A crate label (any case) opens the crate from the device's copy, even offline.
+    if (looksLikeCrate(code)) {
+      router.push({ pathname: crateRoute as any, params: { code: crateCode(code) } });
+      return;
+    }
     setChecking(true);
 
     try {
@@ -56,5 +67,7 @@ export function ScanScreenContent({ materialDetailRoute, receivingRoute }: ScanS
     }
   };
 
-  return <QRScanner onScan={handleScan} />;
+  return <QRScanner onScan={handleScan} actions={
+    <Button title={packing ? `Continue packing ${packing}` : 'Pack a crate'} variant="secondary" onPress={() => router.push(packRoute as any)} />
+  } />;
 }
