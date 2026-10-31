@@ -17,14 +17,15 @@ import { areaPathLabel, buildAreaTree } from '@/lib/inventory/areas';
 import { colors, radius, space, fontSize, fontWeight, touchTarget } from '@/lib/design/tokens';
 
 const LIST_LIMIT = 50;
-type PendingCount = { id: string; tag: string; name: string; zoneName?: string; stuck: boolean };
+type PendingCount = { id: string; tag: string; name: string; zoneName?: string; refused: boolean; stuck: boolean };
 
 // Stuck: refused by the server, or given up on by automatic retries. Either
 // way it waits in Sync for the crew.
 function pendingCounts(queue: QueueItem[]): PendingCount[] {
   return queue.filter(item => item.action?.type === 'count' && belongsToCurrentContext(item)).map(item => {
     const payload = item.action.payload as { count?: { tag?: string; name?: string }; zoneName?: string };
-    return { id: item.id, tag: payload.count?.tag ?? '', name: payload.count?.name ?? 'Inventory count', zoneName: payload.zoneName, stuck: !!item.deadLetter || refusedChange(item) };
+    const refused = refusedChange(item);
+    return { id: item.id, tag: payload.count?.tag ?? '', name: payload.count?.name ?? 'Inventory count', zoneName: payload.zoneName, refused, stuck: refused || !!item.deadLetter };
   });
 }
 
@@ -49,20 +50,23 @@ export function CountHomeScreenContent({ countItemRoute }: { countItemRoute: str
     return () => { live = false; unsubscribe(); };
   }, []));
   // A refused count leaves the device's copy (lib/api/count), so the copy is
-  // read again when a count gets stuck here, or stops being stuck.
-  const stuckIds = pending.filter(p => p.stuck).map(p => p.id).join(',');
-  const shownStuck = useRef(stuckIds);
+  // read again when a count is refused while this shows.
+  const refusedIds = pending.filter(p => p.refused).map(p => p.id).join(',');
+  const shownRefused = useRef(refusedIds);
   useEffect(() => {
-    if (stuckIds === shownStuck.current) return;
-    shownStuck.current = stuckIds;
+    if (refusedIds === shownRefused.current) return;
+    shownRefused.current = refusedIds;
     void reload();
-  }, [stuckIds, reload]);
+  }, [refusedIds, reload]);
 
-  // Counts waiting in Sync for a decision are not counted as found.
-  const pendingTags = pending.filter(p => !p.stuck).map(p => p.tag);
-  const stuckCount = pending.length - pendingTags.length;
-  const progress = countProgress(data.items, pendingTags);
-  const outstanding = outstandingTags(data.items, pendingTags, query);
+  // A refused count isn't found. One retries gave up on still is: it is saved
+  // here and goes when retried. Both need attention in Sync. (A count refused
+  // before this build may show as counted until the next download.)
+  const foundTags = pending.filter(p => !p.refused).map(p => p.tag);
+  const waiting = pending.filter(p => !p.stuck).length;
+  const stuckCount = pending.length - waiting;
+  const progress = countProgress(data.items, foundTags);
+  const outstanding = outstandingTags(data.items, foundTags, query);
   const recent = recentCounts(data.items.filter(item => !pending.some(p => p.tag === item.qr_code.trim())), 10);
   const areaTree = buildAreaTree(data.zones);
   const zoneName = (id: string | null, fallback: string | null) => (id && areaPathLabel(areaTree, id)) || fallback || '';
@@ -101,7 +105,7 @@ export function CountHomeScreenContent({ countItemRoute }: { countItemRoute: str
         <View style={styles.bar} accessibilityRole="progressbar" accessibilityLabel="Tags found" accessibilityValue={{ min: 0, max: progress.total, now: progress.found }}>
           <View style={[styles.barFill, { width: `${percent}%` }]} />
         </View>
-        <Text style={styles.muted}>{progress.found} of {progress.total} tags found{pendingTags.length ? ` · ${pendingTags.length} waiting to sync` : ''}{stuckCount ? ` · ${stuckCount} need${stuckCount === 1 ? 's' : ''} attention in Sync` : ''}</Text>
+        <Text style={styles.muted}>{progress.found} of {progress.total} tags found{waiting ? ` · ${waiting} waiting to sync` : ''}{stuckCount ? ` · ${stuckCount} need${stuckCount === 1 ? 's' : ''} attention in Sync` : ''}</Text>
       </Card>
 
       {draft.tag ? (
@@ -117,7 +121,7 @@ export function CountHomeScreenContent({ countItemRoute }: { countItemRoute: str
       <Toast visible={!!message} tone="warn" title="Can't count this tag" message={message} onDismiss={() => setMessage('')} />
       {nothingSetUp ? <Text style={styles.muted}>The office hasn't imported expected tags, categories or a site plan yet. You can still count new tags and propose categories.</Text> : null}
 
-      <Text style={styles.sectionTitle} accessibilityRole="header">Not found yet ({outstandingTags(data.items, pendingTags).length})</Text>
+      <Text style={styles.sectionTitle} accessibilityRole="header">Not found yet ({outstandingTags(data.items, foundTags).length})</Text>
       <Input label="Search expected tags" value={query} onChangeText={setQuery} placeholder="Tag, name or part #" autoCorrect={false} autoCapitalize="none" />
       {outstanding.length === 0 ? <Text style={styles.muted}>{query ? 'No expected tag matches.' : data.items.length ? 'Every expected tag has been found.' : 'No expected tags on this device.'}</Text> : null}
       {outstanding.slice(0, LIST_LIMIT).map(item => (

@@ -13,8 +13,8 @@ export async function submitCount(input: { count: CountOperationPayload; photos:
   try {
     record = await applyOperation('count', count, context);
   } catch (error: any) {
-    // Refused: it waits in Sync, and the tag stops showing as counted here.
-    if (DECISION_CODES.has(error?.code)) await forgetLocalCount(count.tag).catch(() => {});
+    // Refused: it waits in Sync, and stops showing as counted here.
+    if (DECISION_CODES.has(error?.code)) await forgetLocalCount(count.tag, context.operationId).catch(() => {});
     throw error;
   }
   if (!record?.uid) throw new Error('The count was not confirmed by the server. It will retry.');

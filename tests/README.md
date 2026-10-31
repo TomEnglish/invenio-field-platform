@@ -133,18 +133,26 @@ Known limits from the field guide (MSR `docs/booklet`, appendix A10), fixed: the
 `load-screens`, `queue-presentation`, `sync-screen`, `materials-search` and `receiving-labels`:
 
 - A refused count shows "Needs attention in Sync" on Count home and isn't counted as found,
-  also while Count home is showing: the server's refusal (22023 or 42501), a discard and Fix in
-  Count each take the count out of the device's copy, unless the count may already be saved.
+  also while Count home is showing. A count retries gave up on needs attention too, but is still
+  found: it is saved and goes when retried.
+- The server's refusal (22023 or 42501), a discard and Fix in Count each take that count, and only
+  that count, out of the device's copy: a recount of the tag stays, and an earlier count comes
+  back. Saving and forgetting counts change the copy one at a time.
 - The header banner counts refusals ("refused: open Sync to decide") apart from failed retries.
 - Unload lists the areas of the site plans at the stop's place only (`plansAt`), and says when
-  that place has no plan on the device.
-- Inventory search matches QR codes as well as type and grade, with what was typed kept as text.
+  that place has no plan on the device, once the device's copy has loaded.
+- Inventory search matches QR codes as well as type and grade, through the materials whose code
+  matches (with the list's filters, at most 100, newest first), with what was typed kept as text,
+  at most 120 characters. Only the latest search's results show.
 - Receiving's steps and Review share one set of words (`lib/utils/receivingLabels.ts`).
-- Sync offers no retry for a licence that can only be recorded again, calls each item by one
-  name on its Discard button and in the confirmation, lets anything retries gave up on be
-  discarded, and says when a discard drops only the photos.
+- Sync:
+  - It offers no retry for a licence the server or the device refused.
+  - It calls each item by one name on its Discard button and in the confirmation.
+  - It lets receipts, transfers and issues that retries gave up on be discarded, as crates, loads
+    and licences could. Shipments, counts and kinds it doesn't know keep their rules.
+  - It says when a discard drops only the photos.
 
-All tests pass (272 with the known-limit fixes). `npm run lint` and `npx expo export --platform web` also pass;
+All tests pass (279 with the known-limit fixes). `npm run lint` and `npx expo export --platform web` also pass;
 the web login was verified in Chrome without console errors. Native camera,
 force-close/restart and hosted email/storage behavior remain release smoke checks.
 See the sibling MSR `docs/PLATFORM_RELEASE.md` for the coordinated release guide.

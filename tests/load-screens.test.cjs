@@ -62,7 +62,7 @@ function load({ ref = reference(), params = { id: 'load-a' }, online = false, fa
     '@/lib/api/tags': { lookupTag: async () => tagAnswer },
     // Like the real hook, saved changes show at once.
     '@/components/logistics/useLoadReference': { useLoadReference: () => build() },
-    '@/components/inventory/useCountReference': { useCountReference: () => ({ data: { ...plans, images: {}, categories: [], items: [], savedAt: 'x' } }) },
+    '@/components/inventory/useCountReference': { useCountReference: () => { const { loading = false, ...plan } = plans; return { data: { ...plan, images: {}, categories: [], items: [], savedAt: 'x' }, loading }; } },
     '@/components/scanning/QRScanner': { QRScanner: element('QRScanner') },
     '@/components/inventory/AreaList': { AreaList: element('AreaList') },
     '@/components/ui/Button': { Button: element('Button') },
@@ -244,6 +244,12 @@ test('known limits: unload offers only the site plans at the stop’s place, as 
   assert.equal(o.r.root.findAll(n => n.type === 'AreaList').length, 0);
   assert.ok(o.texts().includes('North Site has no site plan on this device, so no area is needed.'));
   await TestRenderer.act(async () => { o.r.unmount(); });
+
+  // Nothing is said about plans before the device's copy has loaded.
+  const loading = load({ ref: transit, params: { id: 'load-a', stopId: 'stop-2' }, plans: { maps: [], zones: [], loading: true } });
+  const l = await show(loading, './components/screens/UnloadScreen.tsx', 'UnloadScreenContent');
+  assert.equal(l.texts().some(t => /no site plan/.test(t)), false);
+  await TestRenderer.act(async () => { l.r.unmount(); });
 });
 
 const leave = (h) => TestRenderer.act(async () => { h.blur.splice(0).forEach(cleanup => cleanup?.()); });

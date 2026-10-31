@@ -92,7 +92,7 @@ export function CountItemScreenContent({ homeRoute }: { homeRoute: string }) {
       const count = { ...buildCountPayload(draft), capturedAt: capturedNow() };
       const zoneName = areaLabel(draft.location.zoneId, draft.location.zoneName) || undefined;
       await addToQueue({ type: 'count', payload: { count, photos: draft.photos, categoryLabel: draft.category.label || undefined, zoneName } }, operationId);
-      if (sameContext()) await recordCountLocally(count, zoneName ?? null).catch(() => {});
+      if (sameContext()) await recordCountLocally(count, zoneName ?? null, operationId).catch(() => {});
       // Only clear the exact draft that was persisted; keep its category and zone for the next item.
       if (sameContext() && useCountStore.getState().operationId === operationId) useCountStore.getState().countNext();
       if (!sameContext()) return;

@@ -56,7 +56,7 @@ function screenLoader({ draft, queueStorage, reference, beginCount = async () =>
     '@/lib/sync/networkStore': { useNetworkStore: Object.assign((select) => select({ isOnline: online }), { getState: () => ({ isOnline: online }) }) },
     '@react-native-async-storage/async-storage': queueStorage,
     '@/lib/sync/syncManager': { processQueue: async () => ({ processed: 0, failed: 0 }) },
-    '@/lib/api/inventory': { recordCountLocally: async (count, zoneName) => { localCounts.push({ count, zoneName }); } },
+    '@/lib/api/inventory': { recordCountLocally: async (count, zoneName, operation) => { localCounts.push({ count, zoneName, operation }); } },
     '@/components/inventory/useCountReference': { useCountReference: (options) => (useReference ? useReference(options)
       : { data: reference, loading: false, source: 'cache', error: '', reload: async () => {}, checked: null }) },
     '@/components/inventory/beginCount': { beginCount },
@@ -109,6 +109,7 @@ test('saving a count queues the contract payload and keeps the draft when the sa
   });
   assert.equal(draft.nextCount, 1, 'Count next keeps the category and zone after a successful save');
   assert.equal(localCounts[0].count.tag, 'GT2-LO-001');
+  assert.equal(localCounts[0].operation, OPERATION, 'the device copy knows which count it shows');
   assert.ok(texts(renderer).includes('Count saved'));
 
   // "Count next" returns to the scanner for the next tag.
@@ -184,22 +185,24 @@ const queuedCount = (id, tag, name, extra = {}) => ({ id, userId: 'worker-a', pr
 const states = (renderer) => texts(renderer).filter(text => text === 'Waiting to sync' || text === 'Needs attention in Sync');
 
 test('known limits: on Count home a refused count needs attention in Sync and is not counted as found', async () => {
-  const reference = { ...emptyReference, savedAt: '2026-10-27T09:00:00Z', items: [tagRow('T-1', 'Cooler', 'expected'), tagRow('T-2', 'Valve', 'expected'), tagRow('T-3', 'Pump', 'counted', '2026-10-26T10:00:00Z')] };
+  const reference = { ...emptyReference, savedAt: '2026-10-27T09:00:00Z', items: [tagRow('T-1', 'Cooler', 'expected'), tagRow('T-2', 'Valve', 'expected'), tagRow('T-3', 'Pump', 'counted', '2026-10-26T10:00:00Z'), tagRow('T-4', 'Motor', 'expected')] };
   const queue = [
     queuedCount('q1', 'T-1', 'Cooler'),
     queuedCount('q2', 'T-2', 'Valve', { refused: true, lastErrorCode: '22023', lastError: 'Category is unavailable in this project' }),
     // A new tag the server turned down (42501, a decision too), saved before the flag was kept.
     queuedCount('q3', 'NEW-9', 'Spare', { lastErrorCode: '42501', lastError: 'Office staff only', retryCount: 1 }),
+    // Saved here, and goes when retried: found, but it needs attention too.
+    queuedCount('q4', 'T-4', 'Motor', { deadLetter: true, retryCount: 5, lastError: 'Network request failed' }),
   ];
   const loader = screenLoader({ draft: countDraft({ tag: '' }), reference, queueStorage: { getItem: async () => JSON.stringify(queue), setItem: async () => {} } });
   const { CountHomeScreenContent } = loader.load('./components/screens/CountHomeScreen.tsx');
   let renderer;
   await TestRenderer.act(async () => { renderer = TestRenderer.create(React.createElement(CountHomeScreenContent, { countItemRoute: '/(field)/count-item' })); });
   const shown = texts(renderer);
-  assert.ok(shown.includes('2 of 3 tags found · 1 waiting to sync · 2 need attention in Sync'), shown.join('\n'));
+  assert.ok(shown.includes('3 of 4 tags found · 1 waiting to sync · 3 need attention in Sync'), shown.join('\n'));
   assert.ok(shown.includes('Not found yet (1)'), 'the refused tag is still to find');
   assert.equal(renderer.root.findAll(node => node.type === 'Pressable' && node.props.accessibilityLabel === 'Count T-2 Valve').length, 1);
-  assert.deepEqual(states(renderer), ['Waiting to sync', 'Needs attention in Sync', 'Needs attention in Sync']);
+  assert.deepEqual(states(renderer), ['Waiting to sync', 'Needs attention in Sync', 'Needs attention in Sync', 'Needs attention in Sync']);
   await TestRenderer.act(async () => { renderer.unmount(); });
 });
 

@@ -5,7 +5,7 @@ import { ScrollView, View, Text, Pressable, StyleSheet } from 'react-native';
 import { Stack, useFocusEffect, Redirect, router } from 'expo-router';
 import { getQueue, subscribeQueue, retryQueueItem, removeFromQueue, replaceQueuedAction, belongsToCurrentContext, type QueueItem } from '@/lib/sync/offlineQueue';
 import { processQueue } from '@/lib/sync/syncManager';
-import { queueSummary, queueRecoveryMessage, countRecoveryAction, canDiscard, canMoveToLoad, discardKeepsSaved, needsLicence, recordLicenceAgain } from '@/lib/sync/queuePresentation';
+import { queueSummary, queueRecoveryMessage, countRecoveryAction, canDiscard, canMoveToLoad, discardKeepsSaved, licenceRefused, needsLicence } from '@/lib/sync/queuePresentation';
 import { OVERRIDE_MAX, OVERRIDE_MIN, withMove } from '@/lib/logistics/loads';
 import { draftFromQueuedCount } from '@/lib/inventory/count';
 import { deleteLicencePhotos } from '@/lib/api/licence';
@@ -119,8 +119,8 @@ export default function SyncScreen() {
     const restored = useCountStore.getState().operationId;
     try {
       await removeFromQueue(item.id);
-      // A draft again: the tag shows as counted only once it is saved again.
-      await forgetLocalCount(item.action.payload.count.tag).catch(() => {});
+      // A draft again: it shows as counted only once it is saved again.
+      if (item.action.payload.count?.tag) await forgetLocalCount(item.action.payload.count.tag, item.id).catch(() => {});
       // Named so Count checks the location against a fresh download first.
       router.push(`${user?.role === 'field_worker' ? '/(field)/count-item' : '/(office)/count-item'}?fix=${encodeURIComponent(restored)}` as any);
     } catch (e: any) {
@@ -138,8 +138,8 @@ export default function SyncScreen() {
       await removeFromQueue(item.id);
       // A discarded licence leaves nothing behind: its photos go too.
       if (item.action.type === 'licence') await deleteLicencePhotos(item.action.payload).catch(() => {});
-      // A discarded count no longer shows as counted, unless the server has it.
-      if (item.action.type === 'count' && !kept) await forgetLocalCount(item.action.payload.count.tag).catch(() => {});
+      // A discarded count no longer shows as counted.
+      if (item.action.type === 'count' && item.action.payload.count?.tag) await forgetLocalCount(item.action.payload.count.tag, item.id).catch(() => {});
       setConfirmDiscard(null);
       setResult(`${what[0].toUpperCase()}${what.slice(1)} discarded. ${kept ? 'Its photos' : 'It'} will not be uploaded.`);
     } catch (e: any) { setError(`Could not discard the ${what}: ${e.message}`); }
@@ -169,8 +169,8 @@ export default function SyncScreen() {
       const recovery = countRecoveryAction(item);
       // A refused change can be retried once the problem is sorted, or discarded; so can one retries gave up on.
       const discardable = canDiscard(item);
-      // Retrying can't help a count the server can never take, nor a licence that must be recorded again.
-      const retryable = recovery !== 'discard' && !recordLicenceAgain(item);
+      // Retrying can't help a count the server can never take, nor a licence it or the device refused.
+      const retryable = recovery !== 'discard' && !licenceRefused(item);
       const what = kindOf(item);
       return <View key={item.id} style={styles.item}>
         <Text style={styles.itemTitle} accessibilityRole="header">{summary.title}</Text>

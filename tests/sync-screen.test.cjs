@@ -184,7 +184,7 @@ function syncSetup(queue, { role = 'field_worker' } = {}) {
       belongsToCurrentContext: () => true,
     },
     '@/lib/api/licence': { deleteLicencePhotos: async (payload) => { calls.deletedPhotos.push(...payload.photos.map(photo => photo.uri)); } },
-    '@/lib/api/inventory': { forgetLocalCount: async (tag) => { calls.forgotten.push(tag); } },
+    '@/lib/api/inventory': { forgetLocalCount: async (tag, operation) => { calls.forgotten.push([tag, operation]); } },
     '@/lib/sync/syncManager': { processQueue: async () => ({ processed: 0, failed: 0 }) },
     '@/components/ui/Button': { Button: (props) => React.createElement('Button', props) },
     '@/components/ui/Input': { Input: (props) => React.createElement('Input', props) },
@@ -206,7 +206,7 @@ async function showSync(h) {
 const saved = (id, action, extra = {}) => ({ id, userId: 'worker-a', projectId: 'project-a', createdAt: '2026-10-31T10:00:00.000Z', retryCount: 0, deadLetter: false, action, ...extra });
 const licence = (id, label, extra) => saved(id, { type: 'licence', payload: { loadId: `load-${id}`, label, photos: [{ uri: `file:///cache/licence-photos/${id}.jpg` }], ...extra.payload } }, { refused: true, ...extra.item });
 
-test('known limits: a licence that can only be recorded again has no Retry upload; one held up by photo space keeps it', async () => {
+test('known limits: a licence the server or the device refused has no Retry upload; each card says to discard it', async () => {
   const h = syncSetup([
     licence('forgotten', 'L-0001', { item: { lastErrorCode: 'LICENCE_FORGOTTEN', lastError: 'The licence number is no longer on this device; record the licence again.' } }),
     licence('gone', 'L-0002', { payload: { recorded: true }, item: { lastErrorCode: 'PHOTO_GONE', lastError: 'The licence photos are no longer on this device; record the licence again.' } }),
@@ -215,15 +215,12 @@ test('known limits: a licence that can only be recorded again has no Retry uploa
     licence('full', 'L-0005', { payload: { recorded: true }, item: { lastErrorCode: '22023', lastError: 'Licence recorded; photo will retry: A load keeps at most 4 licence photos' } }),
   ]);
   const s = await showSync(h);
-  for (const label of ['L-0001', 'L-0002', 'L-0003']) {
+  for (const label of ['L-0001', 'L-0002', 'L-0003', 'L-0004', 'L-0005']) {
     assert.equal(s.byLabel(`Upload ${label}`).length, 0, `${label}: retrying can't help`);
     assert.equal(s.byLabel(`Discard ${label}`)[0].props.title, 'Discard licence…');
   }
   assert.equal(s.texts().filter(text => /record the licence again in Driver check-in/.test(text)).length, 3);
-  for (const label of ['L-0004', 'L-0005']) {
-    assert.equal(s.byLabel(`Upload ${label}`)[0].props.title, 'Retry upload', `${label}: goes once the office makes room`);
-    assert.equal(s.byLabel(`Discard ${label}`).length, 1);
-  }
+  assert.equal(s.texts().filter(text => /^The licence( number)? is on file, but .*Discard this; the office can remove old photos/.test(text)).length, 2);
   // A licence whose number is on file loses only its photos.
   await s.press(s.byLabel('Discard L-0002')[0]);
   assert.ok(s.texts().includes("Discard this licence? The licence is on file, but its photos will not be uploaded, and this can't be undone."));
@@ -231,6 +228,23 @@ test('known limits: a licence that can only be recorded again has no Retry uploa
   assert.deepEqual(h.calls.removed, ['gone']);
   assert.deepEqual(h.calls.deletedPhotos, ['file:///cache/licence-photos/gone.jpg']);
   assert.ok(s.texts().includes('Licence discarded. Its photos will not be uploaded.'));
+  await TestRenderer.act(async () => { s.r.unmount(); });
+});
+
+test('known limits: a licence card tells one story: the number on file, and its photos still to go or refused', async () => {
+  const h = syncSetup([
+    // Retries gave up at the photo upload: the number is on file, so it is a licence, not a receipt.
+    licence('photo', 'L-0006', { payload: { recorded: true }, item: { refused: false, retryCount: 5, deadLetter: true, lastError: 'Licence recorded; photo upload will retry: Network request failed' } }),
+    licence('closed', 'L-0007', { payload: { recorded: true }, item: { lastErrorCode: '42501', lastError: 'Licence recorded; photo will retry: That load is closed' } }),
+  ]);
+  const s = await showSync(h);
+  assert.ok(s.texts().includes('The licence number is on file. Retry to finish uploading its photos.'));
+  assert.equal(s.texts().some(text => /receipt/.test(text)), false);
+  assert.equal(s.byLabel('Upload L-0006')[0].props.title, 'Retry upload', 'not refused: it goes when retried');
+  assert.ok(s.texts().includes('The licence number is on file, but the server refused its photo: “That load is closed”. Discard this and record the licence again in Driver check-in.'));
+  assert.equal(s.byLabel('Upload L-0007').length, 0);
+  await s.press(s.byLabel('Discard L-0007')[0]);
+  assert.ok(s.texts().includes("Discard this licence? The licence is on file, but its photos will not be uploaded, and this can't be undone."));
   await TestRenderer.act(async () => { s.r.unmount(); });
 });
 
@@ -257,11 +271,16 @@ test('known limits: receipts, transfers and issues that automatic retries gave u
     saved('issue', { type: 'issue', payload: { materialId: 'm-1', jobNumber: 'J-17', quantity: 2, issuedBy: 'worker-a' } }, dead),
     // Still retrying by itself: nothing to discard yet.
     saved('retrying', { type: 'transfer', payload: { materialId: 'm-2', fromLocationId: null, toLocationId: 'rack-3', movedBy: 'worker-a', reason: 'Moved' } }, { retryCount: 2, lastError: 'Network request failed' }),
+    // Not asked for: a shipment (office work) and a count keep retry only; a kind this build doesn't know is kept for an administrator.
+    saved('shipment', { type: 'shipment', payload: { materialId: 'm-3', destination: 'Gulf Machine', quantity: 1 } }, dead),
+    saved('count', { type: 'count', payload: { count: { tag: 'T-1', name: 'Cooler' }, photos: [] } }, dead),
+    saved('newer', { type: 'from_a_newer_build', payload: {} }, { ...dead, lastError: 'Unsupported saved submission type. Ask your administrator to review this device.' }),
   ]);
   const s = await showSync(h);
   assert.deepEqual(s.titles().filter(title => title.startsWith('Discard')), ['Discard receipt…', 'Discard material transfer…', 'Discard material issue…']);
-  assert.equal(s.titles().filter(title => title === 'Retry upload').length, 4);
+  assert.equal(s.titles().filter(title => title === 'Retry upload').length, 7);
   assert.ok(s.texts().some(text => /Automatic retries have stopped.*retrying or discarding it/.test(text)));
+  assert.ok(s.texts().includes('Ask an administrator to review this saved submission. Keep it on this device.'));
   await s.press(s.button('Discard material issue…'));
   assert.ok(s.texts().includes("Discard this material issue? It will not be uploaded, and this can't be undone."));
   await s.press(s.button('Discard material issue'));

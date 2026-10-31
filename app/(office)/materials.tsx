@@ -1,6 +1,6 @@
 import { EditMaterialModal } from '@/components/modals/EditMaterialModal';
 import { DataTable, type DataTableColumn } from '@/components/ui/DataTable';
-import { fetchMaterials, type MaterialWithLocation } from '@/lib/api/materials';
+import { fetchMaterials, SEARCH_MAX, type MaterialWithLocation } from '@/lib/api/materials';
 import { applyOperation, operationContext } from '@/lib/api/operations';
 import { newOperationId } from '@/lib/utils/operationId';
 import { useAuthStore } from '@/stores/authStore';
@@ -75,6 +75,8 @@ export default function MaterialsScreen() {
   const load = async () => {
     const id = ++request.current;
     setLoading(true);
+    // No "load more" for the last search while this one loads.
+    setHasMore(false);
     offsetRef.current = 0;
     try {
       const result = await fetchMaterials({
@@ -94,7 +96,7 @@ export default function MaterialsScreen() {
   };
 
   const loadMore = async () => {
-    if (loadingMore || !hasMore) return;
+    if (loading || loadingMore || !hasMore) return;
     const id = request.current;
     setLoadingMore(true);
     try {
@@ -206,6 +208,7 @@ export default function MaterialsScreen() {
           placeholderTextColor={colors.textSubtle}
           value={search}
           onChangeText={setSearch}
+          maxLength={SEARCH_MAX}
         />
       </View>
 

@@ -122,7 +122,7 @@ export function UnloadScreenContent() {
     <ScrollView style={styles.list} contentContainerStyle={{ gap: 4, paddingBottom: 8 }}>
       {ownPlace ? <View style={styles.section}>
         {maps.length || area ? <Text style={styles.rowTitle}>{area ? `Area: ${area.zoneName}` : 'Area (optional): where these pieces go in the yard'}</Text>
-          : <Text style={styles.muted}>{stop.place_name} has no site plan on this device, so no area is needed.</Text>}
+          : count.loading ? null : <Text style={styles.muted}>{stop.place_name} has no site plan on this device, so no area is needed.</Text>}
         {area ? <Button title="Clear area" variant="ghost" onPress={() => chooseArea(null)} /> : null}
         {maps.length > 1 ? <View style={styles.chips}>{maps.map(m => <Button key={m.id} title={m.name} variant={m.id === shownMap?.id ? 'primary' : 'secondary'} onPress={() => setMapId(m.id)} style={styles.chip} />)}</View> : null}
         {areas.length ? <AreaList areas={areas} selectedId={area?.zoneId ?? null} reveal={null} style={{ minHeight: 150 }}

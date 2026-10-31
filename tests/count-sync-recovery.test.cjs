@@ -53,7 +53,7 @@ function syncScreen(queue, { draftTag = '', removeFails = false } = {}) {
       belongsToCurrentContext: (item) => item.userId === auth.user.id && item.projectId === auth.activeProject.id,
     },
     '@/lib/api/licence': { deleteLicencePhotos: async () => {} },
-    '@/lib/api/inventory': { forgetLocalCount: async (tag) => { calls.forgotten.push(tag); } },
+    '@/lib/api/inventory': { forgetLocalCount: async (tag, operation) => { calls.forgotten.push([tag, operation]); } },
     '@/lib/sync/syncManager': { processQueue: async () => ({ processed: 0, failed: 0 }) },
     '@/components/ui/Button': { Button: (props) => React.createElement('Button', props) },
     '@/components/ui/Input': { Input: (props) => React.createElement('Input', props) },
@@ -85,7 +85,7 @@ test('a refused count reopens in Count on the step to fix, under a new operation
   assert.deepEqual(h.calls.restored[0].draft.photos, [{ uri: 'file:///documents/c.jpg' }]);
   assert.deepEqual(h.calls.removed, ['op-1']);
   assert.deepEqual(h.calls.routes, ['/(field)/count-item?fix=restored-op'], 'names the reopened count, so Count checks it against a fresh download');
-  assert.deepEqual(h.calls.forgotten, ['GT2-LO-001'], 'a draft again: the tag no longer shows as counted');
+  assert.deepEqual(h.calls.forgotten, [['GT2-LO-001', 'op-1']], 'a draft again: it no longer shows as counted');
   await TestRenderer.act(async () => { renderer.unmount(); });
 });
 
@@ -128,19 +128,28 @@ test('discarding asks first; a received tag can only be discarded; photo and con
   await TestRenderer.act(async () => { await buttons(renderer, 'Discard count')[0].props.onPress(); });
   assert.deepEqual(h.calls.removed, ['received']);
   assert.ok(texts(renderer).includes('Count discarded. It will not be uploaded.'));
-  assert.deepEqual(h.calls.forgotten, ['GT2-LO-001'], 'a discarded count no longer shows as counted');
+  assert.deepEqual(h.calls.forgotten, [['GT2-LO-001', 'received']], 'a discarded count no longer shows as counted');
   await TestRenderer.act(async () => { renderer.unmount(); });
 });
 
-test('known limits: a count that retries gave up on at its photos can be discarded; the count itself may be saved, so it still shows', async () => {
-  const h = syncScreen([countItem('photos', 'Count saved; photo upload will retry: Bucket unavailable')]);
+test('known limits: a count retries gave up on at its photos or its connection is still only retried', async () => {
+  const h = syncScreen([
+    countItem('photos', 'Count saved; photo upload will retry: Bucket unavailable'),
+    countItem('offline', 'Network request failed'),
+  ]);
   const renderer = await render(h);
-  assert.equal(buttons(renderer, 'Retry upload').length, 1);
+  assert.equal(buttons(renderer, 'Retry upload').length, 2);
+  assert.equal(buttons(renderer, 'Discard count…').length, 0);
+  await TestRenderer.act(async () => { renderer.unmount(); });
+});
+
+test('known limits: discarding a count whose payload lost its tag still says it was discarded', async () => {
+  const h = syncScreen([countItem('broken', 'This tag has already been received', { action: { type: 'count', payload: { photos: [] } } })]);
+  const renderer = await render(h);
   await TestRenderer.act(async () => { buttons(renderer, 'Discard count…')[0].props.onPress(); });
-  assert.ok(texts(renderer).includes("Discard this count? It may already be saved, but its photos will not be uploaded, and this can't be undone."));
   await TestRenderer.act(async () => { await buttons(renderer, 'Discard count')[0].props.onPress(); });
-  assert.deepEqual(h.calls.removed, ['photos']);
-  assert.ok(texts(renderer).includes('Count discarded. Its photos will not be uploaded.'));
+  assert.deepEqual(h.calls.removed, ['broken']);
+  assert.ok(texts(renderer).includes('Count discarded. It will not be uploaded.'), texts(renderer).join('\n'));
   assert.deepEqual(h.calls.forgotten, []);
   await TestRenderer.act(async () => { renderer.unmount(); });
 });

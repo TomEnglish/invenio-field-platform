@@ -22,9 +22,11 @@ export interface MaterialWithLocation {
 }
 
 const PAGE_SIZE = 20;
-// QR codes matched by one search, newest first: enough to narrow by typing,
-// short enough for the request.
+// Materials matched by their QR code in one search, newest first: enough to
+// narrow by typing, short enough for the request.
 const CODE_MATCHES = 100;
+// The longest search text used: a tag is at most 120 characters.
+export const SEARCH_MAX = 120;
 // A value in a PostgREST `or` list, quoted so commas, dots and brackets in what
 // was typed stay text.
 const orValue = (text: string) => `"${text.replace(/["\\]/g, char => `\\${char}`)}"`;
@@ -57,18 +59,21 @@ export async function fetchMaterials(filters?: {
     query = query.eq('material_type', filters.material_type);
   }
   // Type, grade or QR code containing the text, whatever its capitals. A
-  // material's code is in qr_codes, so the codes are looked up first.
-  const search = filters?.search?.trim();
+  // material's code is in qr_codes, so the materials whose code matches are
+  // found first, with the same filters. ILIKE's % and _ are escaped; PostgREST
+  // reads * as a wildcard and has no escape for it.
+  const search = filters?.search?.trim().slice(0, SEARCH_MAX);
   if (search) {
     const pattern = `%${likeExactly(search)}%`;
-    const { data: codes, error: codeError } = await client.from('qr_codes').select('id')
-      .neq('entity_type', 'handling_unit').ilike('code_value', pattern)
-      .order('created_at', { ascending: false }).limit(CODE_MATCHES);
+    let byCode = client.from('materials').select('id, qr_codes!inner(code_value)').ilike('qr_codes.code_value', pattern);
+    if (filters?.status) byCode = byCode.eq('status', filters.status);
+    if (filters?.material_type) byCode = byCode.eq('material_type', filters.material_type);
+    const { data: coded, error: codeError } = await byCode.order('created_at', { ascending: false }).limit(CODE_MATCHES);
     if (codeError) throw new Error(codeError.message);
-    const ids = (codes ?? []).map((code: { id: string }) => code.id);
+    const ids = (coded ?? []).map((material: { id: string }) => material.id);
     query = query.or([
       `material_type.ilike.${orValue(pattern)}`, `grade.ilike.${orValue(pattern)}`,
-      ...(ids.length ? [`qr_code_id.in.(${ids.join(',')})`] : []),
+      ...(ids.length ? [`id.in.(${ids.join(',')})`] : []),
     ].join(','));
   }
 

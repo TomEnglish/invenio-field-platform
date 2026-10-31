@@ -15,7 +15,7 @@ function countApi(options = {}) {
   const loader = createModuleLoader({
     stubs: {
       '@/stores/authStore': { useAuthStore: { getState: () => auth } },
-      'lib/api/inventory.ts': { forgetLocalCount: async (tag) => { calls.forgotten.push(tag); } },
+      'lib/api/inventory.ts': { forgetLocalCount: async (tag, operation) => { calls.forgotten.push([tag, operation]); } },
       '@/lib/supabase': { supabase: {
         rpc: async (name, args) => {
           if (name === 'apply_field_operation' && options.operationError) { calls.operations.push(args); return { data: null, error: options.operationError }; }
@@ -83,11 +83,11 @@ test('a server reply without a uid is not treated as saved', async () => {
 test('known limits: a count the server refuses stops showing as counted on the device; other failures keep it', async () => {
   const refused = countApi({ operationError: { message: 'Category is unavailable in this project', code: '22023' } });
   await assert.rejects(() => refused.api.submitCount({ count, photos, context }), (error) => error.code === '22023');
-  assert.deepEqual(refused.calls.forgotten, ['GT2-LO-001']);
+  assert.deepEqual(refused.calls.forgotten, [['GT2-LO-001', OPERATION]], 'this count, not every count of the tag');
   assert.equal(refused.calls.uploads.length, 0);
   const notAllowed = countApi({ operationError: { message: 'Office staff only', code: '42501' } });
   await assert.rejects(() => notAllowed.api.submitCount({ count, photos, context }));
-  assert.deepEqual(notAllowed.calls.forgotten, ['GT2-LO-001'], '42501 is a decision too');
+  assert.deepEqual(notAllowed.calls.forgotten, [['GT2-LO-001', OPERATION]], '42501 is a decision too');
 
   // A dropped connection or a photo still to upload will go through on a retry.
   const offline = countApi({ operationError: { message: 'Network request failed' } });

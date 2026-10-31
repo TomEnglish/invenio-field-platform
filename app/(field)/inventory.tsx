@@ -14,7 +14,7 @@ import {
 import { router, useFocusEffect } from 'expo-router';
 import FontAwesome from '@expo/vector-icons/FontAwesome';
 import { Button } from '@/components/ui/Button';
-import { fetchMaterials, type MaterialWithLocation } from '@/lib/api/materials';
+import { fetchMaterials, SEARCH_MAX, type MaterialWithLocation } from '@/lib/api/materials';
 import { positionsOfMaterials } from '@/lib/api/tags';
 import { positionText, type ItemPosition } from '@/lib/logistics/positions';
 import { useAuthStore } from '@/stores/authStore';
@@ -55,6 +55,8 @@ export default function InventoryScreen() {
     const context = useAuthStore.getState();
     const stillCurrent = () => id === request.current && context.user?.id === useAuthStore.getState().user?.id && context.activeProject?.id === useAuthStore.getState().activeProject?.id;
     setMaterials([]);
+    // No "load more" for the last search while this one loads.
+    setHasMore(false);
     const cacheKey = `materials_${statusFilter}_${search}`;
     try {
       const result = await fetchMaterials({
@@ -72,6 +74,7 @@ export default function InventoryScreen() {
     } catch (e: any) {
       if (!stillCurrent()) return;
       const cached = !useNetworkStore.getState().isOnline ? await getCached<MaterialWithLocation[]>(cacheKey) : null;
+      if (!stillCurrent()) return;
       if (cached) {
         setMaterials(cached);
         setHasMore(false);
@@ -83,7 +86,7 @@ export default function InventoryScreen() {
   };
 
   const loadMore = async () => {
-    if (loadingMore || !hasMore) return;
+    if (loading || loadingMore || !hasMore) return;
     const id = request.current;
     setLoadingMore(true);
     try {
@@ -166,6 +169,7 @@ export default function InventoryScreen() {
           placeholderTextColor={colors.textSubtle}
           value={search}
           onChangeText={setSearch}
+          maxLength={SEARCH_MAX}
         />
       </View>
 
