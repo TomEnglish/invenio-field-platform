@@ -196,6 +196,15 @@ export default function DashboardScreen() {
         <FontAwesome name="chevron-right" size={14} color={c.textSubtle} />
       </Card>
 
+      <Card style={styles.countCard} onPress={() => router.push('/(office)/loads' as any)}>
+        <FontAwesome name="truck" size={22} color={c.brandPrimary} />
+        <View style={styles.countText}>
+          <Text style={styles.countTitle}>Loads</Text>
+          <Text style={styles.countHint}>Open loads, driver check-in, loading out and unloading</Text>
+        </View>
+        <FontAwesome name="chevron-right" size={14} color={c.textSubtle} />
+      </Card>
+
       {/* Inventory by Type */}
       <Text style={styles.sectionTitle}>Inventory by Type</Text>
       <Card style={{ marginBottom: 16 }}>

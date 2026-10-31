@@ -1,0 +1,148 @@
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { View, Text, ScrollView } from 'react-native';
+import { router, Stack, useFocusEffect, useLocalSearchParams } from 'expo-router';
+import FontAwesome from '@expo/vector-icons/FontAwesome';
+import { Button } from '@/components/ui/Button';
+import { QRScanner, type ScanFeedback } from '@/components/scanning/QRScanner';
+import { AreaList } from '@/components/inventory/AreaList';
+import { useCountReference } from '@/components/inventory/useCountReference';
+import { useLoadReference } from '@/components/logistics/useLoadReference';
+import { useScanBatch } from '@/components/logistics/useScanBatch';
+import { saveLoadChange } from '@/components/logistics/saveLoadChange';
+import { loadStyles as styles } from '@/components/logistics/loadStyles';
+import { useAuthStore } from '@/stores/authStore';
+import { newOperationId } from '@/lib/utils/operationId';
+import { activeAreas, areaPathLabel, buildAreaTree } from '@/lib/inventory/areas';
+import { applyLoadPending, classifyUnload, indexLoads, loadLabel, openStops, unloadChecklist, STOP_KINDS } from '@/lib/logistics/loads';
+import { colors } from '@/lib/design/tokens';
+
+type Area = { zoneId: string; siteMapId: string; zoneName: string } | null;
+
+// Unload at a stop: choose the stop, then scan pieces off against what is due
+// there. A piece due elsewhere comes off marked as the wrong stop; one not on
+// the truck's list comes off as an extra. An area can be chosen only at this
+// project's own yard or site. Saved as load_off batches; Finish stop sends
+// stop_complete, after warning that unscanned pieces due here become missing.
+export function UnloadScreenContent() {
+  const { id = '', stopId: param } = useLocalSearchParams<{ id?: string; stopId?: string }>();
+  const projectId = useAuthStore(s => s.activeProject?.id);
+  const { loads, index, data } = useLoadReference({ refresh: true });
+  const count = useCountReference({ refresh: false });
+  const load = loads.loads.get(id);
+  const label = loadLabel(load);
+  const [stopId, setStopId] = useState<string | null>(param || null);
+  // Only a stop still to finish; a finished one can't take more pieces.
+  const stop = openStops(loads, id).find(s => s.id === stopId);
+  const ownPlace = !!stop && data.places.some(place => place.id === stop.place_id && place.project_id === projectId);
+  const [area, setArea] = useState<Area>(null);
+  const [mapId, setMapId] = useState<string | null>(null);
+  const [finishing, setFinishing] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const finishId = useRef(newOperationId());
+  const [saveError, setSaveError] = useState('');
+  // The screen stays mounted between visits: each starts from the stop asked for, with no area or prompt.
+  const restart = () => { setStopId(param || null); setArea(null); setFinishing(false); setSaveError(''); finishId.current = newOperationId(); };
+  useEffect(restart, [id, param]);
+  useFocusEffect(useCallback(() => () => restart(), [id, param]));
+  const opFor = (pieces: string[], where: Area) => ({ loadId: id, stopId: stopId!, pieces, ...(where ? { zoneId: where.zoneId, siteMapId: where.siteMapId } : {}) });
+  const { batch, update, flush, error } = useScanBatch<{ pieces: string[]; area: Area }>({
+    empty: () => ({ pieces: [], area }),
+    count: b => b.pieces.length,
+    merge: (failed, since) => ({ pieces: [...failed.pieces, ...since.pieces.filter(p => !failed.pieces.includes(p))], area: failed.area }),
+    save: async b => { await saveLoadChange('load_off', opFor(b.pieces, b.area), label, undefined, b.area ? { zoneName: b.area.zoneName } : {}); },
+  });
+  const view = useMemo(() => (batch.pieces.length && stopId
+    ? indexLoads(applyLoadPending(data, [{ type: 'load_off', payload: { op: opFor(batch.pieces, batch.area), zoneName: batch.area?.zoneName } }])) : loads), [data, loads, batch, stopId]);
+  const list = stopId ? unloadChecklist(view, id, stopId) : null;
+  const maps = count.data.maps;
+  const shownMap = maps.find(m => m.id === mapId) ?? maps[0] ?? null;
+  const areas = useMemo(() => (shownMap ? activeAreas(count.data.zones.filter(zone => zone.map_id === shownMap.id)) : []), [count.data.zones, shownMap?.id]);
+  const tree = useMemo(() => buildAreaTree(areas), [areas]);
+
+  // A new area starts a new batch: every piece in a load_off shares one area.
+  const chooseArea = async (next: Area) => { await flush(); setArea(next); update(b => ({ ...b, area: next })); };
+  const onScan = async (raw: string): Promise<ScanFeedback | null> => {
+    if (!stopId) return null;
+    const scan = classifyUnload(index, view, id, stopId, raw);
+    if (!scan) return null;
+    if (scan.kind === 'refuse' || scan.kind === 'already') return { tone: scan.kind === 'already' ? 'info' : 'warn', message: scan.message };
+    // A code this device doesn't know goes on its own: if the server refuses it, the rest still go.
+    if (scan.kind === 'extra' && scan.unchecked) {
+      try {
+        await flush();
+        await saveLoadChange('load_off', opFor([scan.tag], area), label, undefined, area ? { zoneName: area.zoneName } : {});
+        setSaveError('');
+      } catch (e: any) { setSaveError(`Could not save ${scan.tag}: ${e?.message ?? 'Please try again'}. Scan it again.`); }
+      return { tone: 'info', message: `${scan.message} It isn't on this device; the server checks it.` };
+    }
+    update(b => ({ ...b, area, pieces: b.pieces.includes(scan.tag) ? b.pieces : [...b.pieces, scan.tag] }));
+    return { tone: scan.kind === 'due' || scan.kind === 'found' ? 'ok' : 'info', message: scan.message };
+  };
+  const finish = async () => {
+    if (saving || !stopId) return;
+    setSaving(true);
+    try {
+      // Every scan off is saved before the stop is finished, or nothing is.
+      if (!(await flush())) return;
+      await saveLoadChange('stop_complete', { loadId: id, stopId }, label, finishId.current);
+      finishId.current = newOperationId();
+      setFinishing(false);
+      router.back();
+    } catch (e: any) { setSaveError(`Could not finish the stop: ${e?.message ?? 'Please try again'}.`); }
+    finally { setSaving(false); }
+  };
+
+  if (!load) return <View style={styles.container}><Stack.Screen options={{ headerShown: true, title: 'Unload' }} /><Text style={[styles.muted, { padding: 20 }]}>This load isn’t on this device.</Text></View>;
+  if (!stopId || !stop) return <ScrollView style={styles.container} contentContainerStyle={styles.content}>
+    <Stack.Screen options={{ headerShown: true, title: `Unload ${label}` }} />
+    <Text style={styles.heading} accessibilityRole="header">Which stop are you at?</Text>
+    {openStops(loads, id).map(s => <Button key={s.id} title={`${s.seq}. ${s.place_name} · ${STOP_KINDS.find(k => k.value === s.kind)?.label} · ${s.due_count} due`} variant="secondary" onPress={() => setStopId(s.id)} />)}
+    {openStops(loads, id).length === 0 ? <Text style={styles.muted}>Every stop on this load is done.</Text> : null}
+  </ScrollView>;
+
+  return <View style={styles.container}>
+    <Stack.Screen options={{ headerShown: true, title: `Unload at ${stop.place_name}` }} />
+    <View style={styles.camera}><QRScanner continuous onScan={onScan} countLabel={list ? `${list.offCount} of ${list.total} off here` : undefined} /></View>
+    <ScrollView style={styles.list} contentContainerStyle={{ gap: 4, paddingBottom: 8 }}>
+      {ownPlace ? <View style={styles.section}>
+        <Text style={styles.rowTitle}>{area ? `Area: ${area.zoneName}` : 'Area (optional): where these pieces go in the yard'}</Text>
+        {area ? <Button title="Clear area" variant="ghost" onPress={() => chooseArea(null)} /> : null}
+        {maps.length > 1 ? <View style={styles.chips}>{maps.map(m => <Button key={m.id} title={m.name} variant={m.id === shownMap?.id ? 'primary' : 'secondary'} onPress={() => setMapId(m.id)} style={styles.chip} />)}</View> : null}
+        {areas.length ? <AreaList areas={areas} selectedId={area?.zoneId ?? null} reveal={null} style={{ minHeight: 150 }}
+          onSelect={zone => chooseArea({ zoneId: zone.id, siteMapId: zone.map_id, zoneName: areaPathLabel(tree, zone.id) })} /> : null}
+      </View> : null}
+      {list?.due.map(line => {
+        const off = line.status === 'delivered';
+        return <View key={line.id} style={styles.row} accessible accessibilityLabel={`${line.tag}, ${line.name}: ${off ? 'off' : line.status === 'missing' ? 'missing' : 'not off yet'}`}>
+          <FontAwesome name={off ? 'check-circle' : line.status === 'missing' ? 'question-circle' : 'circle-o'} size={18} color={off ? colors.success : colors.textSubtle} />
+          <View style={styles.rowText}>
+            <Text style={styles.rowTitle}>{line.tag}{line.status === 'missing' ? ' · Missing' : ''}{line.is_high_value ? ' · High value' : ''}</Text>
+            <Text style={styles.muted} numberOfLines={1}>{line.name}</Text>
+          </View>
+        </View>;
+      })}
+      {list?.extras.map(line => <View key={line.id} style={styles.row}>
+        <FontAwesome name="exclamation-circle" size={18} color={colors.warnDeep} />
+        <View style={styles.rowText}>
+          <Text style={styles.rowTitle}>{line.tag} · {line.flag === 'extra' ? 'Extra' : 'Wrong stop'}</Text>
+          <Text style={styles.muted} numberOfLines={1}>{line.flag === 'extra' ? 'Not on this truck’s list' : `Was due at ${line.dropoff_place ?? 'another stop'}`}</Text>
+        </View>
+      </View>)}
+      {list && list.total === 0 && list.extras.length === 0 ? <Text style={styles.muted}>Nothing is due here. Scan anything that comes off.</Text> : null}
+      {error || saveError ? <Text style={styles.error} accessibilityRole="alert">{error || saveError}</Text> : null}
+      {finishing ? <View style={styles.refused}>
+        <Text style={styles.warning} accessibilityRole="alert">{list?.waiting.length
+          ? `${list.waiting.length} piece${list.waiting.length === 1 ? '' : 's'} due here ${list.waiting.length === 1 ? 'hasn’t' : 'haven’t'} been scanned off and will be marked missing: ${list.waiting.map(l => l.tag).join(', ')}.`
+          : 'Everything due here is off.'} Finish {stop.place_name}?</Text>
+        <View style={styles.pair}>
+          <Button title="Finish stop" variant={list?.waiting.length ? 'danger' : 'primary'} onPress={finish} loading={saving} style={styles.flex} />
+          <Button title="Keep scanning" variant="secondary" onPress={() => setFinishing(false)} style={styles.flex} disabled={saving} />
+        </View>
+      </View> : null}
+    </ScrollView>
+    <View style={styles.footer}>
+      <Button title="Done for now" variant="secondary" onPress={async () => { if (await flush()) router.back(); }} style={styles.flex} />
+      <Button title="Finish stop…" onPress={async () => { if (await flush()) setFinishing(true); }} style={styles.flex} />
+    </View>
+  </View>;
+}

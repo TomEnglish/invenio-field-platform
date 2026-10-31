@@ -1,0 +1,38 @@
+import { StyleSheet } from 'react-native';
+import { colors, radius, space, fontSize, fontWeight, touchTarget } from '@/lib/design/tokens';
+
+// Shared by the Loads screens.
+export const loadStyles = StyleSheet.create({
+  container: { flex: 1, backgroundColor: colors.canvas },
+  content: { padding: space[5], gap: space[4], flexGrow: 1 },
+  section: { gap: space[2] },
+  card: { gap: space[1], padding: space[3], borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface },
+  titleRow: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: space[2] },
+  title: { fontSize: fontSize.xl, fontWeight: fontWeight.semibold, color: colors.textPrimary },
+  heading: { fontSize: fontSize.md, fontWeight: fontWeight.semibold, color: colors.textPrimary },
+  text: { fontSize: fontSize.body, color: colors.textPrimary, lineHeight: 20 },
+  muted: { fontSize: fontSize.body, color: colors.textMuted, lineHeight: 20 },
+  warning: { fontSize: fontSize.body, color: colors.warnDeep, lineHeight: 20 },
+  error: { fontSize: fontSize.body, color: colors.danger, lineHeight: 20 },
+  badge: { fontSize: fontSize.xs, fontWeight: fontWeight.semibold, paddingHorizontal: space[2], paddingVertical: space[1], borderRadius: radius.pill, overflow: 'hidden', backgroundColor: colors.raised, color: colors.textPrimary },
+  good: { backgroundColor: colors.successSoft, color: colors.successDeep },
+  caution: { backgroundColor: colors.warnSoft, color: colors.warnDeep },
+  row: { flexDirection: 'row', alignItems: 'center', gap: space[3], minHeight: touchTarget, paddingVertical: space[2], borderBottomWidth: 1, borderBottomColor: colors.border },
+  rowText: { flex: 1, gap: 2 },
+  rowTitle: { fontSize: fontSize.body, fontWeight: fontWeight.semibold, color: colors.textPrimary },
+  done: { color: colors.textSubtle },
+  note: { gap: space[2], padding: space[3], borderRadius: radius.lg, backgroundColor: colors.brandPrimarySoft },
+  refused: { gap: space[2], padding: space[3], borderRadius: radius.lg, backgroundColor: colors.warnSoft },
+  actions: { gap: space[2] },
+  pair: { flexDirection: 'row', gap: space[2] },
+  flex: { flex: 1 },
+  chips: { flexDirection: 'row', flexWrap: 'wrap', gap: space[2] },
+  chip: { paddingHorizontal: space[3], paddingVertical: space[2] },
+  progress: { paddingHorizontal: space[5], paddingVertical: space[3], gap: space[2], backgroundColor: colors.surface, borderBottomWidth: 1, borderBottomColor: colors.border },
+  stepBar: { flexDirection: 'row', gap: 6 },
+  stepSegment: { height: 4, flex: 1, borderRadius: radius.sm, backgroundColor: colors.border },
+  stepActive: { backgroundColor: colors.brandPrimary },
+  camera: { flex: 5, minHeight: 240 },
+  list: { flex: 4, minHeight: 140, paddingHorizontal: space[4] },
+  footer: { flexDirection: 'row', gap: space[2], padding: space[4], backgroundColor: colors.surface },
+});

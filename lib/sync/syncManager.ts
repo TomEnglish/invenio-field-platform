@@ -4,9 +4,19 @@ import { submitReceivingRecord } from '../api/receiving';
 import { transferMaterial, issueMaterial } from '../api/materials';
 import { createShipment } from '../api/shipments';
 import { submitCount } from '../api/count';
-import { submitPack, submitUnpack } from '../api/logistics';
+import { submitLoadOperation, submitPack, submitUnpack } from '../api/logistics';
+import { submitLicence } from '../api/licence';
 import { useNetworkStore } from './networkStore';
 
+// A load's steps depend on each other (a departure on the pieces loaded, a
+// finished stop on the pieces unloaded), so once one of a load's saved steps
+// fails or is stuck, its later steps wait until that one goes through.
+const LOAD_STEPS = new Set(['load_save', 'load_on', 'load_depart', 'load_off', 'stop_complete', 'licence']);
+export function loadOf(item: QueueItem): string | null {
+  if (!LOAD_STEPS.has(item.action?.type)) return null;
+  const payload = item.action.payload as { op?: { loadId?: string }; loadId?: string };
+  return payload.op?.loadId ?? payload.loadId ?? null;
+}
 let activeRun: Promise<{ processed: number; failed: number }> | null = null;
 let requested = false;
 function canSync(item: QueueItem) {
@@ -25,14 +35,22 @@ export function processQueue(): Promise<{ processed: number; failed: number }> {
     do {
       requested = false;
       const queue = await getQueue();
+      const waiting = new Set<string>();
       for (const item of queue) {
-        if (item.deadLetter || attempted.has(item.id) || !canSync(item)) continue;
+        const load = loadOf(item);
+        if (load && waiting.has(load)) continue;
+        if (item.deadLetter || attempted.has(item.id) || !canSync(item)) {
+          // A stuck or failed earlier step holds back the load's later ones.
+          if (load && (item.deadLetter || (attempted.has(item.id) && item.lastError))) waiting.add(load);
+          continue;
+        }
         attempted.add(item.id);
         try {
           await processItem(item);
           await removeFromQueue(item.id);
           processed++;
         } catch (error: any) {
+          if (load) waiting.add(load);
           // Waiting for connectivity or the original context is not a failed try.
           if (canSync(item)) { await markFailed(item.id, error?.message ?? 'Unknown error'); failed++; }
         }
@@ -89,6 +107,16 @@ async function processItem(item: QueueItem): Promise<void> {
       break;
     case 'unpack':
       await submitUnpack(action.payload, context);
+      break;
+    case 'load_save':
+    case 'load_on':
+    case 'load_depart':
+    case 'load_off':
+    case 'stop_complete':
+      await submitLoadOperation(action.type, action.payload, context);
+      break;
+    case 'licence':
+      await submitLicence(action.payload, context);
       break;
     default:
       throw new Error('Unsupported saved submission type. Ask your administrator to review this device.');

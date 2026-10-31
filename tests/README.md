@@ -83,7 +83,34 @@ Crates (logistics phase 1, contract in MSR migration 021):
   per account and project and across restarts; the Crate screen from the device's copy,
   refused changes named, nested crates, packing, and unpacking (not while packing it).
 
-All tests pass (192 with crates). `npm run lint` and `npx expo export --platform web` also pass;
+Loads (logistics phase 2, contract in MSR migration 022):
+
+- `load-rules`: check-in validation (driver, up to 3 companies, licence number shape,
+  real expiry date, front photo unless a licence is on file) and its two payloads (the
+  number never in the load_save); the load-out checklist ("N of M on board") at the
+  origin and at a pick-up stop; scan checks (another load, inside a crate, packed,
+  unpacked crates) and drop-off choices; unplanned pieces with their stop and undo; a
+  load made offline taken all the way through by the overlay, idempotently; depart
+  rules and what stays behind; unloading (due, wrong stop, extra, another load's piece,
+  missing on finish); the editor's change-only payload; 022's crate rules.
+- `load-sync`: every load operation queued and sent to `apply_field_operation`
+  unchanged, with Sync summaries; the licence recorded first and the number dropped
+  from the queue before any photo uploads, photos uploaded without upsert, "already
+  exists" taken as landed on a retry, files deleted after sync and the number in no
+  local store; refusals by the server's wording; loads cached (open and recent) with
+  stops, lines and companies; an item's current load; a database without 022.
+- `load-screens`: load out (ticks, the drop-off question, take off, batched saves, an
+  unknown piece on its own), check-in (two queued items, the number never written to the
+  draft or shown back), depart and unload (area only at our own place, Finish stop's
+  warning, scans saved first).
+- Review fixes, in the same files: step screens start fresh on each visit (editor, check-in,
+  depart, unload); a load's later steps wait when an earlier one fails; stop dates kept;
+  check-in sends only what changed; unknown codes unload on their own; a finished stop takes
+  no more pieces; Finish stop and Done wait for every scan to save; one undo per piece; the
+  server's newer line wins for an item; 022's columns tried again on each download; a stuck
+  licence can be discarded; licence photos leave no other copy.
+
+All tests pass (222 with loads). `npm run lint` and `npx expo export --platform web` also pass;
 the web login was verified in Chrome without console errors. Native camera,
 force-close/restart and hosted email/storage behavior remain release smoke checks.
 See the sibling MSR `docs/PLATFORM_RELEASE.md` for the coordinated release guide.
