@@ -41,8 +41,16 @@ export interface QueueItem {
   createdAt: string;
   retryCount?: number;
   lastError?: string;
+  // The server's SQLSTATE (or an app code) for lastError.
+  lastErrorCode?: string;
+  // Refused: retrying unchanged can't help, so it waits for the crew to retry
+  // after sorting it out, fix it or discard it. Not retried automatically.
+  refused?: boolean;
   deadLetter?: boolean;
 }
+// Codes that mean "refused, needs a decision": the server's 22023, and the
+// app's own for a licence whose number or photos are no longer on the device.
+export const DECISION_CODES = new Set(['22023', 'LICENCE_FORGOTTEN', 'PHOTO_GONE']);
 
 export async function getQueue(): Promise<QueueItem[]> {
   const raw = await AsyncStorage.getItem(QUEUE_KEY);
@@ -65,7 +73,9 @@ export function belongsToCurrentContext(item: QueueItem): boolean {
   const { user, activeProject, session } = useAuthStore.getState();
   return !!session && !!user && !!activeProject && item.userId === user.id && item.projectId === activeProject.id;
 }
-export async function addToQueue(action: QueueAction, id = newOperationId()): Promise<string> {
+// `before`: put the item ahead of the first queued item it matches (a licence
+// goes ahead of its load's departure, which needs it).
+export async function addToQueue(action: QueueAction, id = newOperationId(), before?: (item: QueueItem) => boolean): Promise<string> {
   const { user, activeProject, session, loading } = useAuthStore.getState();
   if (loading || !user || !activeProject || !session || activeProject.status !== 'active') throw new Error('An authenticated user and active project are required.');
   const item: QueueItem = { id, userId: user.id, projectId: activeProject.id, action, createdAt: new Date().toISOString(), retryCount: 0, deadLetter: false };
@@ -73,7 +83,10 @@ export async function addToQueue(action: QueueAction, id = newOperationId()): Pr
     const old = queue.find((i) => i.id === id);
     if (old) {
       if (old.userId !== item.userId || old.projectId !== item.projectId || JSON.stringify(old.action) !== JSON.stringify(action)) throw new Error('This submission is already queued. Review it in Sync before starting another.');
-    } else queue.push(item);
+    } else {
+      const at = before ? queue.findIndex(before) : -1;
+      if (at >= 0) queue.splice(at, 0, item); else queue.push(item);
+    }
   });
   return id;
 }
@@ -85,12 +98,16 @@ export async function replaceQueuedAction(id: string, action: QueueAction): Prom
 export async function removeFromQueue(id: string): Promise<void> {
   await mutate((queue) => { const at = queue.findIndex((item) => item.id === id); if (at >= 0) queue.splice(at, 1); });
 }
-export async function markFailed(id: string, error: string): Promise<void> {
+export async function markFailed(id: string, error: string, code?: string): Promise<void> {
   await mutate((queue) => {
     const item = queue.find((i) => i.id === id);
     if (!item) return;
-    item.retryCount = (item.retryCount ?? 0) + 1;
     item.lastError = error;
+    item.lastErrorCode = code;
+    item.refused = !!code && DECISION_CODES.has(code);
+    // A refusal isn't a failed try: it waits for a decision instead.
+    if (item.refused) return;
+    item.retryCount = (item.retryCount ?? 0) + 1;
     item.deadLetter = item.retryCount >= MAX_RETRIES;
   });
 }
@@ -98,11 +115,11 @@ export async function retryQueueItem(id: string): Promise<void> {
   await mutate((queue) => {
     const item = queue.find((i) => i.id === id && belongsToCurrentContext(i));
     if (!item) throw new Error('Switch to the original account and project to retry.');
-    item.deadLetter = false; item.retryCount = 0; item.lastError = undefined;
+    item.deadLetter = false; item.retryCount = 0; item.lastError = undefined; item.lastErrorCode = undefined; item.refused = false;
   });
 }
 export async function getQueueStats(): Promise<{ pending: number; deadLetters: number }> {
   const queue = (await getQueue()).filter(belongsToCurrentContext);
-  return { pending: queue.filter(i => !i.deadLetter).length, deadLetters: queue.filter(i => i.deadLetter).length };
+  return { pending: queue.filter(i => !i.deadLetter && !i.refused).length, deadLetters: queue.filter(i => i.deadLetter || i.refused).length };
 }
 export async function getQueueLength(): Promise<number> { return (await getQueueStats()).pending; }

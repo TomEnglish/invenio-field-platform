@@ -2,10 +2,10 @@ import { Platform } from 'react-native';
 import { compressPhoto } from './compressPhoto';
 import { newOperationId } from './operationId';
 
-// Copies a photo into document storage. `discardSources` deletes the camera's
-// original and the compressed copy afterwards, so nothing else of it stays on
-// the device (licence photos).
-export async function persistPhoto(uri: string, options: { directory?: string; discardSources?: boolean } = {}): Promise<string> {
+// Copies a photo into document storage. For licence photos: `temporary` uses
+// the cache folder instead (not backed up), and `discardSources` deletes the
+// camera's original and the compressed copy, so no other copy stays.
+export async function persistPhoto(uri: string, options: { directory?: string; temporary?: boolean; discardSources?: boolean } = {}): Promise<string> {
   const compressed = await compressPhoto(uri);
   if (Platform.OS === 'web') {
     const blob = await (await fetch(compressed)).blob();
@@ -17,8 +17,9 @@ export async function persistPhoto(uri: string, options: { directory?: string; d
     });
   }
   const fs = await import('expo-file-system/legacy');
-  if (!fs.documentDirectory) throw new Error('Photo document storage is unavailable.');
-  const directory = `${fs.documentDirectory}${options.directory ?? 'receiving-photos'}/`;
+  const base = options.temporary ? fs.cacheDirectory : fs.documentDirectory;
+  if (!base) throw new Error('Photo document storage is unavailable.');
+  const directory = `${base}${options.directory ?? 'receiving-photos'}/`;
   await fs.makeDirectoryAsync(directory, { intermediates: true });
   const destination = `${directory}${newOperationId()}.jpg`;
   await fs.copyAsync({ from: compressed, to: destination });

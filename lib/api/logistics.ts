@@ -35,7 +35,7 @@ const MAX_APPLIED = 500;
 const UNIT_COLUMNS_021 = 'id,code,kind,description,is_high_value,status,parent_id,parent_code,top_code,place_id,place_name,site_map_id,zone_id,location,item_count,unit_count';
 const UNIT_COLUMNS = `${UNIT_COLUMNS_021},top_status,load_id,load_number,load_line_status`;
 const LOAD_COLUMNS = 'id,load_number,status,origin_place_id,origin_name,planned_date,truck_type,truck_number,trailer_number,bol_number,driver_name,driver_phone,licence_recorded_at,notes,stop_count,stops_done,next_stop,planned_count,on_board_count,delivered_count,missing_count,flagged_count,departed_at,updated_at';
-const STOP_COLUMNS = 'id,load_id,seq,place_id,place_name,kind,planned_date,status,due_count,delivered_count,missing_count';
+const STOP_COLUMNS = 'id,load_id,seq,place_id,place_name,place_kind,kind,planned_date,status,due_count,delivered_count,missing_count';
 const LINE_COLUMNS = 'id,load_id,load_number,load_status,tag,piece_kind,name,is_high_value,status,flag,added_in_field,pickup_stop_id,dropoff_stop_id,dropoff_place,delivered_stop_id,delivered_place,is_current_position,on_at,off_at';
 const COMPANY_COLUMNS = 'load_id,position,name,role,contact_name,phone';
 // Before migration 022 (or after a rollback) there are no loads and the crate

@@ -64,7 +64,7 @@ function setup({ tables = {}, online = true, rpc, upload, before022 = false } = 
       } }) },
     } },
     'expo-file-system': { File: class { constructor(uri) { this.uri = uri; } async arrayBuffer() { if (!files.has(this.uri)) throw new Error('missing file'); return new Uint8Array([1, 2]).buffer; } } },
-    'expo-file-system/legacy': { deleteAsync: async (uri) => { calls.deleted.push(uri); files.delete(uri); } },
+    'expo-file-system/legacy': { cacheDirectory: 'file:///cache/', deleteAsync: async (uri) => { calls.deleted.push(uri); files.delete(uri); } },
     'lib/api/receiving.ts': { submitReceivingRecord: async () => { throw new Error('unexpected receiving'); } },
     'lib/api/materials.ts': { transferMaterial: async () => {}, issueMaterial: async () => {} },
     'lib/api/shipments.ts': { createShipment: async () => {} },
@@ -72,7 +72,8 @@ function setup({ tables = {}, online = true, rpc, upload, before022 = false } = 
   } });
   return {
     api: loader.load('./lib/api/logistics.ts'), queue: loader.load('./lib/sync/offlineQueue.ts'), sync: loader.load('./lib/sync/syncManager.ts'),
-    presentation: loader.load('./lib/sync/queuePresentation.ts'), records, files, calls, auth, network, flags,
+    presentation: loader.load('./lib/sync/queuePresentation.ts'), memory: loader.load('./lib/sync/licenceMemory.ts'), licence: loader.load('./lib/api/licence.ts'),
+    records, files, calls, auth, network, flags,
   };
 }
 const storedEverywhere = (records) => [...records.values()].join('\n');
@@ -97,27 +98,27 @@ test('each load operation is queued and sent to apply_field_operation unchanged'
   assert.equal((await h.queue.getQueue()).length, 0);
 });
 
-test('the licence: recorded first, the number dropped from the queue at once, photos uploaded without upsert, then the files deleted', async () => {
+test('the licence: details only in memory, recorded first, photos uploaded without upsert, then the files deleted', async () => {
   let failOnce = true;
   const h = setup({ upload: (path) => (path.endsWith('-1.jpg') && failOnce ? (failOnce = false, { error: { message: 'Network request failed' } }) : { error: null }) });
   const photos = [{ uri: 'file:///documents/receiving-photos/front.jpg' }, { uri: 'file:///documents/receiving-photos/back.jpg' }];
-  await h.queue.addToQueue({ type: 'licence', payload: { loadId: 'load-n', label: 'L-0004', licence: { number: NUMBER, state: 'TX', expiry: '2028-02-29' }, photos } }, OP(7));
+  h.memory.rememberLicence(OP(7), { number: NUMBER, state: 'TX', expiry: '2028-02-29' });
+  await h.queue.addToQueue({ type: 'licence', payload: { loadId: 'load-n', label: 'L-0004', photos } }, OP(7));
+  assert.equal(storedEverywhere(h.records).includes('98765'), false, 'never in storage, even before it uploads');
   const [saved] = await h.queue.getQueue();
   assert.deepEqual(plain(h.presentation.queueSummary(saved)), { title: 'L-0004', detail: 'Driver licence · Licence waiting to upload · 2 photos' });
-  assert.equal(JSON.stringify(h.presentation.queueSummary(saved)).includes('98765'), false, 'Sync never shows the number');
 
   await h.sync.processQueue();
   const record = h.calls.rpc.find(call => call.name === 'record_driver_licence');
   assert.deepEqual(record.args, { p_operation_id: OP(7), p_load_id: 'load-n', p_licence: { number: NUMBER, state: 'TX', expiry: '2028-02-29' } });
+  assert.equal(h.memory.licenceKnown(OP(7)), false, 'forgotten once the server has it');
   assert.equal(h.calls.rpc.some(call => call.name === 'apply_field_operation'), false, 'never through field_operations');
-  assert.ok(h.calls.uploads.every(upload => !upload.queue.includes('98765')), 'the queue no longer holds the number when photos upload');
   assert.deepEqual(h.calls.uploads.map(u => [u.bucket, u.path, u.options.upsert]), [['driver-licences', `load-n/${OP(7)}-0.jpg`, false], ['driver-licences', `load-n/${OP(7)}-1.jpg`, false]]);
   const [waiting] = await h.queue.getQueue();
-  assert.equal(waiting.action.payload.licence, null);
   assert.equal(waiting.action.payload.recorded, true);
   assert.match(waiting.lastError, /photo upload will retry/);
+  assert.equal(waiting.refused, false, 'a photo failure retries');
   assert.equal(h.presentation.queueSummary(waiting).detail, 'Driver licence · Licence on file; photos still to upload · 2 photos');
-  assert.equal(h.presentation.crateRefused(waiting), false, 'a photo failure retries');
   assert.equal(h.files.size, 2, 'files kept until every photo is in');
 
   // The retry doesn't record again; an upload that already landed counts as done.
@@ -129,30 +130,69 @@ test('the licence: recorded first, the number dropped from the queue at once, ph
   assert.deepEqual(landed.calls.rpc.filter(call => call.name === 'attach_driver_licence_photo').map(call => call.args), [{ p_load_id: 'load-n', p_path: `load-n/${OP(7)}-0.jpg` }, { p_load_id: 'load-n', p_path: `load-n/${OP(7)}-1.jpg` }]);
   assert.deepEqual(landed.calls.deleted, photos.map(p => p.uri), 'the photo files are deleted after sync');
   assert.equal((await landed.queue.getQueue()).length, 0);
-  assert.equal(storedEverywhere(landed.records).includes('98765'), false, 'the number is in no local store after sync');
-  assert.equal(storedEverywhere(h.records).includes('98765'), false);
+  assert.equal(storedEverywhere(landed.records).includes('98765'), false);
 });
 
-test('licence and load refusals are named by the server’s wording; anything retries gave up on can be discarded', () => {
+test('a licence the app no longer holds (closed, or photos gone) waits for a decision; signing out clears every licence', async () => {
+  const photos = [{ uri: 'file:///documents/receiving-photos/front.jpg' }];
+  const forgot = setup();
+  await forgot.queue.addToQueue({ type: 'licence', payload: { loadId: 'load-n', label: 'L-0004', photos } }, OP(8));
+  await forgot.sync.processQueue();
+  let [left] = await forgot.queue.getQueue();
+  assert.deepEqual(plain([left.refused, left.lastErrorCode, left.retryCount]), [true, 'LICENCE_FORGOTTEN', 0]);
+  assert.equal(forgot.calls.rpc.length, 0);
+  assert.equal(forgot.presentation.canDiscard(left), true);
+  assert.match(forgot.presentation.queueRecoveryMessage(left), /kept only until the app closes/);
+  await forgot.sync.processQueue();
+  assert.equal(forgot.calls.rpc.length, 0, 'not retried by itself');
+
+  const gone = setup();
+  gone.memory.rememberLicence(OP(8), { number: NUMBER });
+  await gone.queue.addToQueue({ type: 'licence', payload: { loadId: 'load-n', label: 'L-0004', photos: [{ uri: 'file:///documents/receiving-photos/missing.jpg' }] } }, OP(8));
+  await gone.sync.processQueue();
+  [left] = await gone.queue.getQueue();
+  assert.deepEqual(plain([left.refused, left.lastErrorCode, left.action.payload.recorded]), [true, 'PHOTO_GONE', true]);
+
+  const out = setup();
+  out.memory.rememberLicence(OP(9), { number: NUMBER });
+  await out.queue.addToQueue({ type: 'load_save', payload: { op: { loadId: 'load-n', notes: 'x' }, label: 'L-0004' } }, OP(1));
+  await out.queue.addToQueue({ type: 'licence', payload: { loadId: 'load-n', label: 'L-0004', photos } }, OP(9));
+  await out.licence.clearLicenceData();
+  assert.deepEqual(plain((await out.queue.getQueue()).map(i => i.action.type)), ['load_save']);
+  assert.equal(out.memory.licenceKnown(OP(9)), false);
+  assert.ok(out.calls.deleted.includes(photos[0].uri) && out.calls.deleted.includes('file:///cache/licence-photos/'));
+});
+
+test('a refused load step (22023) waits for a decision and holds back the load’s later steps; a licence goes ahead of its departure', async () => {
+  const h = setup({ rpc: (name, args) => (name === 'apply_field_operation' && args.p_operation_id === OP(1) ? { data: null, error: { message: 'PIPE-3 is already on load L-0007', code: '22023' } } : null) });
+  await h.queue.addToQueue({ type: 'load_on', payload: { op: { loadId: 'load-n', pieces: ['PIPE-3'] }, label: 'L-0004' } }, OP(1));
+  await h.queue.addToQueue({ type: 'load_depart', payload: { op: { loadId: 'load-n' }, label: 'L-0004' } }, OP(2));
+  h.memory.rememberLicence(OP(3), { number: NUMBER });
+  await h.queue.addToQueue({ type: 'licence', payload: { loadId: 'load-n', label: 'L-0004', photos: [] } }, OP(3), item => item.action.type === 'load_depart' && h.presentation.loadOf(item) === 'load-n');
+  assert.deepEqual(plain((await h.queue.getQueue()).map(i => i.id)), [OP(1), OP(3), OP(2)], 'the licence goes ahead of the departure');
+  await h.sync.processQueue();
+  await h.sync.processQueue();
+  assert.deepEqual(h.calls.rpc.map(c => c.args.p_operation_id), [OP(1)], 'tried once; the licence and departure wait behind it');
+  const [refused] = await h.queue.getQueue();
+  assert.deepEqual(plain([refused.refused, refused.retryCount]), [true, 0]);
+  assert.deepEqual(plain(h.presentation.unresolvedFor(await h.queue.getQueue(), 'load-n').map(i => i.id)), [OP(1)]);
+  await h.queue.removeFromQueue(OP(1));
+  await h.sync.processQueue();
+  assert.deepEqual(h.calls.rpc.slice(1).map(c => c.name), ['record_driver_licence', 'apply_field_operation'], 'discarded: the rest go, in order');
+});
+
+test('load and licence refusals come from the code; anything retries gave up on can be discarded', () => {
   const h = setup();
-  const item = (type, lastError) => ({ id: 'x', userId: 'worker-a', projectId: 'project-a', lastError, action: { type, payload: { op: { loadId: 'l' }, label: 'L-0004', loadId: 'l', photos: [], licence: null } } });
-  assert.equal(h.presentation.crateRefused(item('licence', 'Enter the licence number: 3 to 40 letters, numbers, spaces or dashes')), true);
-  // Steps wait for the load's earlier ones, so a missing load was refused or access was lost.
-  assert.equal(h.presentation.crateRefused(item('licence', "That load isn't in your projects")), true);
-  assert.equal(h.presentation.crateRefused(item('load_on', "That load isn't in this project")), true);
-  assert.equal(h.presentation.crateRefused(item('load_on', 'duplicate key value violates unique constraint "load_lines_open_item"')), true);
-  assert.match(h.presentation.queueRecoveryMessage(item('licence', 'A load keeps at most 4 licence photos')), /already has 4 licence photos/);
-  assert.equal(h.presentation.canDiscard({ ...item('licence', 'new row violates row-level security policy'), deadLetter: true }), true, 'a licence is never stuck on the device');
-  assert.equal(h.presentation.canDiscard({ ...item('load_save', 'Unsupported operation'), deadLetter: true }), true);
-  assert.equal(h.presentation.canDiscard(item('load_on', 'Network request failed')), false, 'still retrying');
-  assert.match(h.presentation.queueRecoveryMessage(item('licence', 'Enter the licence number: 3 to 40 letters, numbers, spaces or dashes')), /record the licence again in Driver check-in/);
-  for (const refusal of ["GT-1 is packed in HU-BOX001; load the crate instead", 'PIPE-3 is already on load L-0007', "Add the driver's name before load L-0004 leaves", 'Nothing is on the truck yet',
-    "Areas can only be chosen at this project's own yard or site", 'Choose where GT-1 comes off', "HU-INNER1 is inside HU-BOX001; a crate travels with the crate it's in"]) {
-    assert.equal(h.presentation.crateRefused(item('load_on', refusal)), true, refusal);
-  }
+  const item = (type, lastError, lastErrorCode, extra = {}) => ({ id: 'x', userId: 'worker-a', projectId: 'project-a', lastError, lastErrorCode, refused: lastErrorCode === '22023', action: { type, payload: { op: { loadId: 'l' }, label: 'L-0004', loadId: 'l', photos: [] } }, ...extra });
+  assert.equal(h.presentation.crateRefused(item('licence', 'Enter the licence number: 3 to 40 letters, numbers, spaces or dashes', '22023')), true);
+  assert.match(h.presentation.queueRecoveryMessage(item('licence', 'Enter the licence number: 3 to 40 letters, numbers, spaces or dashes', '22023')), /record the licence again in Driver check-in/);
+  assert.match(h.presentation.queueRecoveryMessage(item('licence', 'A load keeps at most 4 licence photos', '22023')), /already has 4 licence photos/);
+  assert.equal(h.presentation.crateRefused(item('load_on', 'Nothing is on the truck yet', '22023')), true);
+  assert.match(h.presentation.queueRecoveryMessage(item('load_depart', 'Nothing is on the truck yet', '22023')), /refused this load change: “Nothing is on the truck yet”.*Later steps for this load wait/);
   assert.equal(h.presentation.crateRefused(item('load_on', 'Network request failed')), false);
-  assert.match(h.presentation.queueRecoveryMessage(item('load_depart', 'Nothing is on the truck yet')), /refused this load change: “Nothing is on the truck yet”/);
-  assert.equal(h.presentation.crateRefused({ ...item('pack', 'HU-AAAA01 is on load L-0003; unload it first') }), true, '022 crate refusals too');
+  assert.equal(h.presentation.canDiscard(item('licence', 'new row violates row-level security policy', '42501', { deadLetter: true })), true, 'a licence is never stuck on the device');
+  assert.equal(h.presentation.canDiscard(item('load_save', 'Unsupported operation', '22023')), true);
+  assert.equal(h.presentation.canDiscard(item('load_on', 'Network request failed')), false, 'still retrying');
 });
 
 const row = (code, extra = {}) => ({

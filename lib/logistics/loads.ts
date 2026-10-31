@@ -52,6 +52,8 @@ export interface LoadStop {
   seq: number | null;
   place_id: string;
   place_name: string;
+  // The place's kind: at an outside shop or a vendor the office confirms the drop.
+  place_kind?: string | null;
   kind: StopKind;
   planned_date: string | null;
   status: StopStatus;
@@ -108,16 +110,16 @@ export interface StopCompletePayload { loadId: string; stopId: string }
 // load number, or "New load") and `zoneName` are only for Sync and the overlay.
 export type LoadOperation = 'load_save' | 'load_on' | 'load_depart' | 'load_off' | 'stop_complete';
 export interface LoadQueuePayload<T> { op: T; label: string; zoneName?: string }
-// The licence: the number is sent once through record_driver_licence and
-// then dropped from the queued item (`licence: null`, `recorded`), which
-// keeps only the photo files until they are attached and deleted.
+// The queued licence: the load and the photo files only. The number, state
+// and expiry stay in memory (lib/sync/licenceMemory) until record_driver_licence
+// takes them; `recorded` then says only the photos are left.
 export interface LicencePayload {
   loadId: string;
   label: string;
-  licence: { number: string; state?: string; expiry?: string } | null;
   recorded?: boolean;
   photos: { uri: string }[];
 }
+export interface LicenceDetails { number: string; state?: string; expiry?: string }
 
 export const loadLabel = (load: Pick<Load, 'load_number'> | undefined | null) => load?.load_number ?? 'New load';
 export const pieceTag = (raw: string) => (looksLikeCrate(raw) ? crateCode(raw) : raw.trim());
@@ -218,7 +220,8 @@ export function applyLoadPending(ref: LoadReference, actions: LoadActionLike[]):
         const kept = save.stops.map((stop, i) => {
           const old = stopOf(stop.id);
           return {
-            id: stop.id, load_id: load.id, seq: i + 1, place_id: stop.placeId, place_name: place(stop.placeId) ?? old?.place_name ?? 'Stop', kind: stop.kind ?? 'dropoff',
+            id: stop.id, load_id: load.id, seq: i + 1, place_id: stop.placeId, place_name: place(stop.placeId) ?? old?.place_name ?? 'Stop',
+            place_kind: places.get(stop.placeId)?.kind ?? old?.place_kind ?? null, kind: stop.kind ?? 'dropoff',
             planned_date: stop.plannedDate ?? null, status: 'pending' as StopStatus, due_count: 0, delivered_count: 0, missing_count: 0,
           };
         });
@@ -428,6 +431,8 @@ export function departCheck(ix: LoadsIndex, loadId: string): { issue: string | n
   if (!load) return { issue: 'This load isn’t on this device.', behind };
   if (load.status !== 'planning' && load.status !== 'loading') return { issue: `${loadLabel(load)} has already left.`, behind };
   if (!load.driver_name) return { issue: `Add the driver's name (Driver check-in) before ${loadLabel(load)} leaves.`, behind };
+  // The user's rule: the licence (number and a photo of the front) before the truck leaves.
+  if (!load.licence_recorded_at && !load.licence_waiting) return { issue: `Record the driver's licence (number and a photo of the front) in Driver check-in before ${loadLabel(load)} leaves.`, behind };
   if (!lines.some(line => line.status === 'on_board')) return { issue: 'Nothing is on the truck yet.', behind };
   return { issue: null, behind };
 }
@@ -475,6 +480,10 @@ export function classifyUnload(crates: LoadIndex, ix: LoadsIndex, loadId: string
 }
 // The stops a crew can unload at: still to finish, in order.
 export const openStops = (ix: LoadsIndex, loadId: string) => (ix.stops.get(loadId) ?? []).filter(stop => stop.status !== 'done');
+// At an outside shop or a vendor the office confirms what arrived, so the
+// field doesn't finish those stops.
+export const OFFICE_FINISHES = new Set(['outside_shop', 'vendor']);
+export const officeFinishes = (stop: Pick<LoadStop, 'place_kind'> | undefined) => OFFICE_FINISHES.has(stop?.place_kind ?? '');
 
 // ---------------------------------------------------------------------------
 // Driver check-in.
@@ -516,7 +525,7 @@ export function checkInIssue(draft: CheckInDraft, licenceOnFile: boolean): { ste
 // companies (a load_save; null when nothing did) and, when entered, the
 // licence. Only changes go, so details the office added after this device's
 // download aren't wiped. `start`: what the check-in began with.
-export function checkInPayloads(loadId: string, label: string, draft: CheckInDraft, start?: Pick<CheckInDraft, 'driverName' | 'driverPhone' | 'companies'>): { save: LoadSavePayload | null; licence: LicencePayload | null } {
+export function checkInPayloads(loadId: string, label: string, draft: CheckInDraft, start?: Pick<CheckInDraft, 'driverName' | 'driverPhone' | 'companies'>): { save: LoadSavePayload | null; licence: { payload: LicencePayload; details: LicenceDetails } | null } {
   const companies = (list: CheckInCompany[]) => list.map(company => ({
     name: company.name.trim(), role: company.role,
     ...(company.contactName.trim() ? { contactName: company.contactName.trim() } : {}), ...(company.phone.trim() ? { phone: company.phone.trim() } : {}),
@@ -530,12 +539,11 @@ export function checkInPayloads(loadId: string, label: string, draft: CheckInDra
   return {
     save: changed,
     licence: {
-      loadId, label,
-      licence: {
+      payload: { loadId, label, photos: [draft.front, draft.back].filter((uri): uri is string => !!uri).map(uri => ({ uri })) },
+      details: {
         number: normaliseLicenceNumber(draft.licenceNumber),
         ...(draft.licenceState.trim() ? { state: draft.licenceState.trim() } : {}), ...(draft.licenceExpiry.trim() ? { expiry: draft.licenceExpiry.trim() } : {}),
       },
-      photos: [draft.front, draft.back].filter((uri): uri is string => !!uri).map(uri => ({ uri })),
     },
   };
 }

@@ -136,7 +136,7 @@ test('a queued pack is sent as apply_field_operation "pack" with the session pay
 
 test('an unpack is sent with its crate code; a refusal stays in Sync with the server’s reason and can be discarded', async () => {
   const refusal = 'PIPE-1 is already in crate HU-AAAA01; take it out of that crate first';
-  const h = setup({ tables, rpc: (args) => (args.p_action === 'pack' ? { data: null, error: { message: refusal } } : { data: { id: 'unit-1', code: 'HU-AAAA01', status: 'unpacked', items_released: 1, units_released: 0 }, error: null }) });
+  const h = setup({ tables, rpc: (args) => (args.p_action === 'pack' ? { data: null, error: { message: refusal, code: '22023' } } : { data: { id: 'unit-1', code: 'HU-AAAA01', status: 'unpacked', items_released: 1, units_released: 0 }, error: null }) });
   await h.queue.addToQueue({ type: 'unpack', payload: { unitCode: 'HU-AAAA01' } }, OPERATION);
   await h.queue.addToQueue({ type: 'pack', payload: { pack: { unitCode: 'HU-CCCC03', add: ['PIPE-1'], seal: false } } }, '30000000-0000-4000-8000-000000000004');
   const result = await h.sync.processQueue();
@@ -148,7 +148,9 @@ test('an unpack is sent with its crate code; a refusal stays in Sync with the se
   assert.equal(h.presentation.queueRecoveryMessage(left), `The server refused this crate change: “${refusal}”. Sort that out and retry, or discard the change.`);
   assert.deepEqual(plain(h.presentation.queueSummary(left)), { title: 'HU-CCCC03', detail: 'Crate packing · 1 in · Left open' });
   assert.match(h.presentation.queueRecoveryMessage({ ...left, lastError: 'Choose a location' }), /can’t be sealed without a location/);
-  assert.equal(h.presentation.crateRefused({ ...left, lastError: 'Network request failed' }), false, 'connection failures just retry');
+  assert.equal(left.refused, true, 'a 22023 needs a decision');
+  assert.equal(left.retryCount, 0, 'and isn’t counted as a try');
+  assert.equal(h.presentation.crateRefused({ ...left, lastError: 'Network request failed', lastErrorCode: undefined, refused: false }), false, 'connection failures just retry');
   assert.equal(h.presentation.queueSummary({ ...left, action: { type: 'unpack', payload: { unitCode: 'HU-AAAA01' } } }).title, 'HU-AAAA01');
 });
 
@@ -184,22 +186,15 @@ test('a scanned tag the copy refuses is looked up on the server: crates by code,
   assert.equal(await h.api.packedInNow('PIPE-1', [{ type: 'unpack', payload: { unitCode: 'HU-AAAA01' } }]), null, 'an unpack waiting in Sync already counts');
 });
 
-test('refusals are recognised by the server’s wording, even when a tag or code contains words like connect, access or jwt', () => {
+test('refusals are recognised by their code (22023), never by words that could be part of a tag', () => {
   const h = setup();
-  const item = (lastError, type = 'pack') => ({ id: 'x', userId: 'worker-a', projectId: 'project-a', lastError, action: { type, payload: { pack: { unitCode: 'HU-AB12CD', add: ['T'], seal: false }, unitCode: 'HU-AB12CD' } } });
-  for (const refusal of [
-    'CONNECTOR-12 is already in crate HU-ABC123; take it out of that crate first',
-    "ACCESS-PANEL-3 isn't a received or counted item in this project",
-    'HU-JWT234 is already inside HU-NETW01; take it out first',
-    "TIMEOUT-RELAY has been issued or shipped; it can't be packed",
-    'Choose a location',
-    'Crates can be nested at most 5 levels deep',
-    "HU-FETCH1 is on load; it can't go inside another crate",
-  ]) assert.equal(h.presentation.crateRefused(item(refusal)), true, refusal);
-  assert.equal(h.presentation.crateRefused(item("Crate HU-CONN01 isn't in this project", 'unpack')), true);
-  for (const transient of ['Network request failed', 'The server took too long to answer.', 'JWT expired', 'Reconnect and verify access before uploading. Your saved work will wait in Sync.', 'The crate was not confirmed by the server. It will retry.'])
-    assert.equal(h.presentation.crateRefused(item(transient)), false, transient);
-  assert.equal(h.presentation.crateRefused({ ...item('Choose a location'), action: { type: 'count', payload: {} } }), false, 'counts have their own recovery');
+  const item = (lastError, lastErrorCode, type = 'pack') => ({ id: 'x', userId: 'worker-a', projectId: 'project-a', lastError, lastErrorCode, action: { type, payload: { pack: { unitCode: 'HU-AB12CD', add: ['T'], seal: false }, unitCode: 'HU-AB12CD' } } });
+  assert.equal(h.presentation.crateRefused(item('CONNECTOR-12 is already in crate HU-ABC123; take it out of that crate first', '22023')), true);
+  assert.equal(h.presentation.crateRefused(item('Network request failed', undefined)), false);
+  assert.equal(h.presentation.crateRefused(item('JWT expired', 'PGRST301')), false);
+  assert.equal(h.presentation.crateRefused(item("Crate HU-CONN01 isn't in this project", '42501', 'unpack')), false, 'access errors retry');
+  assert.equal(h.presentation.crateRefused({ ...item('Choose a location', '22023'), action: { type: 'count', payload: {} } }), false, 'counts have their own recovery');
+  assert.equal(h.presentation.countRecoveryAction({ ...item('Choose a location', '22023'), action: { type: 'count', payload: {} } }), 'fix');
 });
 
 test('changes the server refused are left out of the device’s picture of the crates; others still count', () => {
@@ -210,18 +205,22 @@ test('changes the server refused are left out of the device’s picture of the c
     '@/lib/sync/networkStore': { useNetworkStore: { getState: () => ({ isOnline: true }) } },
     '@/lib/sync/offlineQueue': { belongsToCurrentContext: (item) => item.userId === 'worker-a' && item.projectId === 'project-a', getQueue: async () => [], subscribeQueue: () => () => {} },
     '@/lib/api/logistics': { loadLoad: async () => ({}), readCachedLoad: async () => ({}) },
+    '@/lib/sync/licenceMemory': { licenceKnown: () => false },
   } });
   const { waitingChanges } = loader.load('./components/logistics/useLoadReference.ts');
-  const mine = (id, type, lastError) => ({ id, userId: 'worker-a', projectId: 'project-a', lastError, action: { type, payload: { pack: { unitCode: 'HU-AB12CD', seal: false }, unitCode: 'HU-AB12CD', count: { tag: 'T-1' } } } });
+  const mine = (id, type, lastError, lastErrorCode) => ({ id, userId: 'worker-a', projectId: 'project-a', lastError, lastErrorCode, refused: lastErrorCode === '22023', action: { type, payload: { pack: { unitCode: 'HU-AB12CD', seal: false }, unitCode: 'HU-AB12CD', count: { tag: 'T-1' } } } });
   const queue = [
     mine('waiting', 'pack'), mine('offline', 'unpack', 'Network request failed'),
-    mine('refused', 'pack', 'PIPE-1 is already in crate HU-ABC123; take it out of that crate first'),
+    mine('refused', 'pack', 'PIPE-1 is already in crate HU-ABC123; take it out of that crate first', '22023'),
     mine('count', 'count'), mine('count-refused', 'count', 'This tag has already been received'),
     mine('other', 'receiving'), { ...mine('elsewhere', 'pack'), projectId: 'project-b' },
+    // A licence whose number went with an app restart, and one already recorded (photos left).
+    { ...mine('licence-lost', 'licence'), action: { type: 'licence', payload: { loadId: 'l', label: 'L-0001', photos: [] } } },
+    { ...mine('licence-photos', 'licence'), action: { type: 'licence', payload: { loadId: 'l', label: 'L-0001', photos: [], recorded: true } } },
   ];
   const { pending, refused } = waitingChanges(queue);
-  assert.deepEqual(plain(pending.map(i => i.id)), ['waiting', 'offline', 'count']);
-  assert.deepEqual(plain(refused.map(i => i.id)), ['refused', 'count-refused']);
+  assert.deepEqual(plain(pending.map(i => i.id)), ['waiting', 'offline', 'count', 'licence-photos']);
+  assert.deepEqual(plain(refused.map(i => i.id)), ['refused', 'count-refused', 'licence-lost']);
 });
 
 test('a pack accepted while a download is being saved is not lost from the device’s copy', async () => {

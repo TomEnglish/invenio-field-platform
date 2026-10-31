@@ -128,7 +128,7 @@ export default function SyncScreen() {
       return <View key={item.id} style={styles.item}>
         <Text style={styles.itemTitle} accessibilityRole="header">{summary.title}</Text>
         <Text style={styles.muted}>{summary.detail}</Text>
-        <Text style={item.deadLetter || item.lastError ? styles.warning : styles.status}>{item.deadLetter ? 'Needs attention' : item.lastError ? 'Upload interrupted' : 'Saved on device'}</Text>
+        <Text style={item.deadLetter || item.lastError ? styles.warning : styles.status}>{item.refused ? 'Refused: needs a decision' : item.deadLetter ? 'Needs attention' : item.lastError ? 'Upload interrupted' : 'Saved on device'}</Text>
         <Text style={styles.muted}>Saved {new Date(item.createdAt).toLocaleString()}</Text>
         <Text style={styles.text}>{queueRecoveryMessage(item)}</Text>
         {recovery === 'fix' && <Button title="Fix in Count" accessibilityLabel={`Fix ${summary.title} in Count`} disabled={busy} onPress={() => fixCount(item)} />}

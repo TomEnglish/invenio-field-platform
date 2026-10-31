@@ -4,6 +4,7 @@ import { useAuthStore } from '@/stores/authStore';
 import { useNetworkStore } from '@/lib/sync/networkStore';
 import { belongsToCurrentContext, getQueue, subscribeQueue, type QueueItem } from '@/lib/sync/offlineQueue';
 import { refusedChange } from '@/lib/sync/queuePresentation';
+import { licenceKnown } from '@/lib/sync/licenceMemory';
 import { loadLoad, readCachedLoad } from '@/lib/api/logistics';
 import { EMPTY_LOAD, indexLoad, type LoadReference } from '@/lib/logistics/crates';
 import { applyChanges, indexLoads } from '@/lib/logistics/loads';
@@ -17,7 +18,10 @@ const OVERLAID = new Set(['pack', 'unpack', 'count', 'load_save', 'load_on', 'lo
 // hasn't refused them. Refused ones wait in Sync and change nothing here.
 export function waitingChanges(queue: QueueItem[]): { pending: QueueItem[]; refused: QueueItem[] } {
   const mine = queue.filter(item => OVERLAID.has(item.action?.type) && belongsToCurrentContext(item));
-  return { pending: mine.filter(item => !refusedChange(item)), refused: mine.filter(refusedChange) };
+  // A licence whose number was forgotten (the app closed before it uploaded) won't go through as it is.
+  const lost = (item: QueueItem) => item.action.type === 'licence' && !item.action.payload.recorded && !licenceKnown(item.id);
+  const stuck = (item: QueueItem) => refusedChange(item) || lost(item);
+  return { pending: mine.filter(item => !stuck(item)), refused: mine.filter(stuck) };
 }
 
 // Crates for the active project, reloaded whenever the screen is shown: the

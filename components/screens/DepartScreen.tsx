@@ -8,15 +8,20 @@ import { loadStyles as styles } from '@/components/logistics/loadStyles';
 import { groupRoute } from '@/components/logistics/routes';
 import { newOperationId } from '@/lib/utils/operationId';
 import { departCheck, loadLabel } from '@/lib/logistics/loads';
+import { unresolvedFor } from '@/lib/sync/queuePresentation';
 
 // The truck leaves: a last look at the planned pieces that will stay behind,
 // the driver's name (required), then load_depart. Marking everything loaded
 // without scanning is for the office only, so it isn't offered here.
 export function DepartScreenContent() {
   const { id = '' } = useLocalSearchParams<{ id?: string }>();
-  const { loads } = useLoadReference({ refresh: false });
+  const { loads, pending, refused } = useLoadReference({ refresh: false });
   const load = loads.loads.get(id);
-  const { issue, behind } = departCheck(loads, id);
+  const check = departCheck(loads, id);
+  // Leaving behind a step the server hasn't taken would leave its pieces behind too.
+  const stuck = unresolvedFor([...pending, ...refused], id);
+  const issue = stuck.length ? `An earlier step for ${loadLabel(load)} hasn't uploaded. Retry or discard it in Sync before the truck leaves.` : check.issue;
+  const behind = check.behind;
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   // One departure per load and visit: the screen stays mounted between loads.
@@ -44,7 +49,8 @@ export function DepartScreenContent() {
       {behind.map(line => <Text key={line.id} style={styles.text}>{line.tag} · {line.name}</Text>)}
     </View> : <Text style={styles.muted}>Everything planned is on board.</Text>}
     {issue ? <Text style={styles.error} accessibilityRole="alert">{issue}</Text> : null}
-    {issue && load && !load.driver_name ? <Button title="Driver check-in" variant="secondary" onPress={() => router.push({ pathname: groupRoute('load-checkin') as any, params: { id } })} /> : null}
+    {stuck.length ? <Button title="View Sync" variant="secondary" onPress={() => router.push('/sync')} /> : null}
+    {issue && !stuck.length && load && (!load.driver_name || (!load.licence_recorded_at && !load.licence_waiting)) ? <Button title="Driver check-in" variant="secondary" onPress={() => router.push({ pathname: groupRoute('load-checkin') as any, params: { id } })} /> : null}
     {error ? <Text style={styles.error} accessibilityRole="alert">{error}</Text> : null}
     <Button title="Depart" onPress={depart} loading={saving} disabled={!!issue} />
     <Button title="Back" variant="ghost" onPress={() => router.back()} disabled={saving} />

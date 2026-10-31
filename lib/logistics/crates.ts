@@ -443,6 +443,9 @@ export function packReviewIssue(index: LoadIndex, draft: PackDraft, seal: boolea
   if (packedAfter(index, draft).length === 0) return { step: 2, message: 'An empty crate can’t be sealed. Scan items into it first, or save it open.' };
   const unit = index.units.get(draft.code);
   const nested = unit ? !!unit.parent_code : !!draft.before?.parentCode;
+  // Areas belong to this project's own yard or site: none is asked for at an outside shop or vendor.
+  const place = index.ref.places.find(p => p.id === (draft.location.placeId ?? draft.before?.placeId));
+  if (place && !place.project_id) return null;
   if (!nested && areasLive && !draft.location.zoneId && !draft.before?.zoneId) return { step: 3, message: 'Choose a location: pick the area where this crate is before sealing it.' };
   return null;
 }

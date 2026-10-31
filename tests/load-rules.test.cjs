@@ -64,7 +64,8 @@ test('check-in: the driver’s name, up to 3 named companies, and a licence (fro
 
   const { save, licence } = loads.checkInPayloads('load-a', 'L-0003', ok);
   assert.deepEqual(plain(save), { loadId: 'load-a', driverName: 'Sam Ortiz', driverPhone: '555 0100', companies: [{ name: 'Gulf Freight', role: 'broker' }] });
-  assert.deepEqual(plain(licence), { loadId: 'load-a', label: 'L-0003', licence: { number: 'TX 1234-567', state: 'TX', expiry: '2028-02-29' }, photos: [{ uri: 'file:///f.jpg' }] });
+  assert.deepEqual(plain(licence.payload), { loadId: 'load-a', label: 'L-0003', photos: [{ uri: 'file:///f.jpg' }] }, 'the queued item has no licence details');
+  assert.deepEqual(plain(licence.details), { number: 'TX 1234-567', state: 'TX', expiry: '2028-02-29' });
   assert.equal(JSON.stringify(save).includes('1234'), false, 'the number never goes in the load_save');
   assert.equal(loads.checkInPayloads('load-a', 'L-0003', none).licence, null);
 });
@@ -116,7 +117,9 @@ test('an unplanned piece goes on with its drop-off stop; undo takes a piece off 
   const crate = loads.applyLoadPending(loads.applyLoadPending(ref, [on({ pieces: ['HU-AAAA01'] })]), [on({ pieces: [], undo: ['HU-AAAA01'] })]);
   assert.equal(crate.units.find(u => u.code === 'HU-AAAA01').status, 'sealed');
   const twice = [on({ pieces: ['PIPE-2'] }), on({ pieces: ['PIPE-2'] })];
-  assert.deepEqual(plain(loads.applyLoadPending(ref, twice).lines), plain(loads.applyLoadPending(ref, twice.slice(0, 1)).lines), 'replaying changes nothing');
+  // Each run stamps the time it applied a change; everything else must match.
+  const untimed = (lines) => plain(lines).map(({ on_at, off_at, ...rest }) => rest);
+  assert.deepEqual(untimed(loads.applyLoadPending(ref, twice).lines), untimed(loads.applyLoadPending(ref, twice.slice(0, 1)).lines), 'replaying changes nothing');
 });
 
 test('a load made offline is checked in, loaded, sent off, unloaded and finished before it syncs', () => {
@@ -126,7 +129,7 @@ test('a load made offline is checked in, loaded, sent off, unloaded and finished
   const steps = [
     act('load_save', { originPlaceId: 'yard', stops: [{ id: 's1', placeId: 'shop', kind: 'dropoff' }, { id: 's2', placeId: 'site', kind: 'both' }] }),
     act('load_save', { driverName: 'Sam Ortiz', companies: [{ name: 'Gulf Freight', role: 'carrier' }] }),
-    { type: 'licence', payload: { loadId: id, label: 'New load', licence: { number: 'TX123' }, photos: [] } },
+    { type: 'licence', payload: { loadId: id, label: 'New load', photos: [] } },
     act('load_on', { pieces: [{ code: 'HU-BOX001', dropoffStopId: 's1' }, { code: 'GT-1', dropoffStopId: 's2' }] }),
     act('load_depart', {}),
     // An area at an outside shop is refused by the server: nothing changes.
@@ -142,7 +145,6 @@ test('a load made offline is checked in, loaded, sent off, unloaded and finished
   assert.equal(made.origin_name, 'Training Yard');
   assert.equal(made.driver_name, 'Sam Ortiz');
   assert.equal(made.licence_waiting, true);
-  assert.equal(JSON.stringify(result).includes('TX123'), false, 'the licence number never reaches the device’s picture');
   assert.deepEqual(plain([made.delivered_count, made.on_board_count, made.stops_done, made.next_stop]), [1, 1, 1, 'North Site']);
   const box = result.units.find(u => u.code === 'HU-BOX001');
   assert.deepEqual(plain([box.status, box.place_name, box.zone_id]), ['delivered', 'Gulf Machine', null], 'an area only at our own place (the shop is not)');
@@ -160,7 +162,9 @@ test('a load made offline is checked in, loaded, sent off, unloaded and finished
 
 test('departing needs the driver’s name and something on board; planned pieces left off stay behind', () => {
   assert.match(loads.departCheck(ix(), 'load-a').issue, /driver's name/);
-  const named = reference({ loads: [load('load-a', { driver_name: 'Sam' })] });
+  assert.match(loads.departCheck(ix(reference({ loads: [load('load-a', { driver_name: 'Sam' })] })), 'load-a').issue, /Record the driver's licence \(number and a photo of the front\)/, 'the licence is needed before leaving');
+  assert.match(loads.departCheck(ix(loads.applyLoadPending(reference({ loads: [load('load-a', { driver_name: 'Sam' })] }), [{ type: 'licence', payload: { loadId: 'load-a', label: 'L-0003', photos: [] } }])), 'load-a').issue, /Nothing is on the truck/, 'a licence waiting to upload counts');
+  const named = reference({ loads: [load('load-a', { driver_name: 'Sam', licence_recorded_at: '2026-10-31T08:00:00Z' })] });
   assert.equal(loads.departCheck(ix(named), 'load-a').issue, 'Nothing is on the truck yet.');
   const loaded = loads.applyLoadPending(named, [on({ pieces: ['HU-AAAA01'] })]);
   const check = loads.departCheck(ix(loaded), 'load-a');
@@ -172,7 +176,7 @@ test('departing needs the driver’s name and something on board; planned pieces
 });
 
 test('unloading: due pieces tick; a piece due elsewhere is the wrong stop; one not on the list is an extra; another load’s piece is refused', () => {
-  const ref = loads.applyLoadPending(reference({ loads: [load('load-a', { driver_name: 'Sam' }), load('load-b', { load_number: 'L-0007', status: 'loading' })] }),
+  const ref = loads.applyLoadPending(reference({ loads: [load('load-a', { driver_name: 'Sam', licence_recorded_at: 'x' }), load('load-b', { load_number: 'L-0007', status: 'loading' })] }),
     [on({ pieces: ['HU-AAAA01', 'PIPE-2'] }), { type: 'load_depart', payload: { op: { loadId: 'load-a' }, label: 'L-0003' } }]);
   const kind = (raw) => loads.classifyUnload(cx(ref), ix(ref), 'load-a', 'stop-1', raw);
   assert.equal(kind('hu-aaaa01').kind, 'due');
@@ -272,4 +276,14 @@ test('review fixes: saved changes apply in the order made (unloaded, then repack
   const crate = crates.indexLoad(result).units.get('HU-AAAA01');
   assert.equal(crate.status, 'sealed', 'the pack applies after the unload');
   assert.equal(crates.indexLoad(result).crateOf.get('PIPE-3'), 'HU-AAAA01');
+});
+
+test('E6: a crate at an outside shop or vendor isn’t asked for an area', () => {
+  const ix2 = crates.indexLoad(reference());
+  const draft = { code: 'HU-NEW123', before: null, kind: 'crate', description: '', isHighValue: false, add: [{ tag: 'PIPE-2', name: '', crate: false }], remove: [],
+    location: { placeId: null, placeName: '', siteMapId: null, zoneId: null, zoneName: '' } };
+  assert.equal(crates.packReviewIssue(ix2, draft, true, true).step, 3, 'at our own yard (or no place) an area is needed');
+  assert.equal(crates.packReviewIssue(ix2, { ...draft, location: { ...draft.location, placeId: 'shop', placeName: 'Gulf Machine' } }, true, true), null);
+  assert.equal(crates.packReviewIssue(ix2, { ...draft, location: { ...draft.location, placeId: 'site', placeName: 'North Site' } }, true, true).step, 3, 'our own site still needs one');
+  assert.equal(crates.packReviewIssue(ix2, { ...draft, before: { kind: 'crate', description: '', isHighValue: false, status: 'delivered', parentCode: null, placeId: 'shop', zoneId: null, where: 'Gulf Machine' } }, true, true), null, 'delivered to a shop and repacked there');
 });

@@ -110,7 +110,15 @@ Loads (logistics phase 2, contract in MSR migration 022):
   server's newer line wins for an item; 022's columns tried again on each download; a stuck
   licence can be discarded; licence photos leave no other copy.
 
-All tests pass (222 with loads). `npm run lint` and `npx expo export --platform web` also pass;
+- The user's rules and the second review (D8, D9, E6, F1): refusals by SQLSTATE (22023 waits
+  for a decision, isn't counted as a try or retried by itself, and drops out of the overlays);
+  a load's steps strictly in order behind an unresolved one, with Depart and Finish stop blocked
+  until it's sorted; the licence before departure; no Finish stop at shops and vendors; no area
+  for a crate at an outside place; licence details in memory only (a restart means re-entering),
+  photos as temporary files, a licence queued ahead of its load's departure, and every licence
+  item, file and detail cleared at sign-out.
+
+All tests pass (226 with loads). `npm run lint` and `npx expo export --platform web` also pass;
 the web login was verified in Chrome without console errors. Native camera,
 force-close/restart and hosted email/storage behavior remain release smoke checks.
 See the sibling MSR `docs/PLATFORM_RELEASE.md` for the coordinated release guide.

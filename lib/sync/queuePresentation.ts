@@ -39,85 +39,69 @@ export function queueSummary(item: QueueItem): { title: string; detail: string }
   const detail = [data.jobNumber ? `Job ${data.jobNumber}` : null, data.destination, data.quantity != null ? `Quantity ${data.quantity}` : null, data.reason].filter(Boolean).join(' · ');
   return { title: kind, detail: detail || 'Saved for this project' };
 }
+// Refused by the server (SQLSTATE 22023) or by the app's own checks: the
+// same change will be refused again, so it waits for a decision.
+export function isRefused(item: QueueItem): boolean {
+  return !!item.refused || item.lastErrorCode === '22023';
+}
 // A count the server refused will be refused again on every retry. Sync then
 // offers to reopen it in Count ("fix") or, for a received tag, only to
 // discard it. Photo, connection and sign-in failures are retried instead.
+// Items saved before error codes were kept are judged by their wording.
 export function countRecoveryAction(item: QueueItem): 'fix' | 'discard' | null {
   const error = item.lastError || '';
-  if (item.action?.type !== 'count' || !error || /photo/i.test(error)) return null;
+  if (item.action?.type !== 'count' || !error) return null;
+  if (isRefused(item)) return /already been received/i.test(error) ? 'discard' : 'fix';
+  if (item.lastErrorCode || /photo/i.test(error)) return null;
   if (/already been received/i.test(error)) return 'discard';
   if (/network|fetch|connect|timeout|took too long|reconnect|jwt|sign.in|unauthori[sz]ed|access|permission|account or project changed|not confirmed|unsupported/i.test(error)) return null;
   return 'fix';
 }
-// A crate change the server refused names what is in the way (an item in
-// another crate, a crate on a load…). Sorting that out and retrying can work,
-// so Sync keeps Retry and adds Discard. Refusals are recognised by migration
-// 021's own wording, never by words that could be part of a tag or a code.
-const CRATE_REFUSALS = [
-  /^Scan a crate label/, /must be lists of tags/, /^Pack at most \d+ tags/, /^Tags must be text/, /must be true or false/, /^Unknown crate type/,
-  /^Description is too long/, /^This label belongs to another project/, /^This is an item tag, not a crate label/, /^This crate is .+; (unload it|it can't be unpacked)/,
-  /^That place (is unavailable|belongs to another project)/, /^This site plan is unavailable/, /^Zone is unavailable on this map/, /^This area is no longer in use/,
-  / isn't in this crate$/, /^Tag numbers must be/, /^Crate .+ isn't in this project/, /can't go inside itself|cannot go inside itself or a crate it contains/,
-  / is already inside .+; take it out first$/, / is .+; it can't go inside another crate$/, / has been issued or shipped; it can't be packed$/,
-  / isn't a received or counted item in this project$/, / is already in crate .+; take it out of that crate first$/, /^An empty crate can't be sealed/,
-  /^Choose a location$/, /^Crates can be nested at most \d+ levels deep/, /must belong to the same project/, /^A crate can only go inside a crate from the same project/,
-];
-// 022 adds loads, and crates on loads.
-const LOAD_REFUSALS = [
-  /^This crate is .+; it can't be repacked$/, / is planned on load .+; take it off the load first$/, / is on load .+; (take it off the load first|unload it first)$/,
-  / is inside .+, which is on load .+; unload it first$/, / is missing from load .+; the office marks it found first$/,
-  /^Choose (a load|a place|the stop|where .+ comes off)/, /^That stop isn't on load /, / is inside .+; a crate travels with the crate it's in$/,
-  / has been issued or shipped; it can't go on a load$/, / isn't a crate label or a received or counted item in this project$/, / is packed in .+; load the crate instead$/,
-  /^A load ID is required$/, /^Load .+ is .+; it can't change$/, /^Add up to 3 companies$/, /^Each company needs a name$/, /^A company's role is /,
-  /^Load .+ has left; (its stops can't change|its plan can't change|choose the pick-up stop you're at)$/, /^A load can have at most \d+ stops$/,
-  /^Each stop needs (an ID|an ID and a place)$/, /^Two stops share one ID$/, /^A stop is a drop-off, a pick-up or both$/, /^That stop belongs to another load$/,
-  /^The stop at .+ still has pieces planned for it/, /^Every planned piece needs a drop-off stop after its pick-up stop$/, /^Load .+ is finished$/,
-  /^Until the truck leaves, scan pieces on without choosing a stop$/, / is a drop-off stop; nothing is picked up there$/, / is already done(; choose a later stop for .+)?$/,
-  / isn't on the truck$/, / was loaded somewhere else; it comes off at a stop$/, /^Each piece needs a code$/, / is a pick-up stop; choose where .+ comes off$/,
-  / has to come off at a stop after this one$/, / is .+; it can't (go on a load|be unloaded here)$/, / is already on load /, / belongs to load /,
-  /^Load .+ has already left$/, /^Add the driver's name before load /, /^Nothing is on the truck yet$/, /^Load .+ hasn't left yet$/, /^Load .+ isn't on the road$/,
-  /^Areas can only be chosen at this project's own yard or site$/, /^Only office staff can /, / must be text$/, / is too long \(at most \d+ characters\)$/,
-  / must be a date like /, / isn't a real date$/, / isn't a valid ID$/, /^Send .+ as a list$/, /^Send at most \d+ .+ at a time$/,
-  /^A load's stops and pieces belong to its project$/,
-  // A later step of a load whose first save was refused and discarded (steps
-  // wait for earlier ones, so this isn't an unsynced load), or a reused ID.
-  /^That load isn't in this project$/, /^Operation ID already belongs to a different request$/, /duplicate key value violates unique constraint/,
-];
-// The licence's own refusals. It waits for the load's earlier steps, so "That
-// load isn't in your projects" means the load was refused, or access was lost.
-const LICENCE_REFUSALS = [
-  /^That load isn't in your projects$/, /^Operation ID already belongs to a different request$/,
-  /^Enter the licence number/, /^This licence was removed after the 90-day retention period$/, /^Load .+ is closed; the office can still correct its licence$/,
-  /^Licence photos can't be added to that load$/, /^A load keeps at most 4 licence photos$/, /^Operation ID and licence details are required$/,
-  / must be text$/, / is too long/, / must be a date like /, / isn't a real date$/,
-];
 const LOAD_TYPES = new Set(['load_save', 'load_on', 'load_depart', 'load_off', 'stop_complete']);
+const OWN_TYPES = new Set(['pack', 'unpack', 'licence', ...LOAD_TYPES]);
+// A crate, load or licence change the server refused names what is in the way
+// (an item in another crate, a load that has left…). Sorting that out and
+// retrying can work, so Sync keeps Retry and adds Discard.
 export function crateRefused(item: QueueItem): boolean {
-  const type = item.action?.type, error = item.lastError?.trim() ?? '';
-  if (type === 'licence') return LICENCE_REFUSALS.some(pattern => pattern.test(error.replace(/^Licence recorded; photo (upload )?will retry: /, '')));
-  return (type === 'pack' || type === 'unpack' || LOAD_TYPES.has(type)) && [...CRATE_REFUSALS, ...LOAD_REFUSALS].some(pattern => pattern.test(error));
+  return OWN_TYPES.has(item.action?.type) && isRefused(item);
+}
+// The load a queued step belongs to. A load's steps go in order: once one is
+// unresolved, the later ones wait.
+export function loadOf(item: QueueItem): string | null {
+  if (!LOAD_TYPES.has(item.action?.type) && item.action?.type !== 'licence') return null;
+  const payload = item.action.payload as { op?: { loadId?: string }; loadId?: string };
+  return payload.op?.loadId ?? payload.loadId ?? null;
+}
+// A step for this load that hasn't gone through and isn't just waiting for a
+// connection: refused, failed or given up on. Departing or finishing a stop
+// behind one would act on scans the server may never have.
+export function unresolvedFor(items: QueueItem[], loadId: string): QueueItem[] {
+  return items.filter(item => loadOf(item) === loadId && (item.refused || item.deadLetter || !!item.lastError));
 }
 // What Sync lets the crew discard: a refused change, and any crate, load or
 // licence item that automatic retries have given up on (a licence must never
-// be stuck on the device with its number).
+// be stuck on the device).
 export function canDiscard(item: QueueItem): boolean {
-  const type = item.action?.type;
-  return countRecoveryAction(item) !== null || crateRefused(item)
-    || (!!item.deadLetter && (type === 'pack' || type === 'unpack' || type === 'licence' || LOAD_TYPES.has(type)));
+  return countRecoveryAction(item) !== null || crateRefused(item) || (!!item.deadLetter && OWN_TYPES.has(item.action?.type));
 }
 // Saved work the server refused doesn't count as done anywhere on the device.
 export function refusedChange(item: QueueItem): boolean {
-  return crateRefused(item) || countRecoveryAction(item) !== null;
+  return isRefused(item) || countRecoveryAction(item) !== null;
 }
 export function queueRecoveryMessage(item: QueueItem): string {
   const error = item.lastError || '';
   const count = item.action?.type === 'count';
-  if (crateRefused(item) && item.action.type === 'licence' && /at most 4 licence photos/.test(error)) return 'The licence is on file, but this load already has 4 licence photos, so these can’t be added. Discard this; the office can remove old photos.';
-  if (crateRefused(item) && item.action.type === 'licence') return `The server refused the licence: “${error.replace(/^Licence recorded; photo (upload )?will retry: /, '').replace(/[.\s]+$/, '')}”. Discard it and record the licence again in Driver check-in.`;
-  if (crateRefused(item) && LOAD_TYPES.has(item.action.type)) return `The server refused this load change: “${error.replace(/[.\s]+$/, '')}”. Sort that out and retry, or discard the change.`;
+  const reason = error.replace(/^Licence recorded; photo (upload )?will retry: /, '').replace(/[.\s]+$/, '');
+  if (crateRefused(item) && item.action.type === 'licence') {
+    if (item.lastErrorCode === 'LICENCE_FORGOTTEN') return 'The licence number is kept only until the app closes, and it closed before this uploaded. Discard this and record the licence again in Driver check-in.';
+    if (item.lastErrorCode === 'PHOTO_GONE') return 'The licence photos are no longer on this device. Discard this and record the licence again in Driver check-in.';
+    if (/at most 4 licence photos/.test(error)) return 'The licence is on file, but this load already has 4 licence photos, so these can’t be added. Discard this; the office can remove old photos.';
+    return `The server refused the licence: “${reason}”. Discard it and record the licence again in Driver check-in.`;
+  }
+  if (crateRefused(item) && LOAD_TYPES.has(item.action.type)) return `The server refused this load change: “${reason}”. Sort that out and retry, or discard the change. Later steps for this load wait until then.`;
   if (crateRefused(item)) {
     if (/choose a location/i.test(error)) return 'This crate can’t be sealed without a location. Discard this change, then pack the crate again and choose its area.';
-    return `The server refused this crate change: “${error.replace(/[.\s]+$/, '')}”. Sort that out and retry, or discard the change.`;
+    return `The server refused this crate change: “${reason}”. Sort that out and retry, or discard the change.`;
   }
   if (count && /already been received/i.test(error)) return 'This tag was received before the count uploaded, so the count cannot be applied. Discard it; the receipt already records the tag.';
   if (count && /choose a location/i.test(error)) return 'Every count now needs a location. Fix it in Count and choose an area, or discard it.';

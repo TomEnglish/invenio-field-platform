@@ -13,7 +13,8 @@ import { loadStyles as styles } from '@/components/logistics/loadStyles';
 import { useAuthStore } from '@/stores/authStore';
 import { newOperationId } from '@/lib/utils/operationId';
 import { activeAreas, areaPathLabel, buildAreaTree } from '@/lib/inventory/areas';
-import { applyLoadPending, classifyUnload, indexLoads, loadLabel, openStops, unloadChecklist, STOP_KINDS } from '@/lib/logistics/loads';
+import { applyLoadPending, classifyUnload, indexLoads, loadLabel, officeFinishes, openStops, unloadChecklist, STOP_KINDS } from '@/lib/logistics/loads';
+import { unresolvedFor } from '@/lib/sync/queuePresentation';
 import { colors } from '@/lib/design/tokens';
 
 type Area = { zoneId: string; siteMapId: string; zoneName: string } | null;
@@ -26,7 +27,7 @@ type Area = { zoneId: string; siteMapId: string; zoneName: string } | null;
 export function UnloadScreenContent() {
   const { id = '', stopId: param } = useLocalSearchParams<{ id?: string; stopId?: string }>();
   const projectId = useAuthStore(s => s.activeProject?.id);
-  const { loads, index, data } = useLoadReference({ refresh: true });
+  const { loads, index, data, pending, refused } = useLoadReference({ refresh: true });
   const count = useCountReference({ refresh: false });
   const load = loads.loads.get(id);
   const label = loadLabel(load);
@@ -34,6 +35,10 @@ export function UnloadScreenContent() {
   // Only a stop still to finish; a finished one can't take more pieces.
   const stop = openStops(loads, id).find(s => s.id === stopId);
   const ownPlace = !!stop && data.places.some(place => place.id === stop.place_id && place.project_id === projectId);
+  // The office confirms what arrived at shops and vendors; there, the crew only scans off.
+  const officeOnly = officeFinishes(stop);
+  // Finishing behind scans the server hasn't taken would mark those pieces missing.
+  const stuck = unresolvedFor([...pending, ...refused], id);
   const [area, setArea] = useState<Area>(null);
   const [mapId, setMapId] = useState<string | null>(null);
   const [finishing, setFinishing] = useState(false);
@@ -79,7 +84,7 @@ export function UnloadScreenContent() {
     return { tone: scan.kind === 'due' || scan.kind === 'found' ? 'ok' : 'info', message: scan.message };
   };
   const finish = async () => {
-    if (saving || !stopId) return;
+    if (saving || !stopId || officeOnly || stuck.length) return;
     setSaving(true);
     try {
       // Every scan off is saved before the stop is finished, or nothing is.
@@ -130,7 +135,12 @@ export function UnloadScreenContent() {
       </View>)}
       {list && list.total === 0 && list.extras.length === 0 ? <Text style={styles.muted}>Nothing is due here. Scan anything that comes off.</Text> : null}
       {error || saveError ? <Text style={styles.error} accessibilityRole="alert">{error || saveError}</Text> : null}
-      {finishing ? <View style={styles.refused}>
+      {officeOnly ? <Text style={styles.muted}>{stop.place_name} is an outside shop or vendor: scan off what you hand over, and the office confirms the stop.</Text> : null}
+      {!officeOnly && stuck.length ? <View style={styles.refused}>
+        <Text style={styles.warning} accessibilityRole="alert">An earlier step for {label} hasn't uploaded. Retry or discard it in Sync before finishing this stop.</Text>
+        <Button title="View Sync" variant="ghost" onPress={() => router.push('/sync')} />
+      </View> : null}
+      {finishing && !officeOnly ? <View style={styles.refused}>
         <Text style={styles.warning} accessibilityRole="alert">{list?.waiting.length
           ? `${list.waiting.length} piece${list.waiting.length === 1 ? '' : 's'} due here ${list.waiting.length === 1 ? 'hasn’t' : 'haven’t'} been scanned off and will be marked missing: ${list.waiting.map(l => l.tag).join(', ')}.`
           : 'Everything due here is off.'} Finish {stop.place_name}?</Text>
@@ -142,7 +152,7 @@ export function UnloadScreenContent() {
     </ScrollView>
     <View style={styles.footer}>
       <Button title="Done for now" variant="secondary" onPress={async () => { if (await flush()) router.back(); }} style={styles.flex} />
-      <Button title="Finish stop…" onPress={async () => { if (await flush()) setFinishing(true); }} style={styles.flex} />
+      {officeOnly ? null : <Button title="Finish stop…" disabled={stuck.length > 0} onPress={async () => { if (await flush()) setFinishing(true); }} style={styles.flex} />}
     </View>
   </View>;
 }

@@ -15,6 +15,7 @@ export async function applyOperation(action: string, payload: unknown, context =
   const { data, error } = await supabase.rpc('apply_field_operation', {
     p_operation_id: context.operationId, p_project_id: context.projectId, p_action: action, p_payload: payload,
   });
-  if (error) throw new Error(error.message);
+  // The SQLSTATE travels with the message: 22023 is a refusal that needs a decision.
+  if (error) throw Object.assign(new Error(error.message), { code: error.code });
   return data;
 }

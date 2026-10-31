@@ -25,7 +25,7 @@ const reference = (extra = {}) => ({
   lines: [line('HU-AAAA01'), line('HU-BBBB02', { status: 'on_board', on_at: '2026-10-31T08:00:00Z' })], companies: [], savedAt: '2026-10-31T08:00:00Z', ...extra,
 });
 
-function load({ ref = reference(), params = { id: 'load-a' }, online = false, failQueue = null } = {}) {
+function load({ ref = reference(), params = { id: 'load-a' }, online = false, failQueue = null, stuck = [] } = {}) {
   const routes = [], queued = [], blur = [], deleted = [];
   const records = new Map();
   const auth = { user: { id: 'worker-a', role: 'field_worker' }, activeProject: { id: 'project-a', status: 'active' } };
@@ -64,7 +64,7 @@ function load({ ref = reference(), params = { id: 'load-a' }, online = false, fa
   const build = () => {
     if (cached?.count === queued.length) return cached.result;
     const data = loads.applyChanges(ref, queued.map(q => q.action));
-    cached = { count: queued.length, result: { data, base: ref, pending: [], refused: [], loads: loads.indexLoads(data), index: crates.indexLoad(data), known: crates.indexLoad(ref), loading: false, source: 'cache', error: '', reload: async () => {} } };
+    cached = { count: queued.length, result: { data, base: ref, pending: [], refused: stuck, loads: loads.indexLoads(data), index: crates.indexLoad(data), known: crates.indexLoad(ref), loading: false, source: 'cache', error: '', reload: async () => {} } };
     return cached.result;
   };
   return { loader, routes, queued, blur, deleted, records, network, params };
@@ -147,7 +147,8 @@ test('check-in saves the driver and companies as one load_save and the licence a
   await s.press(s.button('Save check-in'));
   assert.deepEqual(h.queued.map(q => [q.id, q.action.type]), [[saveId, 'load_save'], [licenceId, 'licence']]);
   assert.deepEqual(h.queued[0].action.payload.op, { loadId: 'load-a', driverName: 'Sam Ortiz', driverPhone: '555 0100', companies: [{ name: 'Gulf Freight', role: 'broker' }] });
-  assert.deepEqual(h.queued[1].action.payload.licence, { number: 'TX 98765-432' });
+  assert.equal(JSON.stringify(h.queued).includes('98765'), false, 'the queued items never hold the number');
+  assert.deepEqual(plain(h.loader.load('./lib/sync/licenceMemory.ts').recallLicence(licenceId)), { number: 'TX 98765-432' }, 'it waits in memory');
   assert.equal(h.queued[1].action.payload.photos.length, 1);
   assert.equal(useCheckInStore.getState().licenceNumber, '', 'the draft lets go of the number');
   assert.notEqual(useCheckInStore.getState().saveId, saveId);
@@ -160,7 +161,7 @@ test('depart lists what stays behind and needs the driver’s name; then one loa
   assert.ok(s.texts().some(t => /driver's name/.test(t)));
   assert.equal(s.button('Depart').props.disabled, true);
   await TestRenderer.act(async () => { s.r.unmount(); });
-  const named = load({ ref: reference({ loads: [{ ...baseLoad, driver_name: 'Sam Ortiz' }] }) });
+  const named = load({ ref: reference({ loads: [{ ...baseLoad, driver_name: 'Sam Ortiz', licence_recorded_at: '2026-10-31T08:00:00Z' }] }) });
   s = await show(named, './components/screens/DepartScreen.tsx', 'DepartScreenContent');
   assert.ok(s.texts().includes('1 planned piece will stay behind:'));
   assert.ok(s.texts().includes('HU-AAAA01 · Piece HU-AAAA01'));
@@ -213,7 +214,7 @@ test('review fixes: each visit to a mounted step screen starts fresh (editor, ch
   await TestRenderer.act(async () => { e.r.unmount(); });
 
   // Depart: a second load gets its own operation ID.
-  const d = load({ ref: reference({ loads: [{ ...baseLoad, driver_name: 'Sam' }, { ...baseLoad, id: 'load-b', load_number: 'L-0004', driver_name: 'Ana' }], lines: [line('HU-BBBB02', { status: 'on_board', on_at: 'x' }), line('GT-1', { load_id: 'load-b', status: 'on_board', on_at: 'x' })] }) });
+  const d = load({ ref: reference({ loads: [{ ...baseLoad, driver_name: 'Sam', licence_recorded_at: 'x' }, { ...baseLoad, id: 'load-b', load_number: 'L-0004', driver_name: 'Ana', licence_recorded_at: 'x' }], lines: [line('HU-BBBB02', { status: 'on_board', on_at: 'x' }), line('GT-1', { load_id: 'load-b', status: 'on_board', on_at: 'x' })] }) });
   const s = await show(d, './components/screens/DepartScreen.tsx', 'DepartScreenContent');
   await s.press(s.button('Depart'));
   await leave(d);
@@ -292,13 +293,48 @@ test('review fixes: a licence photo leaves no other copy on the device', async (
     'react-native': { Platform: { OS: 'ios' } },
     './compressPhoto': { compressPhoto: async () => 'file:///cache/ImageManipulator/small.jpg' },
     'lib/utils/compressPhoto.ts': { compressPhoto: async () => 'file:///cache/ImageManipulator/small.jpg' },
-    'expo-file-system/legacy': { documentDirectory: 'file:///documents/', makeDirectoryAsync: async () => {}, copyAsync: async ({ to }) => { copied.push(to); }, deleteAsync: async (uri) => { deleted.push(uri); } },
+    'expo-file-system/legacy': { documentDirectory: 'file:///documents/', cacheDirectory: 'file:///cache/', makeDirectoryAsync: async () => {}, copyAsync: async ({ to }) => { copied.push(to); }, deleteAsync: async (uri) => { deleted.push(uri); } },
   } });
   const { persistPhoto } = loader.load('./lib/utils/persistPhoto.ts');
-  const kept = await persistPhoto('file:///cache/ImagePicker/original.jpg', { directory: 'licence-photos', discardSources: true });
-  assert.match(kept, /^file:\/\/\/documents\/licence-photos\/.+\.jpg$/);
+  const kept = await persistPhoto('file:///cache/ImagePicker/original.jpg', { directory: 'licence-photos', temporary: true, discardSources: true });
+  assert.match(kept, /^file:\/\/\/cache\/licence-photos\/.+\.jpg$/, 'a temporary file, not in backed-up Documents');
   assert.deepEqual(deleted.sort(), ['file:///cache/ImageManipulator/small.jpg', 'file:///cache/ImagePicker/original.jpg']);
   deleted.length = 0;
   await persistPhoto('file:///cache/ImagePicker/receipt.jpg');
   assert.deepEqual(deleted, [], 'other photos are left as before');
+});
+
+test('the user’s rules: no Finish stop at a shop or vendor; Depart and Finish wait behind an unresolved step', async () => {
+  const shopStops = [{ ...stop('stop-1', 1, 'shop', 'Gulf Machine'), place_kind: 'outside_shop' }, { ...stop('stop-2', 2, 'site', 'North Site', 'both'), place_kind: 'site' }];
+  const transit = reference({ loads: [{ ...baseLoad, status: 'in_transit', driver_name: 'Sam', licence_recorded_at: 'x' }], stops: shopStops,
+    lines: [line('HU-AAAA01', { status: 'on_board', on_at: 'x' }), line('GT-1', { status: 'on_board', on_at: 'x', dropoff_stop_id: 'stop-2' })] });
+  const shop = load({ ref: transit, params: { id: 'load-a', stopId: 'stop-1' } });
+  let s = await show(shop, './components/screens/UnloadScreen.tsx', 'UnloadScreenContent');
+  assert.equal(s.button('Finish stop…'), undefined, 'the office confirms shops and vendors');
+  assert.ok(s.texts().some(t => /outside shop or vendor: scan off what you hand over, and the office confirms the stop/.test(t)));
+  assert.equal((await s.scan('HU-AAAA01')).tone, 'ok', 'scanning off still works');
+  await TestRenderer.act(async () => { s.r.unmount(); });
+
+  const stuck = [{ id: 'op-x', userId: 'worker-a', projectId: 'project-a', lastError: 'PIPE-9 is packed in HU-BOX001; unload the crate instead', lastErrorCode: '22023', refused: true,
+    action: { type: 'load_off', payload: { op: { loadId: 'load-a', stopId: 'stop-2', pieces: ['PIPE-9'] }, label: 'L-0003' } } }];
+  const site = load({ ref: transit, params: { id: 'load-a', stopId: 'stop-2' }, stuck });
+  s = await show(site, './components/screens/UnloadScreen.tsx', 'UnloadScreenContent');
+  assert.equal(s.button('Finish stop…').props.disabled, true);
+  assert.ok(s.texts().some(t => /An earlier step for L-0003 hasn't uploaded/.test(t)));
+  await TestRenderer.act(async () => { s.r.unmount(); });
+
+  const loading = reference({ loads: [{ ...baseLoad, driver_name: 'Sam', licence_recorded_at: 'x' }] });
+  const depart = load({ ref: loading, stuck: [{ ...stuck[0], action: { type: 'load_on', payload: { op: { loadId: 'load-a', pieces: ['PIPE-9'] }, label: 'L-0003' } } }] });
+  s = await show(depart, './components/screens/DepartScreen.tsx', 'DepartScreenContent');
+  assert.equal(s.button('Depart').props.disabled, true);
+  assert.ok(s.button('View Sync'));
+  await TestRenderer.act(async () => { s.r.unmount(); });
+
+  // No licence on file: no departure, with a way to record it.
+  const noLicence = load({ ref: reference({ loads: [{ ...baseLoad, driver_name: 'Sam' }] }) });
+  s = await show(noLicence, './components/screens/DepartScreen.tsx', 'DepartScreenContent');
+  assert.equal(s.button('Depart').props.disabled, true);
+  assert.ok(s.texts().some(t => /Record the driver's licence/.test(t)));
+  assert.ok(s.button('Driver check-in'));
+  await TestRenderer.act(async () => { s.r.unmount(); });
 });

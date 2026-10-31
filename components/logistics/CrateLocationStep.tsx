@@ -35,7 +35,10 @@ export function CrateLocationStep({ reference, places, rule, insideOf, onNext, o
   const tree = useMemo(() => buildAreaTree(areas), [areas]);
   const selected = location.zoneId && tree.byId.has(location.zoneId) ? location.zoneId : null;
   const imageUri = map ? reference.images[map.id] ?? null : null;
-  const needed = areaRequired(rule, null) && !before?.zoneId;
+  // Areas are on this project's own plans: none at an outside shop or vendor.
+  const chosenPlace = places.find(place => place.id === (location.placeId ?? before?.placeId));
+  const outside = !!chosenPlace && !chosenPlace.project_id;
+  const needed = areaRequired(rule, null) && !before?.zoneId && !outside;
   const options = useMemo(() => [...places].sort((a, b) => a.name.localeCompare(b.name))
     .map(place => ({ value: place.id, label: [place.name, place.city].filter(Boolean).join(' · ') })), [places]);
 
@@ -73,14 +76,18 @@ export function CrateLocationStep({ reference, places, rule, insideOf, onNext, o
         options={options}
         placeholder="Choose a yard, site or shop (optional)"
         searchable={places.length > 8}
-        onChange={id => setLocation({ ...location, placeId: id, placeName: places.find(place => place.id === id)?.name ?? '' })}
+        onChange={id => {
+          const place = places.find(p => p.id === id);
+          setLocation({ ...location, placeId: id, placeName: place?.name ?? '', ...(place && !place.project_id ? { siteMapId: null, zoneId: null, zoneName: '' } : {}) });
+        }}
       /> : null}
-      {maps.length > 1 ? (
+      {outside ? <Text style={styles.text}>{chosenPlace!.name} isn’t one of this project’s yards or sites, so no area is needed.</Text> : null}
+      {!outside && maps.length > 1 ? (
         <ScrollView horizontal style={styles.strip} contentContainerStyle={styles.chips} showsHorizontalScrollIndicator={false}>
           {maps.map(m => <Button key={m.id} title={m.name} accessibilityLabel={m.id === map?.id ? `${m.name}, shown` : `Show ${m.name}`} variant={m.id === map?.id ? 'primary' : 'secondary'} onPress={() => { setShownMap(m.id); setFocus(null); }} style={styles.chip} />)}
         </ScrollView>
       ) : null}
-      {map && imageUri ? (
+      {!outside && map && imageUri ? (
         <View style={styles.map}>
           <SiteMapPicker
             key={map.id}
@@ -104,7 +111,7 @@ export function CrateLocationStep({ reference, places, rule, insideOf, onNext, o
         <Text style={[location.zoneId ? styles.chosen : styles.status, styles.statusText]} accessibilityLiveRegion="polite">{hint || status}</Text>
         {chosen ? <Button title="Clear" variant="ghost" onPress={() => { setLocation(NO_PACK_LOCATION); setFocus(null); setHint(''); }} style={styles.clear} /> : null}
       </View>
-      {areas.length > 0 ? <AreaList areas={areas} selectedId={selected} reveal={reveal} onSelect={area => chooseArea(area, 'list')} style={styles.list} />
+      {outside ? null : areas.length > 0 ? <AreaList areas={areas} selectedId={selected} reveal={reveal} onSelect={area => chooseArea(area, 'list')} style={styles.list} />
         : maps.length === 0 ? <Text style={styles.text}>No site plan with areas is on this device. The office can place the crate later.</Text> : null}
       <View style={styles.actions}>
         <Button title="Back" variant="secondary" onPress={onBack} style={styles.back} />

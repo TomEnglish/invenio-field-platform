@@ -13,7 +13,9 @@ import { addToQueue } from '@/lib/sync/offlineQueue';
 import { processQueue } from '@/lib/sync/syncManager';
 import { useNetworkStore } from '@/lib/sync/networkStore';
 import { persistPhoto } from '@/lib/utils/persistPhoto';
-import { deleteLicencePhotos } from '@/lib/api/licence';
+import { deleteLicencePhotos, LICENCE_PHOTO_DIRECTORY } from '@/lib/api/licence';
+import { rememberLicence } from '@/lib/sync/licenceMemory';
+import { loadOf } from '@/lib/sync/queuePresentation';
 import { CHECK_IN_STEPS, checkInIssue, checkInPayloads, COMPANY_ROLES, isoDate, loadLabel } from '@/lib/logistics/loads';
 import { radius } from '@/lib/design/tokens';
 
@@ -68,7 +70,7 @@ export function CheckInScreenContent() {
       const result = await (camera ? ImagePicker.launchCameraAsync : ImagePicker.launchImageLibraryAsync)({ mediaTypes: ['images'], quality: 0.7, allowsEditing: false });
       if (result.canceled || !result.assets[0]) return;
       // Kept apart, and no other copy left behind.
-      const uri = await persistPhoto(result.assets[0].uri, { directory: 'licence-photos', discardSources: true });
+      const uri = await persistPhoto(result.assets[0].uri, { directory: LICENCE_PHOTO_DIRECTORY, temporary: true, discardSources: true });
       const old = useCheckInStore.getState()[side];
       if (useCheckInStore.getState().loadId !== id) { await deleteLicencePhotos({ photos: [{ uri }] }); return; }
       useCheckInStore.getState().set({ [side]: uri });
@@ -92,7 +94,11 @@ export function CheckInScreenContent() {
       const { save: op, licence } = checkInPayloads(id, loadLabel(load), current, current.start ?? undefined);
       if (!op && !licence) { setError('Nothing has changed.'); return; }
       if (op) await addToQueue({ type: 'load_save', payload: { op, label: loadLabel(load) } }, current.saveId);
-      if (licence) await addToQueue({ type: 'licence', payload: licence }, current.licenceId);
+      if (licence) {
+        // The number stays in memory; the queued item goes ahead of the load's departure, which needs it.
+        rememberLicence(current.licenceId, licence.details);
+        await addToQueue({ type: 'licence', payload: licence.payload }, current.licenceId, item => item.action.type === 'load_depart' && loadOf(item) === id);
+      }
       // The number leaves the draft; the photo files now belong to the queued licence.
       useCheckInStore.getState().reset();
       setSaved(true);
