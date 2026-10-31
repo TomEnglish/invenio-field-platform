@@ -35,7 +35,7 @@ const CHUNK = 500;
 const MAX_APPLIED = 500;
 const UNIT_COLUMNS_021 = 'id,code,kind,description,is_high_value,status,parent_id,parent_code,top_code,place_id,place_name,site_map_id,zone_id,location,item_count,unit_count';
 const UNIT_COLUMNS = `${UNIT_COLUMNS_021},top_status,load_id,load_number,load_line_status`;
-const LOAD_COLUMNS = 'id,load_number,status,origin_place_id,origin_name,origin_kind,planned_date,truck_type,truck_number,trailer_number,bol_number,driver_name,driver_phone,licence_recorded_at,licence_override_at,started_in_field,notes,stop_count,stops_done,next_stop,planned_count,on_board_count,delivered_count,missing_count,written_off_count,flagged_count,departed_at,updated_at';
+const LOAD_COLUMNS = 'id,load_number,status,origin_place_id,origin_name,origin_kind,planned_date,truck_type,truck_number,trailer_number,bol_number,driver_name,driver_phone,licence_recorded_at,licence_complete,licence_override_at,started_in_field,notes,stop_count,stops_done,next_stop,planned_count,on_board_count,delivered_count,missing_count,written_off_count,flagged_count,departed_at,updated_at';
 const STOP_COLUMNS = 'id,load_id,seq,place_id,place_name,place_kind,kind,planned_date,status,due_count,delivered_count,missing_count';
 const LINE_COLUMNS = 'id,load_id,load_number,load_status,tag,piece_kind,name,is_high_value,status,flag,added_in_field,pickup_stop_id,dropoff_stop_id,dropoff_place,delivered_stop_id,delivered_place,is_current_position,on_at,off_at';
 const COMPANY_COLUMNS = 'load_id,position,name,role,contact_name,phone';
@@ -320,6 +320,11 @@ export async function submitLoadOperation(type: LoadOperation, payload: LoadQueu
   }
   await recordApplied({ type, payload: applied } as LoadAction, context).catch(() => {});
   return result;
+}
+// A licence uploaded (number and photos): on file on this device's copy until
+// the next download says so too. Only the load, never a licence detail.
+export async function noteLicenceOnFile(loadId: string, context: OperationContext) {
+  await recordApplied({ type: 'licence', payload: { loadId, label: '', photos: [], complete: true } }, context).catch(() => {});
 }
 // A crate moved without opening it, and a loose item's place corrected.
 export async function submitMove(payload: MoveQueuePayload, context: OperationContext) {

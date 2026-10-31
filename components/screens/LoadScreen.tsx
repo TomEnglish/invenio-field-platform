@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/Button';
 import { useLoadReference } from '@/components/logistics/useLoadReference';
 import { loadStyles as styles } from '@/components/logistics/loadStyles';
 import { groupRoute } from '@/components/logistics/routes';
-import { canUnload, COMPANY_ROLES, LOAD_STATUS_LABELS, loadLabel, STOP_KINDS } from '@/lib/logistics/loads';
+import { canUnload, COMPANY_ROLES, licenceOnFile, LOAD_STATUS_LABELS, loadLabel, STOP_KINDS } from '@/lib/logistics/loads';
 
 // One load: its route, truck, driver and companies, what is on it, and the
 // steps open to the field at its stage. The office closes or cancels loads.
@@ -27,8 +27,9 @@ export function LoadScreenContent() {
 
   const before = load.status === 'planning' || load.status === 'loading';
   const pickups = load.status === 'in_transit' ? stops.filter(stop => stop.kind !== 'dropoff' && stop.status !== 'done') : [];
-  const licence = load.licence_recorded_at ? 'Licence on file' : load.licence_waiting ? 'Licence saved on this device; it uploads when online'
-    : load.licence_override_at ? 'Left without a licence (the office gave a reason)' : 'No licence recorded yet';
+  const licence = licenceOnFile(load) ? 'Licence on file' : load.licence_waiting ? 'Licence saved on this device; it uploads when online'
+    : load.licence_override_at ? 'Left without a licence (the office gave a reason)'
+    : load.licence_recorded_at ? 'Licence incomplete: the number or the photo of it is missing' : 'No licence recorded yet';
   return <ScrollView
     style={styles.container}
     contentContainerStyle={styles.content}
@@ -63,7 +64,7 @@ export function LoadScreenContent() {
       <Text style={styles.heading} accessibilityRole="header">Truck and driver</Text>
       <Text style={styles.text}>{[load.truck_type, load.truck_number && `Truck ${load.truck_number}`, load.trailer_number && `Trailer ${load.trailer_number}`, load.bol_number && `BOL ${load.bol_number}`].filter(Boolean).join(' · ') || 'No truck details yet'}</Text>
       <Text style={styles.text}>{load.driver_name ? `${load.driver_name}${load.driver_phone ? ` · ${load.driver_phone}` : ''}` : 'No driver checked in yet'}</Text>
-      <Text style={load.licence_recorded_at ? styles.text : styles.muted}>{licence}</Text>
+      <Text style={licenceOnFile(load) ? styles.text : styles.muted}>{licence}</Text>
       {companies.map(company => <Text key={company.position} style={styles.muted}>
         {company.name} · {COMPANY_ROLES.find(role => role.value === company.role)?.label}{company.contact_name ? ` · ${company.contact_name}` : ''}{company.phone ? ` · ${company.phone}` : ''}
       </Text>)}

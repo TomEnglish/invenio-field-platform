@@ -32,6 +32,10 @@ export interface Load {
   driver_name: string | null;
   driver_phone: string | null;
   licence_recorded_at: string | null;
+  // A licence number and an attached photo are both on file: what load_depart
+  // checks (022). licence_recorded_at alone may be either. Absent in a copy
+  // saved before this column.
+  licence_complete?: boolean;
   // The office let it leave without a licence (with a reason).
   licence_override_at?: string | null;
   // Made by a crew: that crew plans it and changes its stops until it leaves.
@@ -132,10 +136,15 @@ export interface LicencePayload {
   photos: { uri: string }[];
   // When the licence was taken down, so an older one never replaces a newer.
   capturedAt?: string;
+  // Only in the device's record of what uploaded: the licence is on file.
+  complete?: boolean;
 }
 export interface LicenceDetails { number: string; state?: string; expiry?: string }
 
 export const loadLabel = (load: Pick<Load, 'load_number'> | undefined | null) => load?.load_number ?? 'New load';
+// The licence the truck needs to leave is on file (number and photo). A copy
+// saved before licence_complete goes by licence_recorded_at.
+export const licenceOnFile = (load: Pick<Load, 'licence_complete' | 'licence_recorded_at'> | undefined | null) => !!load && (load.licence_complete ?? !!load.licence_recorded_at);
 // When a change was made on this device (022's capturedAt): the moment of the
 // scan or the save, not of the upload.
 export const capturedNow = () => new Date().toISOString();
@@ -223,7 +232,12 @@ export function applyLoadPending(ref: LoadReference, actions: LoadActionLike[]):
     loads.set(load.id, load);
     touched.add(load.id);
     const mine = () => lines.filter(line => line.load_id === load.id);
-    if (action.type === 'licence') { if (!load.licence_recorded_at) load.licence_waiting = true; continue; }
+    // A licence waiting to upload; once uploaded (`complete`), on file until the next download says so too.
+    if (action.type === 'licence') {
+      if (op.complete) Object.assign(load, { licence_complete: true, licence_recorded_at: load.licence_recorded_at ?? now, licence_waiting: false });
+      else if (!licenceOnFile(load)) load.licence_waiting = true;
+      continue;
+    }
     if (action.type === 'load_save') {
       const save = op as LoadSavePayload;
       if (load.status === 'closed' || load.status === 'cancelled') continue;
@@ -552,7 +566,7 @@ export function departCheck(ix: LoadsIndex, loadId: string, office = false, over
   const load = ix.loads.get(loadId);
   const lines = ix.lines.get(loadId) ?? [];
   const behind = lines.filter(line => line.status === 'planned' && !line.pickup_stop_id);
-  const licenceMissing = !!load && !load.licence_recorded_at && !load.licence_waiting;
+  const licenceMissing = !!load && !licenceOnFile(load) && !load.licence_waiting;
   const result = (issue: string | null) => ({ issue, behind, licenceMissing });
   if (!load) return result('This load isn’t on this device.');
   if (!notLeft(load)) return result(`${loadLabel(load)} has already left.`);

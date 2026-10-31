@@ -3,6 +3,7 @@ import { supabase } from '@/lib/supabase';
 import { getQueue, removeFromQueue, replaceQueuedAction } from '@/lib/sync/offlineQueue';
 import { forgetLicence, forgetLicences, recallLicence } from '@/lib/sync/licenceMemory';
 import { operationContext, type OperationContext } from './operations';
+import { noteLicenceOnFile } from './logistics';
 import type { LicencePayload } from '@/lib/logistics/loads';
 
 // The driver's licence (migration 022), outside apply_field_operation so the
@@ -61,6 +62,7 @@ export async function submitLicence(payload: LicencePayload, context: OperationC
     if (attachError) throw coded(`Licence recorded; photo will retry: ${attachError.message}`, attachError.code);
   }
   await deleteLicencePhotos(current);
+  await noteLicenceOnFile(current.loadId, context);
   return { recorded: true };
 }
 

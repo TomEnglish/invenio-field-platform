@@ -344,6 +344,9 @@ test('022: the licence is recorded with when it was taken down, so an older one 
   await h.sync.processQueue();
   const recorded = h.calls.rpc.find(call => call.name === 'record_driver_licence');
   assert.deepEqual(recorded.args.p_licence, { number: NUMBER, state: 'TX', capturedAt: '2026-10-31T09:30:00.000Z' });
+  // Once uploaded, the device's copy counts the licence as on file: the load only, no detail.
+  const applied = JSON.parse(h.records.get([...h.records.keys()].find(key => key.includes('load_applied'))) ?? '{"data":[]}').data;
+  assert.deepEqual(applied.map(entry => entry.action), [{ type: 'licence', payload: { loadId: 'load-n', label: '', photos: [], complete: true } }]);
   assert.equal(storedEverywhere(h.records).includes('98765'), false);
 });
 

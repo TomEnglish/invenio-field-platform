@@ -128,7 +128,7 @@ Loads (logistics phase 2, contract in MSR migration 022):
   their capitals; lookup_tag deciding Scan and Count; item_positions for where an item is;
   the material page's rules; activity from list_project_activity.
 
-All tests pass (252 with loads and the 022 rework). `npm run lint` and `npx expo export --platform web` also pass;
+All tests pass (253 with loads and the 022 rework). `npm run lint` and `npx expo export --platform web` also pass;
 the web login was verified in Chrome without console errors. Native camera,
 force-close/restart and hosted email/storage behavior remain release smoke checks.
 See the sibling MSR `docs/PLATFORM_RELEASE.md` for the coordinated release guide.

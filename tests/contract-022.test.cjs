@@ -316,3 +316,31 @@ test('review fixes: late scans, corrections and moves follow the server; Ship Ou
   assert.equal(positions.positionNote({ kind: 'unknown', code: 'X', can_receive: true }), null);
   assert.match(positions.copyCountIssue(cx(reference({ items: [{ unit_code: 'HU-AAAA01', tag: 'GT-1', name: '', quantity: 1, uom: 'EA', material_id: null, inventory_uid: 'u-1' }] })), 'GT-1'), /packed in HU-AAAA01/);
 });
+
+test('022 a929f62: the licence counts only when complete (number and photo); an uploaded one counts at once; activity names its subject', () => {
+  const lines = [line('HU-AAAA01', { status: 'on_board', on_at: 'x' })];
+  const partly = reference({ loads: [load('load-a', { licence_recorded_at: '2026-10-31T09:00:00Z', licence_complete: false })], lines });
+  const check = loads.departCheck(ix(partly), 'load-a');
+  assert.equal(check.licenceMissing, true, 'a number without a photo (or the reverse) isn’t enough to leave');
+  assert.match(check.issue, /Record the driver's licence/);
+  assert.equal(loads.departCheck(ix(partly), 'load-a', true, 'Checked by phone').issue, null, 'the office can still let it leave');
+  const whole = reference({ loads: [load('load-a', { licence_recorded_at: '2026-10-31T09:00:00Z', licence_complete: true })], lines });
+  assert.equal(loads.departCheck(ix(whole), 'load-a').issue, null);
+  const older = reference({ loads: [load('load-a', { licence_recorded_at: '2026-10-31T09:00:00Z' })], lines });
+  assert.equal(loads.departCheck(ix(older), 'load-a').issue, null, 'a copy saved before the column goes by licence_recorded_at');
+  assert.equal(loads.licenceOnFile(partly.loads[0]), false);
+
+  // Uploaded here: on file in the device's copy straight away, before the next download.
+  const waiting = loads.applyLoadPending(partly, [{ type: 'licence', payload: { loadId: 'load-a', label: 'L-0003', photos: [{ uri: 'file:///f.jpg' }] } }]);
+  assert.equal(waiting.loads[0].licence_waiting, true);
+  const uploaded = loads.applyLoadPending(partly, [{ type: 'licence', payload: { loadId: 'load-a', label: '', photos: [], complete: true } }]);
+  assert.deepEqual(plain([uploaded.loads[0].licence_complete, uploaded.loads[0].licence_waiting]), [true, false]);
+  assert.equal(loads.departCheck(ix(uploaded), 'load-a').issue, null);
+
+  const row = (action, entity_type, subject, details = {}) => ({ id: action, created_at: '2026-10-31T10:00:00Z', user_id: 'u', user_name: null, action, entity_type, entity_id: 'e', subject, details });
+  assert.equal(activity.describeActivity(row('load_loaded', 'load', 'L-0012', { on: ['A'] })).description, 'Loaded L-0012', 'the server names a load this device doesn’t have');
+  assert.equal(activity.describeActivity(row('handling_unit_packed', 'handling_unit', 'HU-AB12CD', { created: true, added: ['A'] })).description, 'Packed new crate HU-AB12CD');
+  assert.equal(activity.describeActivity(row('handling_unit_unpacked', 'handling_unit', 'HU-AB12CD')).description, 'Unpacked HU-AB12CD');
+  assert.equal(activity.describeActivity(row('material_issued', 'material', 'PIPE-2', { qty: 3 })).description, 'Issued PIPE-2');
+  assert.equal(activity.describeActivity(row('line_found', 'load', 'L-0012')).detail, 'L-0012');
+});

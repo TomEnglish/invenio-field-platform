@@ -22,8 +22,8 @@ export async function fetchRecentActivity(userId?: string, options?: { before?: 
     throw new Error(error.message);
   }
   const rows = (data ?? []) as ActivityRow[];
-  // The details never carry a load's number: the device's copy names it.
-  const cached = await readCachedLoad().catch(() => null);
+  // The server names each entry's load, crate or tag; the device's copy names a load when it doesn't.
+  const cached = rows.some(row => row.entity_type === 'load' && !row.subject) ? await readCachedLoad().catch(() => null) : null;
   const loads = new Map((cached?.loads ?? []).map(load => [load.id, load.load_number]));
   return {
     data: rows.filter(row => !userId || row.user_id === userId).map(row => describeActivity(row, loads)),

@@ -16,7 +16,7 @@ import { persistPhoto } from '@/lib/utils/persistPhoto';
 import { deleteLicencePhotos, LICENCE_PHOTO_DIRECTORY } from '@/lib/api/licence';
 import { rememberLicence } from '@/lib/sync/licenceMemory';
 import { loadOf } from '@/lib/sync/queuePresentation';
-import { capturedNow, CHECK_IN_STEPS, checkInIssue, checkInPayloads, COMPANY_ROLES, isoDate, loadLabel } from '@/lib/logistics/loads';
+import { capturedNow, licenceOnFile, CHECK_IN_STEPS, checkInIssue, checkInPayloads, COMPANY_ROLES, isoDate, loadLabel } from '@/lib/logistics/loads';
 import { radius } from '@/lib/design/tokens';
 
 const parseDate = (text: string) => { const [y, m, d] = text.split('-').map(Number); return text ? new Date(y, m - 1, d) : null; };
@@ -37,7 +37,8 @@ export function CheckInScreenContent() {
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const capturing = useRef(false);
-  const onFile = !!(load?.licence_recorded_at || load?.licence_waiting);
+  // Complete on file (number and photo), or waiting to upload: then entering it again is optional.
+  const onFile = licenceOnFile(load) || !!load?.licence_waiting;
   // The screen stays mounted between visits: each visit starts on the form.
   useFocusEffect(useCallback(() => () => { setSaved(false); setError(''); }, []));
 
@@ -163,6 +164,7 @@ export function CheckInScreenContent() {
 
       {step === 2 ? <>
         {onFile ? <Text style={styles.text}>Licence on file. Enter it again only to correct it.</Text> : null}
+        {!onFile && load?.licence_recorded_at ? <Text style={styles.warning}>The licence on file is incomplete: the number or the photo of it is missing. Enter it again, with a photo of the front.</Text> : null}
         {/* Typed only: no autofill, no suggestions, never shown again. */}
         <Input label="Licence number" required={!onFile} value={draft.licenceNumber} onChangeText={text => draft.set({ licenceNumber: text })} maxLength={40}
           autoCapitalize="characters" autoCorrect={false} autoComplete="off" importantForAutofill="no" textContentType="none" spellCheck={false} />
