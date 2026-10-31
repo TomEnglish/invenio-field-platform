@@ -139,6 +139,27 @@ test('tag lookup asks the server online and the cache offline, and saved counts 
   assert.equal(cached.find(i => i.qr_code === 'NEW-1').count_status, 'counted');
 });
 
+test('known limits: a count that won’t go through leaves the device copy, whatever the tag’s capitals; other counts stay', async () => {
+  const h = setup({ tables });
+  await h.api.loadCountReference();
+  await h.api.recordCountLocally({ tag: 'T-1', name: 'Cooler', quantity: '2', uom: 'EA', condition: 'good', categoryId: 'gen1', siteMapId: 'map-a', zoneId: 'zone-b' }, 'Zone B');
+  await h.api.recordCountLocally({ tag: 'NEW-1', name: 'Spare', quantity: '1', uom: 'EA', condition: 'good', categoryId: null, siteMapId: null, zoneId: null }, null);
+  const items = async () => plain((await h.api.readCachedReference()).items);
+  assert.equal((await items()).find(i => i.qr_code === 'T-1').count_status, 'counted');
+
+  await h.api.forgetLocalCount(' t-1 ');
+  const t1 = (await items()).find(i => i.qr_code === 'T-1');
+  assert.equal(t1.count_status, 'expected', 'back to what the download said');
+  assert.equal(t1.inventory_item, 'Item T-1');
+  assert.equal((await items()).find(i => i.qr_code === 'NEW-1').count_status, 'counted', 'another tag’s count stays');
+
+  await h.api.forgetLocalCount('NEW-1');
+  assert.equal((await items()).some(i => i.qr_code === 'NEW-1'), false, 'a tag counted only on this device goes');
+  const before = new Map(h.records);
+  await h.api.forgetLocalCount('T-2');
+  assert.deepEqual(h.records, before, 'nothing to forget writes nothing');
+});
+
 test('the web build shows plans from a signed URL instead of storing them', async () => {
   const h = setup({ tables, platform: 'web' });
   const result = await h.api.loadCountReference();

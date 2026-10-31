@@ -34,7 +34,10 @@ const reference = (extra = {}) => ({
   lines: [line('HU-AAAA01'), line('HU-BBBB02', { status: 'on_board', on_at: '2026-10-31T08:00:00Z' })], companies: [], savedAt: '2026-10-31T08:00:00Z', ...extra,
 });
 
-function load({ ref = reference(), params = { id: 'load-a' }, online = false, failQueue = null, stuck = [], role = 'field_worker', tagAnswer = null } = {}) {
+// The device's site plans: one not yet tied to a place, with one area.
+const yardPlans = { maps: [{ id: 'map-a', name: 'Yard' }], zones: [{ id: 'z-1', map_id: 'map-a', parent_id: null, name: 'Bay 1', shape: [], is_active: true }] };
+
+function load({ ref = reference(), params = { id: 'load-a' }, online = false, failQueue = null, stuck = [], role = 'field_worker', tagAnswer = null, plans = yardPlans } = {}) {
   const routes = [], queued = [], blur = [], deleted = [], captured = [];
   const records = new Map();
   const auth = { user: { id: 'worker-a', role }, activeProject: { id: 'project-a', status: 'active' } };
@@ -59,7 +62,7 @@ function load({ ref = reference(), params = { id: 'load-a' }, online = false, fa
     '@/lib/api/tags': { lookupTag: async () => tagAnswer },
     // Like the real hook, saved changes show at once.
     '@/components/logistics/useLoadReference': { useLoadReference: () => build() },
-    '@/components/inventory/useCountReference': { useCountReference: () => ({ data: { maps: [{ id: 'map-a', name: 'Yard' }], zones: [{ id: 'z-1', map_id: 'map-a', parent_id: null, name: 'Bay 1', shape: [], is_active: true }], images: {}, categories: [], items: [], savedAt: 'x' } }) },
+    '@/components/inventory/useCountReference': { useCountReference: () => ({ data: { ...plans, images: {}, categories: [], items: [], savedAt: 'x' } }) },
     '@/components/scanning/QRScanner': { QRScanner: element('QRScanner') },
     '@/components/inventory/AreaList': { AreaList: element('AreaList') },
     '@/components/ui/Button': { Button: element('Button') },
@@ -211,6 +214,35 @@ test('unload: scan off against what is due; an area only at our own place; Finis
   await o.scan('GT-1');
   await o.press(o.button('Done for now'));
   assert.deepEqual(own.queued.map(q => [q.action.payload.op, q.action.payload.zoneName]), [[{ loadId: 'load-a', stopId: 'stop-2', pieces: ['GT-1'], zoneId: 'z-1', siteMapId: 'map-a', partial: true }, 'Bay 1']]);
+  await TestRenderer.act(async () => { o.r.unmount(); });
+});
+
+test('known limits: unload offers only the site plans at the stop’s place, as Pack and Move do', async () => {
+  const transit = reference({ loads: [{ ...baseLoad, status: 'in_transit', driver_name: 'Sam' }], lines: [line('GT-1', { status: 'on_board', on_at: 'x', dropoff_stop_id: 'stop-2', dropoff_place: 'North Site' })] });
+  const area = (id, map_id, name) => ({ id, map_id, parent_id: null, name, shape: [], is_active: true });
+  const plans = {
+    maps: [{ id: 'yard-plan', name: 'Yard plan', place_id: 'yard' }, { id: 'site-plan', name: 'Site plan', place_id: 'site' }, { id: 'loose', name: 'Loose plan', place_id: null }],
+    zones: [area('z-yard', 'yard-plan', 'Yard bay'), area('z-site', 'site-plan', 'Site bay'), area('z-loose', 'loose', 'Loose bay')],
+  };
+  const h = load({ ref: transit, params: { id: 'load-a', stopId: 'stop-2' }, plans });
+  const s = await show(h, './components/screens/UnloadScreen.tsx', 'UnloadScreenContent');
+  const chips = () => s.r.root.findAll(n => n.type === 'Button' && / plan$/.test(n.props.title)).map(n => n.props.title);
+  const listed = () => s.r.root.findByType('AreaList').props.areas.map(a => a.name);
+  assert.deepEqual(chips(), ['Site plan', 'Loose plan'], 'the plan drawn for North Site, and one tied to no place; never the yard’s');
+  assert.deepEqual(listed(), ['Site bay']);
+  await s.press(s.button('Loose plan'));
+  assert.deepEqual(listed(), ['Loose bay']);
+  await TestRenderer.act(async () => { await s.r.root.findByType('AreaList').props.onSelect(area('z-loose', 'loose', 'Loose bay')); });
+  await s.scan('GT-1');
+  await s.press(s.button('Done for now'));
+  assert.deepEqual(h.queued.map(q => [q.action.payload.op.zoneId, q.action.payload.op.siteMapId, q.action.payload.zoneName]), [['z-loose', 'loose', 'Loose bay']]);
+  await TestRenderer.act(async () => { s.r.unmount(); });
+
+  // Our own site with no plan of its own on the device: no area, and it says why.
+  const yardOnly = load({ ref: transit, params: { id: 'load-a', stopId: 'stop-2' }, plans: { maps: [plans.maps[0]], zones: [plans.zones[0]] } });
+  const o = await show(yardOnly, './components/screens/UnloadScreen.tsx', 'UnloadScreenContent');
+  assert.equal(o.r.root.findAll(n => n.type === 'AreaList').length, 0);
+  assert.ok(o.texts().includes('North Site has no site plan on this device, so no area is needed.'));
   await TestRenderer.act(async () => { o.r.unmount(); });
 });
 

@@ -92,10 +92,23 @@ export function unresolvedFor(items: QueueItem[], loadId: string): QueueItem[] {
   return items.filter(item => loadOf(item) === loadId && (item.refused || item.deadLetter || !!item.lastError));
 }
 // What Sync lets the crew discard: anything the server refused (it will be
-// refused again unchanged), and any crate, load or licence item that automatic
-// retries have given up on (a licence must never be stuck on the device).
+// refused again unchanged), and anything automatic retries have given up on
+// (a licence must never be stuck on the device).
 export function canDiscard(item: QueueItem): boolean {
-  return countRecoveryAction(item) !== null || isRefused(item) || (!!item.deadLetter && OWN_TYPES.has(item.action?.type));
+  return countRecoveryAction(item) !== null || isRefused(item) || !!item.deadLetter;
+}
+// A licence that can't go through as it is: its number or photos are no longer
+// on this device, or the server turned the licence down. Only recording it again
+// in Driver check-in helps, so Sync offers no retry. A photo storage refused
+// can still go once the office makes room.
+export function recordLicenceAgain(item: QueueItem): boolean {
+  return item.action?.type === 'licence' && isRefused(item) && item.lastErrorCode !== 'PHOTO_REFUSED' && !/at most 4 licence photos/.test(item.lastError ?? '');
+}
+// Discarding drops only the photos when the rest is saved already: a receipt or
+// count stopped at its photos, or a licence whose number is on file.
+export function discardKeepsSaved(item: QueueItem): boolean {
+  if (item.action?.type === 'licence') return !!item.action.payload?.recorded;
+  return (item.action?.type === 'receiving' || item.action?.type === 'count') && /photo/i.test(item.lastError ?? '');
 }
 // Saved work the server refused doesn't count as done anywhere on the device.
 export function refusedChange(item: QueueItem): boolean {
@@ -131,7 +144,7 @@ export function queueRecoveryMessage(item: QueueItem): string {
   if (/photo/i.test(error)) return `The ${count ? 'count' : 'receipt'} may already be saved. Retry to finish attaching its photos; the same submission will be reused.`;
   if (/access|permission|jwt|sign.in|unauthorized|account|project/i.test(error)) return 'Verify your sign-in and project access, then retry. Your saved submission is preserved.';
   if (/unsupported|unknown.*type/i.test(error)) return 'Ask an administrator to review this saved submission. Keep it on this device.';
-  if (item.deadLetter) return 'Automatic retries have stopped. Check the support details with your administrator before retrying.';
+  if (item.deadLetter) return 'Automatic retries have stopped. Check the support details with your administrator before retrying or discarding it.';
   if (/network|fetch|connect|timeout/i.test(error)) return 'Check your connection and retry when online. Your saved submission is preserved.';
   return error ? 'The upload could not complete. Retry when online; if it fails again, share the support details with your administrator.' : 'Saved on this device. Uploads start when online access is verified.';
 }

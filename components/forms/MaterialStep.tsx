@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { useReceivingStore } from '@/stores/receivingStore';
 import { materialStepSchema } from '@/lib/utils/validation';
+import { RECEIVING_STEPS } from '@/lib/utils/receivingLabels';
 import { MATERIAL_TYPES } from '@/constants/materialTypes';
 import { colors } from '@/lib/design/tokens';
 
@@ -72,7 +73,7 @@ export function MaterialStep({ onNext }: Props) {
   return (
     <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined} keyboardVerticalOffset={100}>
       <ScrollView ref={scrollRef} style={styles.container} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
-        <Text style={styles.title}>Material Details</Text>
+        <Text style={styles.title}>{RECEIVING_STEPS[0]}</Text>
 
         <Text style={styles.label}>Material Type</Text>
         <View style={styles.typeGrid}>

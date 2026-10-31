@@ -5,10 +5,11 @@ import { ScrollView, View, Text, Pressable, StyleSheet } from 'react-native';
 import { Stack, useFocusEffect, Redirect, router } from 'expo-router';
 import { getQueue, subscribeQueue, retryQueueItem, removeFromQueue, replaceQueuedAction, belongsToCurrentContext, type QueueItem } from '@/lib/sync/offlineQueue';
 import { processQueue } from '@/lib/sync/syncManager';
-import { queueSummary, queueRecoveryMessage, countRecoveryAction, canDiscard, canMoveToLoad, needsLicence } from '@/lib/sync/queuePresentation';
+import { queueSummary, queueRecoveryMessage, countRecoveryAction, canDiscard, canMoveToLoad, discardKeepsSaved, needsLicence, recordLicenceAgain } from '@/lib/sync/queuePresentation';
 import { OVERRIDE_MAX, OVERRIDE_MIN, withMove } from '@/lib/logistics/loads';
 import { draftFromQueuedCount } from '@/lib/inventory/count';
 import { deleteLicencePhotos } from '@/lib/api/licence';
+import { forgetLocalCount } from '@/lib/api/inventory';
 import { useAuthStore } from '@/stores/authStore';
 import { useCountStore } from '@/stores/countStore';
 import { useNetworkStore } from '@/lib/sync/networkStore';
@@ -20,12 +21,19 @@ function SupportDetails({ title = 'Support details', children }: {title?: string
   const [expanded,setExpanded] = useState(false);
   return <View><Pressable accessibilityRole="button" accessibilityLabel={title} accessibilityState={{expanded}} onPress={() => setExpanded(!expanded)} style={styles.disclosure}><Text style={styles.link}>{expanded ? '−' : '+'} {title}</Text></Pressable>{expanded && <View style={styles.support}>{children}</View>}</View>;
 }
-// What a saved submission is, in words: "Discard this crate change?"
+// What a saved submission is, in words, on its Discard button and in the
+// confirmation alike: "Discard this crate change?"
 function kindOf(item: QueueItem): string {
   const type = item.action.type;
   return type === 'count' ? 'count' : type === 'licence' ? 'licence' : type === 'receiving' ? 'receipt'
+    : type === 'transfer' ? 'material transfer' : type === 'issue' ? 'material issue' : type === 'shipment' ? 'shipment'
     : ['pack', 'unpack', 'move'].includes(type) ? 'crate change' : type === 'relocate' ? 'location change'
     : type.startsWith('load_') || type === 'stop_complete' ? 'load change' : 'change';
+}
+// What discarding leaves out: all of it, or only the photos when the rest is saved.
+function discardLoss(item: QueueItem): string {
+  if (!discardKeepsSaved(item)) return 'It will not be uploaded';
+  return `${item.action.type === 'licence' ? 'The licence is on file' : 'It may already be saved'}, but its photos will not be uploaded`;
 }
 export default function SyncScreen() {
   const { user, activeProject, accessMode, loading } = useAuthStore();
@@ -111,6 +119,8 @@ export default function SyncScreen() {
     const restored = useCountStore.getState().operationId;
     try {
       await removeFromQueue(item.id);
+      // A draft again: the tag shows as counted only once it is saved again.
+      await forgetLocalCount(item.action.payload.count.tag).catch(() => {});
       // Named so Count checks the location against a fresh download first.
       router.push(`${user?.role === 'field_worker' ? '/(field)/count-item' : '/(office)/count-item'}?fix=${encodeURIComponent(restored)}` as any);
     } catch (e: any) {
@@ -123,12 +133,15 @@ export default function SyncScreen() {
     setError(''); setResult('');
     setBusy(true);
     const what = kindOf(item);
+    const kept = discardKeepsSaved(item);
     try {
       await removeFromQueue(item.id);
       // A discarded licence leaves nothing behind: its photos go too.
       if (item.action.type === 'licence') await deleteLicencePhotos(item.action.payload).catch(() => {});
+      // A discarded count no longer shows as counted, unless the server has it.
+      if (item.action.type === 'count' && !kept) await forgetLocalCount(item.action.payload.count.tag).catch(() => {});
       setConfirmDiscard(null);
-      setResult(`${what[0].toUpperCase()}${what.slice(1)} discarded. It will not be uploaded.`);
+      setResult(`${what[0].toUpperCase()}${what.slice(1)} discarded. ${kept ? 'Its photos' : 'It'} will not be uploaded.`);
     } catch (e: any) { setError(`Could not discard the ${what}: ${e.message}`); }
     finally { setBusy(false); }
   };
@@ -156,7 +169,9 @@ export default function SyncScreen() {
       const recovery = countRecoveryAction(item);
       // A refused change can be retried once the problem is sorted, or discarded; so can one retries gave up on.
       const discardable = canDiscard(item);
-      const what = item.action.type === 'count' ? 'count' : item.action.type === 'licence' ? 'licence' : 'change';
+      // Retrying can't help a count the server can never take, nor a licence that must be recorded again.
+      const retryable = recovery !== 'discard' && !recordLicenceAgain(item);
+      const what = kindOf(item);
       return <View key={item.id} style={styles.item}>
         <Text style={styles.itemTitle} accessibilityRole="header">{summary.title}</Text>
         <Text style={styles.muted}>{summary.detail}</Text>
@@ -171,9 +186,9 @@ export default function SyncScreen() {
           <Button title="Send without the licence" disabled={!canSync || busy || overriding.reason.trim().length < OVERRIDE_MIN} onPress={() => leaveWithoutLicence(item, overriding.reason)} />
           <Button title="Keep the licence requirement" variant="ghost" disabled={busy} onPress={() => setOverriding(null)} />
         </View> : <Button title="Leave without the licence (office)…" variant="secondary" disabled={busy} onPress={() => setOverriding({ id: item.id, reason: '' })} />)}
-        {recovery !== 'discard' && <Button title={item.lastError || item.deadLetter ? 'Retry upload' : 'Upload now'} accessibilityLabel={`Upload ${summary.title}`} disabled={!canSync || busy} onPress={() => sync(item.id)} variant="secondary" />}
+        {retryable && <Button title={item.lastError || item.deadLetter ? 'Retry upload' : 'Upload now'} accessibilityLabel={`Upload ${summary.title}`} disabled={!canSync || busy} onPress={() => sync(item.id)} variant="secondary" />}
         {discardable && (confirmDiscard === item.id ? <View style={styles.confirm}>
-          <Text accessibilityRole="alert" style={styles.warning}>Discard this {kindOf(item)}? It will not be uploaded, and this can't be undone.</Text>
+          <Text accessibilityRole="alert" style={styles.warning}>Discard this {what}? {discardLoss(item)}, and this can't be undone.</Text>
           <Button title={`Discard ${what}`} variant="danger" disabled={busy} onPress={() => discardCount(item)} />
           <Button title="Keep it" variant="ghost" disabled={busy} onPress={() => setConfirmDiscard(null)} />
         </View> : <Button title={`Discard ${what}…`} accessibilityLabel={`Discard ${summary.title}`} variant="ghost" disabled={busy} onPress={() => setConfirmDiscard(item.id)} />)}

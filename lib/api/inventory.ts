@@ -311,3 +311,14 @@ export async function recordCountLocally(count: CountOperationPayload, zoneName:
   const next = [...local.filter(item => item.qr_code.trim() !== count.tag.trim()), updated];
   if (guard.current()) await setCache(KEYS.localItems, next.map(compact));
 }
+
+// A saved count that won't go through as it is (the server refused it, or it
+// was discarded or reopened from Sync) no longer shows on this device: the tag
+// is back to what the last download said, whatever its capitals.
+export async function forgetLocalCount(tag: string): Promise<void> {
+  const guard = contextGuard();
+  const wanted = tag.trim().toLowerCase();
+  const local = (await getCached<Partial<InventoryItem>[]>(KEYS.localItems)) ?? [];
+  const kept = local.filter(item => (item.qr_code ?? '').trim().toLowerCase() !== wanted);
+  if (kept.length !== local.length && guard.current()) await setCache(KEYS.localItems, kept);
+}

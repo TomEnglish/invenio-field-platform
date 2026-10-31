@@ -128,7 +128,23 @@ Loads (logistics phase 2, contract in MSR migration 022):
   their capitals; lookup_tag deciding Scan and Count; item_positions for where an item is;
   the material page's rules; activity from list_project_activity.
 
-All tests pass (253 with loads and the 022 rework). `npm run lint` and `npx expo export --platform web` also pass;
+Known limits from the field guide (MSR `docs/booklet`, appendix A10), fixed: the tests named
+"known limits" in `count-screen`, `count-queue`, `count-cache`, `count-sync-recovery`,
+`load-screens`, `queue-presentation`, `sync-screen`, `materials-search` and `receiving-labels`:
+
+- A refused count shows "Needs attention in Sync" on Count home and isn't counted as found,
+  also while Count home is showing: the server's refusal (22023 or 42501), a discard and Fix in
+  Count each take the count out of the device's copy, unless the count may already be saved.
+- The header banner counts refusals ("refused: open Sync to decide") apart from failed retries.
+- Unload lists the areas of the site plans at the stop's place only (`plansAt`), and says when
+  that place has no plan on the device.
+- Inventory search matches QR codes as well as type and grade, with what was typed kept as text.
+- Receiving's steps and Review share one set of words (`lib/utils/receivingLabels.ts`).
+- Sync offers no retry for a licence that can only be recorded again, calls each item by one
+  name on its Discard button and in the confirmation, lets anything retries gave up on be
+  discarded, and says when a discard drops only the photos.
+
+All tests pass (272 with the known-limit fixes). `npm run lint` and `npx expo export --platform web` also pass;
 the web login was verified in Chrome without console errors. Native camera,
 force-close/restart and hosted email/storage behavior remain release smoke checks.
 See the sibling MSR `docs/PLATFORM_RELEASE.md` for the coordinated release guide.

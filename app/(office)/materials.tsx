@@ -70,7 +70,10 @@ export default function MaterialsScreen() {
   const [editWeight, setEditWeight] = useState('');
   const [saving, setSaving] = useState(false);
 
+  // Each keystroke starts a search; only the latest one's results are shown.
+  const request = useRef(0);
   const load = async () => {
+    const id = ++request.current;
     setLoading(true);
     offsetRef.current = 0;
     try {
@@ -79,10 +82,12 @@ export default function MaterialsScreen() {
         search: search || undefined,
         offset: 0,
       });
+      if (id !== request.current) return;
       setMaterials(result.data);
       setHasMore(result.hasMore);
       offsetRef.current = result.data.length;
     } catch (e: any) {
+      if (id !== request.current) return;
       Alert.alert('Error', e.message);
     }
     setLoading(false);
@@ -90,6 +95,7 @@ export default function MaterialsScreen() {
 
   const loadMore = async () => {
     if (loadingMore || !hasMore) return;
+    const id = request.current;
     setLoadingMore(true);
     try {
       const result = await fetchMaterials({
@@ -97,9 +103,11 @@ export default function MaterialsScreen() {
         search: search || undefined,
         offset: offsetRef.current,
       });
-      setMaterials((prev) => [...prev, ...result.data]);
-      setHasMore(result.hasMore);
-      offsetRef.current += result.data.length;
+      if (id === request.current) {
+        setMaterials((prev) => [...prev, ...result.data]);
+        setHasMore(result.hasMore);
+        offsetRef.current += result.data.length;
+      }
     } catch {}
     setLoadingMore(false);
   };

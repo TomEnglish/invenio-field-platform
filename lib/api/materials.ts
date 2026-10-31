@@ -1,4 +1,5 @@
 import { applyOperation, type OperationContext } from './operations';
+import { likeExactly } from './inventory';
 import { getProjectClient } from '@/lib/supabaseProject';
 
 export interface MaterialWithLocation {
@@ -21,6 +22,12 @@ export interface MaterialWithLocation {
 }
 
 const PAGE_SIZE = 20;
+// QR codes matched by one search, newest first: enough to narrow by typing,
+// short enough for the request.
+const CODE_MATCHES = 100;
+// A value in a PostgREST `or` list, quoted so commas, dots and brackets in what
+// was typed stay text.
+const orValue = (text: string) => `"${text.replace(/["\\]/g, char => `\\${char}`)}"`;
 
 export async function fetchMaterials(filters?: {
   status?: string;
@@ -49,8 +56,20 @@ export async function fetchMaterials(filters?: {
   if (filters?.material_type) {
     query = query.eq('material_type', filters.material_type);
   }
-  if (filters?.search) {
-    query = query.or(`material_type.ilike.%${filters.search}%,grade.ilike.%${filters.search}%`);
+  // Type, grade or QR code containing the text, whatever its capitals. A
+  // material's code is in qr_codes, so the codes are looked up first.
+  const search = filters?.search?.trim();
+  if (search) {
+    const pattern = `%${likeExactly(search)}%`;
+    const { data: codes, error: codeError } = await client.from('qr_codes').select('id')
+      .neq('entity_type', 'handling_unit').ilike('code_value', pattern)
+      .order('created_at', { ascending: false }).limit(CODE_MATCHES);
+    if (codeError) throw new Error(codeError.message);
+    const ids = (codes ?? []).map((code: { id: string }) => code.id);
+    query = query.or([
+      `material_type.ilike.${orValue(pattern)}`, `grade.ilike.${orValue(pattern)}`,
+      ...(ids.length ? [`qr_code_id.in.(${ids.join(',')})`] : []),
+    ].join(','));
   }
 
   const { data, error } = await query;

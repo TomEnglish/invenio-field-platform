@@ -178,6 +178,61 @@ test('Count home shows progress, the outstanding tags and Continue for a saved d
   await TestRenderer.act(async () => { renderer.unmount(); });
 });
 
+const tagRow = (qr_code, inventory_item, count_status, counted_at = null) => ({ qr_code, inventory_item, part_number: null, count_status, counted_at, quantity: 1, uom: 'EA', zone_id: null, location: null });
+const queuedCount = (id, tag, name, extra = {}) => ({ id, userId: 'worker-a', projectId: 'project-a', createdAt: '2026-10-27T10:00:00.000Z', retryCount: 0, deadLetter: false,
+  action: { type: 'count', payload: { count: { tag, name }, photos: [] } }, ...extra });
+const states = (renderer) => texts(renderer).filter(text => text === 'Waiting to sync' || text === 'Needs attention in Sync');
+
+test('known limits: on Count home a refused count needs attention in Sync and is not counted as found', async () => {
+  const reference = { ...emptyReference, savedAt: '2026-10-27T09:00:00Z', items: [tagRow('T-1', 'Cooler', 'expected'), tagRow('T-2', 'Valve', 'expected'), tagRow('T-3', 'Pump', 'counted', '2026-10-26T10:00:00Z')] };
+  const queue = [
+    queuedCount('q1', 'T-1', 'Cooler'),
+    queuedCount('q2', 'T-2', 'Valve', { refused: true, lastErrorCode: '22023', lastError: 'Category is unavailable in this project' }),
+    // A new tag the server turned down (42501, a decision too), saved before the flag was kept.
+    queuedCount('q3', 'NEW-9', 'Spare', { lastErrorCode: '42501', lastError: 'Office staff only', retryCount: 1 }),
+  ];
+  const loader = screenLoader({ draft: countDraft({ tag: '' }), reference, queueStorage: { getItem: async () => JSON.stringify(queue), setItem: async () => {} } });
+  const { CountHomeScreenContent } = loader.load('./components/screens/CountHomeScreen.tsx');
+  let renderer;
+  await TestRenderer.act(async () => { renderer = TestRenderer.create(React.createElement(CountHomeScreenContent, { countItemRoute: '/(field)/count-item' })); });
+  const shown = texts(renderer);
+  assert.ok(shown.includes('2 of 3 tags found · 1 waiting to sync · 2 need attention in Sync'), shown.join('\n'));
+  assert.ok(shown.includes('Not found yet (1)'), 'the refused tag is still to find');
+  assert.equal(renderer.root.findAll(node => node.type === 'Pressable' && node.props.accessibilityLabel === 'Count T-2 Valve').length, 1);
+  assert.deepEqual(states(renderer), ['Waiting to sync', 'Needs attention in Sync', 'Needs attention in Sync']);
+  await TestRenderer.act(async () => { renderer.unmount(); });
+});
+
+test('known limits: a count refused while Count home is showing stops counting as found there', async () => {
+  // The device copy still has T-2 as counted on this device; once refused, lib/api/count drops that.
+  const overlaid = { ...emptyReference, savedAt: '2026-10-27T09:00:00Z', items: [tagRow('T-1', 'Cooler', 'expected'), tagRow('T-2', 'Valve', 'counted', '2026-10-27T10:00:00Z'), tagRow('T-3', 'Pump', 'counted', '2026-10-26T10:00:00Z')] };
+  const server = { ...overlaid, items: [tagRow('T-1', 'Cooler', 'expected'), tagRow('T-2', 'Valve', 'expected'), tagRow('T-3', 'Pump', 'counted', '2026-10-26T10:00:00Z')] };
+  let reloads = 0;
+  const useReference = () => {
+    const [data, setData] = React.useState(overlaid);
+    const reload = React.useCallback(async () => { reloads += 1; setData(server); }, []);
+    return { data, loading: false, source: 'cache', error: '', reload, checked: null };
+  };
+  let bytes = JSON.stringify([queuedCount('q2', 'T-2', 'Valve')]);
+  const loader = screenLoader({ draft: countDraft({ tag: '' }), reference: overlaid, useReference, queueStorage: { getItem: async () => bytes, setItem: async (_key, value) => { bytes = value; } } });
+  const { CountHomeScreenContent } = loader.load('./components/screens/CountHomeScreen.tsx');
+  const queue = loader.load('./lib/sync/offlineQueue.ts');
+  let renderer;
+  await TestRenderer.act(async () => { renderer = TestRenderer.create(React.createElement(CountHomeScreenContent, { countItemRoute: '/(field)/count-item' })); });
+  assert.ok(texts(renderer).includes('2 of 3 tags found · 1 waiting to sync'));
+  assert.equal(reloads, 0);
+
+  await TestRenderer.act(async () => {
+    await queue.markFailed('q2', 'Category is unavailable in this project', '22023');
+    await new Promise(resolve => setImmediate(resolve));
+  });
+  assert.equal(reloads, 1, 'the device copy is read again');
+  assert.ok(texts(renderer).includes('1 of 3 tags found · 1 needs attention in Sync'), texts(renderer).join('\n'));
+  assert.ok(texts(renderer).includes('Not found yet (2)'));
+  assert.deepEqual(states(renderer), ['Needs attention in Sync']);
+  await TestRenderer.act(async () => { renderer.unmount(); });
+});
+
 // Plan map-a with Zone B, as on the device before the office retired it.
 const plan = (id) => ({ id, name: id, storage_path: null, image_width: 2000, image_height: 1000, updated_at: null });
 const deviceCopy = { ...emptyReference, savedAt: '2026-10-27T09:00:00Z', maps: [plan('map-a')],

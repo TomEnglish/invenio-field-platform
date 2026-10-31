@@ -14,6 +14,7 @@ import { useAuthStore } from '@/stores/authStore';
 import { newOperationId } from '@/lib/utils/operationId';
 import { activeAreas, areaPathLabel, buildAreaTree } from '@/lib/inventory/areas';
 import { applyLoadPending, canFinishStop, capturedNow, classifyUnload, indexLoads, loadLabel, officeFinishes, unloadChecklist, unloadStops, STOP_KINDS } from '@/lib/logistics/loads';
+import { plansAt } from '@/lib/logistics/positions';
 import { unresolvedFor } from '@/lib/sync/queuePresentation';
 import { colors } from '@/lib/design/tokens';
 
@@ -40,7 +41,8 @@ export function UnloadScreenContent() {
   // Any stop until the load is closed; a finished one takes late scans only.
   const stops = unloadStops(loads, id);
   const stop = stops.find(s => s.id === stopId);
-  const ownPlace = !!stop && data.places.some(place => place.id === stop.place_id && place.project_id === projectId);
+  const place = stop ? data.places.find(p => p.id === stop.place_id) : undefined;
+  const ownPlace = !!place && place.project_id === projectId;
   // The office finishes stops at shops and vendors; there, a crew only scans off.
   const finishable = canFinishStop(stop, office);
   const officeOnly = !finishable && officeFinishes(stop) && stop?.status !== 'done';
@@ -53,7 +55,7 @@ export function UnloadScreenContent() {
   const finishId = useRef(newOperationId());
   const [saveError, setSaveError] = useState('');
   // The screen stays mounted between visits: each starts from the stop asked for, with no area or prompt.
-  const restart = () => { setStopId(param || null); setArea(null); setFinishing(false); setSaveError(''); finishId.current = newOperationId(); };
+  const restart = () => { setStopId(param || null); setArea(null); setMapId(null); setFinishing(false); setSaveError(''); finishId.current = newOperationId(); };
   useEffect(restart, [id, param]);
   useFocusEffect(useCallback(() => () => restart(), [id, param]));
   const opFor = (pieces: string[], where: Area, at: string) => ({ loadId: id, stopId: stopId!, pieces, ...(where ? { zoneId: where.zoneId, siteMapId: where.siteMapId } : {}), partial: true, capturedAt: at });
@@ -66,7 +68,8 @@ export function UnloadScreenContent() {
   const view = useMemo(() => (batch.pieces.length && stopId
     ? indexLoads(applyLoadPending(data, [{ type: 'load_off', payload: { op: opFor(batch.pieces, batch.area, batch.at), zoneName: batch.area?.zoneName } }])) : loads), [data, loads, batch, stopId]);
   const list = stopId ? unloadChecklist(view, id, stopId) : null;
-  const maps = count.data.maps;
+  // Areas come from the site plans drawn for the stop's place (022), as in Pack and Move.
+  const maps = ownPlace ? plansAt(count.data.maps, place) : [];
   const shownMap = maps.find(m => m.id === mapId) ?? maps[0] ?? null;
   const areas = useMemo(() => (shownMap ? activeAreas(count.data.zones.filter(zone => zone.map_id === shownMap.id)) : []), [count.data.zones, shownMap?.id]);
   const tree = useMemo(() => buildAreaTree(areas), [areas]);
@@ -118,7 +121,8 @@ export function UnloadScreenContent() {
     <View style={styles.camera}><QRScanner continuous onScan={onScan} countLabel={list ? `${list.offCount} of ${list.total} off here` : undefined} /></View>
     <ScrollView style={styles.list} contentContainerStyle={{ gap: 4, paddingBottom: 8 }}>
       {ownPlace ? <View style={styles.section}>
-        <Text style={styles.rowTitle}>{area ? `Area: ${area.zoneName}` : 'Area (optional): where these pieces go in the yard'}</Text>
+        {maps.length || area ? <Text style={styles.rowTitle}>{area ? `Area: ${area.zoneName}` : 'Area (optional): where these pieces go in the yard'}</Text>
+          : <Text style={styles.muted}>{stop.place_name} has no site plan on this device, so no area is needed.</Text>}
         {area ? <Button title="Clear area" variant="ghost" onPress={() => chooseArea(null)} /> : null}
         {maps.length > 1 ? <View style={styles.chips}>{maps.map(m => <Button key={m.id} title={m.name} variant={m.id === shownMap?.id ? 'primary' : 'secondary'} onPress={() => setMapId(m.id)} style={styles.chip} />)}</View> : null}
         {areas.length ? <AreaList areas={areas} selectedId={area?.zoneId ?? null} reveal={null} style={{ minHeight: 150 }}

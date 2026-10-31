@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { View, Text, ScrollView, Pressable, RefreshControl, StyleSheet } from 'react-native';
 import { router, useFocusEffect } from 'expo-router';
 import { Button } from '@/components/ui/Button';
@@ -11,6 +11,7 @@ import { useCountStore } from '@/stores/countStore';
 import { useAuthStore } from '@/stores/authStore';
 import { useNetworkStore } from '@/lib/sync/networkStore';
 import { belongsToCurrentContext, getQueue, subscribeQueue, type QueueItem } from '@/lib/sync/offlineQueue';
+import { refusedChange } from '@/lib/sync/queuePresentation';
 import { countProgress, outstandingTags, recentCounts, shortDate } from '@/lib/inventory/count';
 import { areaPathLabel, buildAreaTree } from '@/lib/inventory/areas';
 import { colors, radius, space, fontSize, fontWeight, touchTarget } from '@/lib/design/tokens';
@@ -18,10 +19,12 @@ import { colors, radius, space, fontSize, fontWeight, touchTarget } from '@/lib/
 const LIST_LIMIT = 50;
 type PendingCount = { id: string; tag: string; name: string; zoneName?: string; stuck: boolean };
 
+// Stuck: refused by the server, or given up on by automatic retries. Either
+// way it waits in Sync for the crew.
 function pendingCounts(queue: QueueItem[]): PendingCount[] {
   return queue.filter(item => item.action?.type === 'count' && belongsToCurrentContext(item)).map(item => {
     const payload = item.action.payload as { count?: { tag?: string; name?: string }; zoneName?: string };
-    return { id: item.id, tag: payload.count?.tag ?? '', name: payload.count?.name ?? 'Inventory count', zoneName: payload.zoneName, stuck: !!item.deadLetter };
+    return { id: item.id, tag: payload.count?.tag ?? '', name: payload.count?.name ?? 'Inventory count', zoneName: payload.zoneName, stuck: !!item.deadLetter || refusedChange(item) };
   });
 }
 
@@ -45,9 +48,19 @@ export function CountHomeScreenContent({ countItemRoute }: { countItemRoute: str
     const unsubscribe = subscribeQueue(refresh);
     return () => { live = false; unsubscribe(); };
   }, []));
+  // A refused count leaves the device's copy (lib/api/count), so the copy is
+  // read again when a count gets stuck here, or stops being stuck.
+  const stuckIds = pending.filter(p => p.stuck).map(p => p.id).join(',');
+  const shownStuck = useRef(stuckIds);
+  useEffect(() => {
+    if (stuckIds === shownStuck.current) return;
+    shownStuck.current = stuckIds;
+    void reload();
+  }, [stuckIds, reload]);
 
-  // Counts the server keeps refusing are not counted as found.
+  // Counts waiting in Sync for a decision are not counted as found.
   const pendingTags = pending.filter(p => !p.stuck).map(p => p.tag);
+  const stuckCount = pending.length - pendingTags.length;
   const progress = countProgress(data.items, pendingTags);
   const outstanding = outstandingTags(data.items, pendingTags, query);
   const recent = recentCounts(data.items.filter(item => !pending.some(p => p.tag === item.qr_code.trim())), 10);
@@ -88,7 +101,7 @@ export function CountHomeScreenContent({ countItemRoute }: { countItemRoute: str
         <View style={styles.bar} accessibilityRole="progressbar" accessibilityLabel="Tags found" accessibilityValue={{ min: 0, max: progress.total, now: progress.found }}>
           <View style={[styles.barFill, { width: `${percent}%` }]} />
         </View>
-        <Text style={styles.muted}>{progress.found} of {progress.total} tags found{pendingTags.length ? ` · ${pendingTags.length} waiting to sync` : ''}</Text>
+        <Text style={styles.muted}>{progress.found} of {progress.total} tags found{pendingTags.length ? ` · ${pendingTags.length} waiting to sync` : ''}{stuckCount ? ` · ${stuckCount} need${stuckCount === 1 ? 's' : ''} attention in Sync` : ''}</Text>
       </Card>
 
       {draft.tag ? (

@@ -5,13 +5,8 @@ import * as ImagePicker from 'expo-image-picker';
 import { Button } from '@/components/ui/Button';
 import { useReceivingStore } from '@/stores/receivingStore';
 import type { PhotoType } from '@/types/database';
+import { PHOTO_TYPES, RECEIVING_STEPS, labelOf } from '@/lib/utils/receivingLabels';
 import { colors } from '@/lib/design/tokens';
-
-const PHOTO_TYPES: { value: PhotoType; label: string }[] = [
-  { value: 'general', label: 'General' },
-  { value: 'damage', label: 'Damage' },
-  { value: 'delivery_ticket', label: 'Delivery Ticket' },
-];
 
 interface Props {
   onNext: () => void;
@@ -51,7 +46,7 @@ export function PhotoStep({ onNext, onBack }: Props) {
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
-      <Text style={styles.title}>Photos</Text>
+      <Text style={styles.title}>{RECEIVING_STEPS[2]}</Text>
 
       <Text style={styles.label}>Photo Type</Text>
       <View style={styles.row}>
@@ -77,7 +72,7 @@ export function PhotoStep({ onNext, onBack }: Props) {
           {photos.map((photo, index) => (
             <View key={index} style={styles.photoCard}>
               <Image source={{ uri: photo.uri }} style={styles.photo} />
-              <Text style={styles.photoType}>{photo.photo_type}</Text>
+              <Text style={styles.photoType}>{labelOf(PHOTO_TYPES, photo.photo_type) ?? photo.photo_type}</Text>
               <Button
                 title="Remove"
                 disabled={busy}

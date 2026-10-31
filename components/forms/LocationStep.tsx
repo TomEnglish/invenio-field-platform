@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/Button';
 import { useReceivingStore } from '@/stores/receivingStore';
 import { getProjectClient } from '@/lib/supabaseProject';
 import type { Location } from '@/types/database';
+import { RECEIVING_STEPS } from '@/lib/utils/receivingLabels';
 import { colors } from '@/lib/design/tokens';
 
 interface Props {
@@ -57,7 +58,7 @@ export function LocationStep({ onNext, onSubmit, onBack, submitting, nextTitle =
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
-      <Text style={styles.title}>Storage Location</Text>
+      <Text style={styles.title}>{RECEIVING_STEPS[5]}</Text>
 
       {error ? <Text style={styles.error}>{error}</Text> : null}
 

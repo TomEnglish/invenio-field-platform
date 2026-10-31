@@ -17,9 +17,9 @@ import { ReceivingReviewStep } from '@/components/forms/ReceivingReviewStep';
 import { Button } from '@/components/ui/Button';
 import { Toast } from '@/components/ui/Toast';
 import { countedBannerText } from '@/lib/inventory/count';
+import { RECEIVING_STEPS as STEP_TITLES } from '@/lib/utils/receivingLabels';
 import { colors } from '@/lib/design/tokens';
 
-const STEP_TITLES = ['Material details', 'PO / delivery', 'Photos', 'Inspection', 'Decision', 'Location', 'Review'];
 export function ReceivingScreenContent() {
   const store = useReceivingStore();
   const { user, activeProject, loading } = useAuthStore();

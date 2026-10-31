@@ -4,13 +4,8 @@ import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { useReceivingStore } from '@/stores/receivingStore';
 import type { MaterialCondition } from '@/types/database';
+import { CONDITIONS, RECEIVING_STEPS } from '@/lib/utils/receivingLabels';
 import { colors } from '@/lib/design/tokens';
-
-const CONDITIONS: { value: MaterialCondition; label: string }[] = [
-  { value: 'good', label: 'Good' },
-  { value: 'damaged', label: 'Damaged' },
-  { value: 'mixed', label: 'Mixed' },
-];
 
 interface Props {
   onNext: () => void;
@@ -35,7 +30,7 @@ export function InspectionStep({ onNext, onBack }: Props) {
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
-      <Text style={styles.title}>Inspection</Text>
+      <Text style={styles.title}>{RECEIVING_STEPS[3]}</Text>
 
       <Text style={styles.label}>Condition</Text>
       <View style={styles.row}>

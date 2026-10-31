@@ -1,5 +1,7 @@
 import { supabase } from '@/lib/supabase';
+import { DECISION_CODES } from '@/lib/sync/decisionCodes';
 import { applyOperation, operationContext, type OperationContext } from './operations';
+import { forgetLocalCount } from './inventory';
 import type { CountOperationPayload, CountPhoto } from '@/lib/inventory/count';
 
 // Saves one count through apply_field_operation, then uploads its photos under
@@ -7,7 +9,14 @@ import type { CountOperationPayload, CountPhoto } from '@/lib/inventory/count';
 // returns the same uid, so a retry only finishes the photos.
 export async function submitCount(input: { count: CountOperationPayload; photos: CountPhoto[]; context: OperationContext }) {
   const { count, photos, context } = input;
-  const record = await applyOperation('count', count, context);
+  let record;
+  try {
+    record = await applyOperation('count', count, context);
+  } catch (error: any) {
+    // Refused: it waits in Sync, and the tag stops showing as counted here.
+    if (DECISION_CODES.has(error?.code)) await forgetLocalCount(count.tag).catch(() => {});
+    throw error;
+  }
   if (!record?.uid) throw new Error('The count was not confirmed by the server. It will retry.');
   const assertContext = () => {
     const active = operationContext(context.operationId);
