@@ -81,6 +81,8 @@ export interface CountOperationPayload {
   pin?: Pin;
   zoneId: string | null;
   notes?: string;
+  // When the count was made (022): one older than the tag's latest count is refused.
+  capturedAt?: string;
 }
 
 export const COUNT_UNITS = ['EA', 'FT', 'LF', 'LB', 'SET', 'BOX', 'PAL'];
@@ -215,10 +217,12 @@ export function draftFromQueuedCount(
   };
 }
 
-// Tags match on trimmed, case-sensitive text (unique per project on btrim).
+// Tags match on trimmed text whatever its capitals (022: unique per project
+// ignoring case); the exact spelling wins when both are there.
 export function findItemByTag<T extends { qr_code: string }>(items: T[], tag: string): T | undefined {
   const wanted = tag.trim();
-  return wanted ? items.find(item => (item.qr_code ?? '').trim() === wanted) : undefined;
+  if (!wanted) return undefined;
+  return items.find(item => (item.qr_code ?? '').trim() === wanted) ?? items.find(item => (item.qr_code ?? '').trim().toLowerCase() === wanted.toLowerCase());
 }
 
 export function quantityText(quantity: number | string | null | undefined): string {

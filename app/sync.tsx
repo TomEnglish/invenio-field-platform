@@ -3,20 +3,29 @@ import Constants from 'expo-constants';
 import { useCallback, useRef, useState, type ReactNode } from 'react';
 import { ScrollView, View, Text, Pressable, StyleSheet } from 'react-native';
 import { Stack, useFocusEffect, Redirect, router } from 'expo-router';
-import { getQueue, subscribeQueue, retryQueueItem, removeFromQueue, belongsToCurrentContext, type QueueItem } from '@/lib/sync/offlineQueue';
+import { getQueue, subscribeQueue, retryQueueItem, removeFromQueue, replaceQueuedAction, belongsToCurrentContext, type QueueItem } from '@/lib/sync/offlineQueue';
 import { processQueue } from '@/lib/sync/syncManager';
-import { queueSummary, queueRecoveryMessage, countRecoveryAction, canDiscard } from '@/lib/sync/queuePresentation';
+import { queueSummary, queueRecoveryMessage, countRecoveryAction, canDiscard, canMoveToLoad, needsLicence } from '@/lib/sync/queuePresentation';
+import { OVERRIDE_MAX, OVERRIDE_MIN, withMove } from '@/lib/logistics/loads';
 import { draftFromQueuedCount } from '@/lib/inventory/count';
 import { deleteLicencePhotos } from '@/lib/api/licence';
 import { useAuthStore } from '@/stores/authStore';
 import { useCountStore } from '@/stores/countStore';
 import { useNetworkStore } from '@/lib/sync/networkStore';
 import { Button } from '@/components/ui/Button';
+import { Input } from '@/components/ui/Input';
 import { colors } from '@/lib/design/tokens';
 
 function SupportDetails({ title = 'Support details', children }: {title?: string; children: ReactNode}) {
   const [expanded,setExpanded] = useState(false);
   return <View><Pressable accessibilityRole="button" accessibilityLabel={title} accessibilityState={{expanded}} onPress={() => setExpanded(!expanded)} style={styles.disclosure}><Text style={styles.link}>{expanded ? '−' : '+'} {title}</Text></Pressable>{expanded && <View style={styles.support}>{children}</View>}</View>;
+}
+// What a saved submission is, in words: "Discard this crate change?"
+function kindOf(item: QueueItem): string {
+  const type = item.action.type;
+  return type === 'count' ? 'count' : type === 'licence' ? 'licence' : type === 'receiving' ? 'receipt'
+    : ['pack', 'unpack', 'move'].includes(type) ? 'crate change' : type === 'relocate' ? 'location change'
+    : type.startsWith('load_') || type === 'stop_complete' ? 'load change' : 'change';
 }
 export default function SyncScreen() {
   const { user, activeProject, accessMode, loading } = useAuthStore();
@@ -30,6 +39,9 @@ export default function SyncScreen() {
   const [queueLoaded, setQueueLoaded] = useState(false);
   const [queueError, setQueueError] = useState('');
   const [confirmDiscard, setConfirmDiscard] = useState<string | null>(null);
+  // Office staff letting a held-back departure leave without the licence: the item and the reason typed.
+  const [overriding, setOverriding] = useState<{ id: string; reason: string } | null>(null);
+  const office = user?.role !== 'field_worker';
   const refreshQueue = useCallback(async () => {
     const request = ++refreshRequest.current;
     const current = () => request === refreshRequest.current && useAuthStore.getState().user?.id === user?.id && useAuthStore.getState().activeProject?.id === activeProject?.id;
@@ -68,6 +80,26 @@ export default function SyncScreen() {
     } catch (e: any) { if (sameContext()) setError(e.message); }
     finally { setBusy(false); }
   };
+  // A piece another load had planned goes on this one after all: sent again
+  // with `move`, which takes it off that plan (022).
+  const moveToLoad = async (item: QueueItem) => {
+    if (item.action.type !== 'load_on' || !belongsToCurrentContext(item)) return;
+    setError(''); setResult(''); setConfirmDiscard(null);
+    try { await replaceQueuedAction(item.id, { ...item.action, payload: { ...item.action.payload, op: withMove(item.action.payload.op) } }); }
+    catch (e: any) { setError(`Could not change the scan: ${e.message}`); return; }
+    await sync(item.id);
+  };
+  // The same departure, sent again with the office's reason (022's overrideReason).
+  const leaveWithoutLicence = async (item: QueueItem, reason: string) => {
+    if (item.action.type !== 'load_depart' || !belongsToCurrentContext(item)) return;
+    const text = reason.trim();
+    if (text.length < OVERRIDE_MIN || text.length > OVERRIDE_MAX) { setError(`Give a reason of ${OVERRIDE_MIN} to ${OVERRIDE_MAX} characters.`); return; }
+    setError(''); setResult('');
+    try { await replaceQueuedAction(item.id, { ...item.action, payload: { ...item.action.payload, op: { ...item.action.payload.op, overrideReason: text } } }); }
+    catch (e: any) { setError(`Could not change the departure: ${e.message}`); return; }
+    setOverriding(null);
+    await sync(item.id);
+  };
   // A refused count moves back into the Count draft (new operation ID) for fixing.
   const fixCount = async (item: QueueItem) => {
     setError(''); setResult(''); setConfirmDiscard(null);
@@ -90,7 +122,7 @@ export default function SyncScreen() {
   const discardCount = async (item: QueueItem) => {
     setError(''); setResult('');
     setBusy(true);
-    const what = item.action.type === 'count' ? 'count' : item.action.type === 'licence' ? 'licence' : item.action.type === 'pack' || item.action.type === 'unpack' ? 'crate change' : 'load change';
+    const what = kindOf(item);
     try {
       await removeFromQueue(item.id);
       // A discarded licence leaves nothing behind: its photos go too.
@@ -132,9 +164,16 @@ export default function SyncScreen() {
         <Text style={styles.muted}>Saved {new Date(item.createdAt).toLocaleString()}</Text>
         <Text style={styles.text}>{queueRecoveryMessage(item)}</Text>
         {recovery === 'fix' && <Button title="Fix in Count" accessibilityLabel={`Fix ${summary.title} in Count`} disabled={busy} onPress={() => fixCount(item)} />}
+        {canMoveToLoad(item) && <Button title="Move it to this load" accessibilityLabel={`Move it to ${summary.title}`} disabled={!canSync || busy} onPress={() => moveToLoad(item)} />}
+        {office && needsLicence(item) && (overriding?.id === item.id ? <View style={styles.confirm}>
+          <Text style={styles.warning}>Leaving without the driver’s licence is recorded on the load with your name and the reason.</Text>
+          <Input label="Reason" required value={overriding.reason} onChangeText={text => setOverriding({ id: item.id, reason: text })} maxLength={OVERRIDE_MAX} multiline />
+          <Button title="Send without the licence" disabled={!canSync || busy || overriding.reason.trim().length < OVERRIDE_MIN} onPress={() => leaveWithoutLicence(item, overriding.reason)} />
+          <Button title="Keep the licence requirement" variant="ghost" disabled={busy} onPress={() => setOverriding(null)} />
+        </View> : <Button title="Leave without the licence (office)…" variant="secondary" disabled={busy} onPress={() => setOverriding({ id: item.id, reason: '' })} />)}
         {recovery !== 'discard' && <Button title={item.lastError || item.deadLetter ? 'Retry upload' : 'Upload now'} accessibilityLabel={`Upload ${summary.title}`} disabled={!canSync || busy} onPress={() => sync(item.id)} variant="secondary" />}
         {discardable && (confirmDiscard === item.id ? <View style={styles.confirm}>
-          <Text accessibilityRole="alert" style={styles.warning}>Discard this {what === 'change' ? (item.action.type === 'pack' || item.action.type === 'unpack' ? 'crate change' : 'load change') : what}? It will not be uploaded, and this can't be undone.</Text>
+          <Text accessibilityRole="alert" style={styles.warning}>Discard this {kindOf(item)}? It will not be uploaded, and this can't be undone.</Text>
           <Button title={`Discard ${what}`} variant="danger" disabled={busy} onPress={() => discardCount(item)} />
           <Button title="Keep it" variant="ghost" disabled={busy} onPress={() => setConfirmDiscard(null)} />
         </View> : <Button title={`Discard ${what}…`} accessibilityLabel={`Discard ${summary.title}`} variant="ghost" disabled={busy} onPress={() => setConfirmDiscard(item.id)} />)}

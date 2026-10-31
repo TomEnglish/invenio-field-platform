@@ -16,7 +16,7 @@ import { persistPhoto } from '@/lib/utils/persistPhoto';
 import { deleteLicencePhotos, LICENCE_PHOTO_DIRECTORY } from '@/lib/api/licence';
 import { rememberLicence } from '@/lib/sync/licenceMemory';
 import { loadOf } from '@/lib/sync/queuePresentation';
-import { CHECK_IN_STEPS, checkInIssue, checkInPayloads, COMPANY_ROLES, isoDate, loadLabel } from '@/lib/logistics/loads';
+import { capturedNow, CHECK_IN_STEPS, checkInIssue, checkInPayloads, COMPANY_ROLES, isoDate, loadLabel } from '@/lib/logistics/loads';
 import { radius } from '@/lib/design/tokens';
 
 const parseDate = (text: string) => { const [y, m, d] = text.split('-').map(Number); return text ? new Date(y, m - 1, d) : null; };
@@ -91,7 +91,9 @@ export function CheckInScreenContent() {
     if (issue) { setError(issue.message); draft.setStep(issue.step); return; }
     setSaving(true); setError('');
     try {
-      const { save: op, licence } = checkInPayloads(id, loadLabel(load), current, current.start ?? undefined);
+      const capturedAt = current.capturedAt ?? capturedNow();
+      if (!current.capturedAt) current.markCaptured(capturedAt);
+      const { save: op, licence } = checkInPayloads(id, loadLabel(load), current, current.start ?? undefined, capturedAt);
       if (!op && !licence) { setError('Nothing has changed.'); return; }
       if (op) await addToQueue({ type: 'load_save', payload: { op, label: loadLabel(load) } }, current.saveId);
       if (licence) {

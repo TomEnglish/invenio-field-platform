@@ -15,6 +15,8 @@ import { router, useFocusEffect } from 'expo-router';
 import FontAwesome from '@expo/vector-icons/FontAwesome';
 import { Button } from '@/components/ui/Button';
 import { fetchMaterials, type MaterialWithLocation } from '@/lib/api/materials';
+import { positionsOfMaterials } from '@/lib/api/tags';
+import { positionText, type ItemPosition } from '@/lib/logistics/positions';
 import { useAuthStore } from '@/stores/authStore';
 import { useNetworkStore } from '@/lib/sync/networkStore';
 import { getCached, setCache } from '@/lib/sync/readCache';
@@ -35,6 +37,12 @@ export default function InventoryScreen() {
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const offsetRef = useRef(0);
+  // Where each listed material is now (022's item_positions), when online.
+  const [positions, setPositions] = useState<Map<string, ItemPosition>>(new Map());
+  const addPositions = async (rows: MaterialWithLocation[]) => {
+    const found = await positionsOfMaterials(rows.map(row => row.id));
+    if (found.size) setPositions(prev => new Map([...prev, ...found]));
+  };
 
   const isOnline = useNetworkStore((s) => s.isOnline);
 
@@ -55,6 +63,8 @@ export default function InventoryScreen() {
       setMaterials(result.data);
       setHasMore(result.hasMore);
       offsetRef.current = result.data.length;
+      setPositions(new Map());
+      void addPositions(result.data);
       await setCache(cacheKey, result.data);
     } catch (e: any) {
       if (!stillCurrent()) return;
@@ -81,6 +91,7 @@ export default function InventoryScreen() {
       setMaterials((prev) => [...prev, ...result.data]);
       setHasMore(result.hasMore);
       offsetRef.current += result.data.length;
+      void addPositions(result.data);
     } catch {}
     setLoadingMore(false);
   };
@@ -122,12 +133,17 @@ export default function InventoryScreen() {
         <Text style={styles.detail}>Qty: {item.current_quantity}/{item.qty}</Text>
       </View>
 
-      {item.location_zone && (
+      {positions.get(item.id) ? (
+        <Text style={styles.location}>
+          <FontAwesome name="map-marker" size={12} color={colors.textSubtle} />
+          {'  '}{positionText(positions.get(item.id)!)}
+        </Text>
+      ) : item.location_zone ? (
         <Text style={styles.location}>
           <FontAwesome name="map-marker" size={12} color={colors.textSubtle} />
           {'  '}{item.location_zone} - Row {item.location_row}, Rack {item.location_rack}
         </Text>
-      )}
+      ) : null}
 
       {item.qr_code_value && (
         <Text style={styles.qrCode}>QR: {item.qr_code_value}</Text>

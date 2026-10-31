@@ -55,6 +55,7 @@ function syncScreen(queue, { draftTag = '', removeFails = false } = {}) {
     '@/lib/api/licence': { deleteLicencePhotos: async () => {} },
     '@/lib/sync/syncManager': { processQueue: async () => ({ processed: 0, failed: 0 }) },
     '@/components/ui/Button': { Button: (props) => React.createElement('Button', props) },
+    '@/components/ui/Input': { Input: (props) => React.createElement('Input', props) },
     '@/lib/design/tokens': { colors: new Proxy({}, { get: () => '#000' }) },
   } });
   return { SyncScreen: loader.load('./app/sync.tsx').default, calls, countState };

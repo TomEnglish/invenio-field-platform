@@ -14,7 +14,7 @@ import { processQueue } from '@/lib/sync/syncManager';
 import { newOperationId } from '@/lib/utils/operationId';
 import { quantityText, shortDate } from '@/lib/inventory/count';
 import {
-  crateCode, isCrateCode, kindLabel, labelIssue, looksLikeCrate, packStart, STATUS_LABELS, unitAncestors, unitLoadText, unitName, unitWhere, unpackIssue,
+  crateCode, isCrateCode, kindLabel, labelIssue, looksLikeCrate, moveIssue, packStart, STATUS_LABELS, unitAncestors, unitLoadText, unitName, unitWhere, unpackIssue,
   type PackQueuePayload,
 } from '@/lib/logistics/crates';
 import { colors, radius, space, fontSize, fontWeight, touchTarget } from '@/lib/design/tokens';
@@ -23,6 +23,7 @@ import { colors, radius, space, fontSize, fontWeight, touchTarget } from '@/lib/
 function waitingFor(code: string, pending: QueueItem[]) {
   return pending.filter(item => {
     if (item.action.type === 'unpack') return crateCode(item.action.payload.unitCode) === code;
+    if (item.action.type === 'move') return crateCode(item.action.payload.move.unitCode) === code;
     if (item.action.type !== 'pack') return false;
     const { pack } = item.action.payload as PackQueuePayload;
     return crateCode(pack.unitCode) === code || [...(pack.add ?? []), ...(pack.remove ?? [])].some(tag => looksLikeCrate(tag) && crateCode(tag) === code);
@@ -30,7 +31,8 @@ function waitingFor(code: string, pending: QueueItem[]) {
 }
 
 // One crate: what it is, where it is (or the crate it is inside), what it
-// holds, and Pack / Unpack. Works from the device's copy when offline.
+// holds, and Pack / Unpack / Move (022: moved as it is, keeping its seal).
+// Works from the device's copy when offline.
 export function CrateScreenContent({ crateRoute, packRoute }: { crateRoute: string; packRoute: string }) {
   const { code: param } = useLocalSearchParams<{ code?: string }>();
   const code = crateCode(param ?? '');
@@ -59,6 +61,8 @@ export function CrateScreenContent({ crateRoute, packRoute }: { crateRoute: stri
   const packIssue = unit ? labelIssue(index, code) : null;
   const canPack = !packIssue;
   const canUnpack = !!unit && !unpackIssue(unit);
+  // A copy without 022's columns means the server can't move crates yet.
+  const canMove = !!unit && unit.top_status !== undefined && !moveIssue(unit);
   const onLoad = unit ? unitLoadText(unit) : '';
   const open = (next: string) => router.push({ pathname: crateRoute as any, params: { code: next } });
 
@@ -136,7 +140,7 @@ export function CrateScreenContent({ crateRoute, packRoute }: { crateRoute: stri
       <View style={styles.section}>
         <View style={styles.titleRow}>
           <Text style={styles.title} accessibilityRole="header">{code}</Text>
-          <Text style={[styles.badge, unit.status === 'sealed' ? styles.sealed : styles.neutral]}>{STATUS_LABELS[unit.status] ?? unit.status}</Text>
+          <Text style={[styles.badge, unit.status === 'sealed' ? styles.sealed : unit.status === 'written_off' ? styles.highValue : styles.neutral]}>{STATUS_LABELS[unit.status] ?? unit.status}</Text>
           {unit.is_high_value ? <Text style={[styles.badge, styles.highValue]}>High value</Text> : null}
         </View>
         <Text style={styles.text}>{[kindLabel(unit.kind), unit.description].filter(Boolean).join(' · ')}</Text>
@@ -180,6 +184,7 @@ export function CrateScreenContent({ crateRoute, packRoute }: { crateRoute: stri
 
       <View style={styles.actions}>
         {canPack ? <Button title={packing === code ? 'Continue packing' : 'Pack / add items'} onPress={pack} /> : <Text style={styles.muted}>{packIssue ?? `This crate is ${STATUS_LABELS[unit.status]?.toLowerCase() ?? unit.status}; it can’t be changed here.`}</Text>}
+        {canMove ? <Button title="Move crate…" variant="secondary" onPress={() => router.push({ pathname: groupRoute('relocate') as any, params: { code } })} /> : null}
         {canUnpack && (confirmUnpack ? <View style={styles.confirm}>
           <Text accessibilityRole="alert" style={styles.warning}>Unpack {code}? Its {items.length} item{items.length === 1 ? '' : 's'}{inner.length ? ` and ${inner.length} crate${inner.length === 1 ? '' : 's'}` : ''} come out where it stands, and the label can be packed again.</Text>
           <Button title="Unpack crate" variant="danger" loading={busy} onPress={unpack} />

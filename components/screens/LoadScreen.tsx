@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/Button';
 import { useLoadReference } from '@/components/logistics/useLoadReference';
 import { loadStyles as styles } from '@/components/logistics/loadStyles';
 import { groupRoute } from '@/components/logistics/routes';
-import { COMPANY_ROLES, LOAD_STATUS_LABELS, loadLabel, STOP_KINDS } from '@/lib/logistics/loads';
+import { canUnload, COMPANY_ROLES, LOAD_STATUS_LABELS, loadLabel, STOP_KINDS } from '@/lib/logistics/loads';
 
 // One load: its route, truck, driver and companies, what is on it, and the
 // steps open to the field at its stage. The office closes or cancels loads.
@@ -27,7 +27,8 @@ export function LoadScreenContent() {
 
   const before = load.status === 'planning' || load.status === 'loading';
   const pickups = load.status === 'in_transit' ? stops.filter(stop => stop.kind !== 'dropoff' && stop.status !== 'done') : [];
-  const licence = load.licence_recorded_at ? 'Licence on file' : load.licence_waiting ? 'Licence saved on this device; it uploads when online' : 'No licence recorded yet';
+  const licence = load.licence_recorded_at ? 'Licence on file' : load.licence_waiting ? 'Licence saved on this device; it uploads when online'
+    : load.licence_override_at ? 'Left without a licence (the office gave a reason)' : 'No licence recorded yet';
   return <ScrollView
     style={styles.container}
     contentContainerStyle={styles.content}
@@ -47,7 +48,7 @@ export function LoadScreenContent() {
 
     <View style={styles.card}>
       <Text style={styles.heading} accessibilityRole="header">Pieces</Text>
-      <Text style={styles.text}>{load.planned_count} planned · {load.on_board_count} on board · {load.delivered_count} delivered{load.missing_count ? ` · ${load.missing_count} missing` : ''}{load.flagged_count ? ` · ${load.flagged_count} flagged` : ''}</Text>
+      <Text style={styles.text}>{load.planned_count} planned · {load.on_board_count} on board · {load.delivered_count} delivered{load.missing_count ? ` · ${load.missing_count} missing` : ''}{load.written_off_count ? ` · ${load.written_off_count} written off` : ''}{load.flagged_count ? ` · ${load.flagged_count} flagged` : ''}</Text>
     </View>
     <View style={styles.card}>
       <Text style={styles.heading} accessibilityRole="header">Route</Text>
@@ -75,6 +76,7 @@ export function LoadScreenContent() {
         <Button title="Depart" variant="secondary" onPress={() => go('load-depart')} />
       </> : null}
       {load.status === 'in_transit' ? <Button title="Unload at a stop" onPress={() => go('load-unload')} /> : null}
+      {load.status === 'delivered' && canUnload(load) ? <Button title="Scan off a piece found late" variant="secondary" onPress={() => go('load-unload')} /> : null}
       {pickups.map(stop => <Button key={stop.id} title={`Pick up at ${stop.place_name}`} variant="secondary" onPress={() => go('load-out', { stopId: stop.id })} />)}
       {before || load.status === 'in_transit' ? <Button title="Driver check-in" variant="secondary" onPress={() => go('load-checkin')} /> : null}
       {before || load.status === 'in_transit' ? <Button title="Edit load" variant="ghost" onPress={() => go('load-edit')} /> : null}

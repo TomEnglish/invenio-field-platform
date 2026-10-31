@@ -12,6 +12,7 @@ import {
   applyPending, buildPackPayload, classifyScan, crateCode, indexLoad, isCrateCode, labelIssue, looksLikeCrate, mergeFresh, packedAfter, packReviewIssue, packStart,
   type LoadAction, type LoadReference,
 } from '@/lib/logistics/crates';
+import { capturedNow } from '@/lib/logistics/loads';
 import { QRScanner, type ScanFeedback } from '@/components/scanning/QRScanner';
 import { useLoadReference } from '@/components/logistics/useLoadReference';
 import { useCountReference } from '@/components/inventory/useCountReference';
@@ -176,7 +177,7 @@ export function PackScreenContent({ crateRoute, homeRoute }: { crateRoute: strin
       if (draft.operationId !== operationId || !sameContext()) return;
       const issue = packReviewIssue(build(), draft, seal, areasLive);
       if (issue) { setError(issue.message); return; }
-      const pack = buildPackPayload(draft, seal);
+      const pack = { ...buildPackPayload(draft, seal), capturedAt: capturedNow() };
       await addToQueue({ type: 'pack', payload: {
         pack,
         ...(pack.zoneId && draft.location.zoneName ? { zoneName: draft.location.zoneName } : {}),

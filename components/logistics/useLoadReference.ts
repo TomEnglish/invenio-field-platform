@@ -12,9 +12,9 @@ import { applyChanges, indexLoads } from '@/lib/logistics/loads';
 // A pack or unpack saved here changes the copy straight away (see `pending`),
 // so a recent download doesn't need repeating each time a crate is shown.
 const REFRESH_AFTER_MS = 2 * 60 * 1000;
-const OVERLAID = new Set(['pack', 'unpack', 'count', 'load_save', 'load_on', 'load_depart', 'load_off', 'stop_complete', 'licence']);
+const OVERLAID = new Set(['pack', 'unpack', 'move', 'count', 'load_save', 'load_on', 'load_depart', 'load_off', 'stop_complete', 'licence']);
 
-// Saved packs, unpacks, counts and load changes that still count as happening: the server
+// Saved packs, unpacks, moves, counts and load changes that still count as happening: the server
 // hasn't refused them. Refused ones wait in Sync and change nothing here.
 export function waitingChanges(queue: QueueItem[]): { pending: QueueItem[]; refused: QueueItem[] } {
   const mine = queue.filter(item => OVERLAID.has(item.action?.type) && belongsToCurrentContext(item));

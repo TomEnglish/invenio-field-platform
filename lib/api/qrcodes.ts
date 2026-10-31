@@ -1,4 +1,5 @@
 import { getProjectClient } from '@/lib/supabaseProject';
+import { whereTag } from './inventory';
 
 export interface QRCodeRecord {
   id: string;
@@ -57,16 +58,16 @@ export async function batchCreateQRCodes(count: number): Promise<QRCodeRecord[]>
   return (data ?? []) as QRCodeRecord[];
 }
 
-// Look up a QR code by its value and return linked material ID if any
+// Look up a QR code by its value and return linked material ID if any. The
+// project client keeps it to this project; a tag is unique there whatever its
+// capitals (022), so it is matched that way.
 export async function lookupMaterialByQR(codeValue: string): Promise<{ materialId: string } | null> {
   const client = getProjectClient();
 
   // Find the QR code record
-  const { data: qr } = await client
-    .from('qr_codes')
-    .select('id')
-    .eq('code_value', codeValue)
-    .single();
+  const { data: qr } = await whereTag(client.from('qr_codes').select('id'), 'code_value', codeValue.trim())
+    .limit(1)
+    .maybeSingle();
 
   if (!qr) return null;
 
@@ -75,7 +76,9 @@ export async function lookupMaterialByQR(codeValue: string): Promise<{ materialI
     .from('materials')
     .select('id')
     .eq('qr_code_id', qr.id)
-    .single();
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
 
   if (!mat) return null;
   return { materialId: mat.id };

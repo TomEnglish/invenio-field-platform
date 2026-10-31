@@ -6,6 +6,15 @@ const { createModuleLoader } = require('./helpers/load-typescript.cjs');
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 const plain = (value) => JSON.parse(JSON.stringify(value));
+const ISO_TIME = /^\d{4}-\d\d-\d\dT[\d:.]+Z$/;
+// 022's capturedAt is the moment of the scan or save: checked, then set aside so the rest compares exactly.
+function untimed(action, captured, id) {
+  const saved = plain(action);
+  for (const holder of [saved.payload?.op, saved.payload?.move, saved.payload?.relocate, saved.type === 'licence' ? saved.payload : null]) {
+    if (holder && 'capturedAt' in holder) { assert.match(holder.capturedAt, ISO_TIME); delete holder.capturedAt; captured.push(id); }
+  }
+  return saved;
+}
 const element = (name) => (props) => React.createElement(name, props, props.children);
 const four = new Proxy({}, { get: () => 4 });
 const tokens = { colors: new Proxy({}, { get: () => '#000' }), radius: four, space: four, fontSize: four, fontWeight: four, touchTarget: 44 };
@@ -25,10 +34,10 @@ const reference = (extra = {}) => ({
   lines: [line('HU-AAAA01'), line('HU-BBBB02', { status: 'on_board', on_at: '2026-10-31T08:00:00Z' })], companies: [], savedAt: '2026-10-31T08:00:00Z', ...extra,
 });
 
-function load({ ref = reference(), params = { id: 'load-a' }, online = false, failQueue = null, stuck = [] } = {}) {
-  const routes = [], queued = [], blur = [], deleted = [];
+function load({ ref = reference(), params = { id: 'load-a' }, online = false, failQueue = null, stuck = [], role = 'field_worker', tagAnswer = null } = {}) {
+  const routes = [], queued = [], blur = [], deleted = [], captured = [];
   const records = new Map();
-  const auth = { user: { id: 'worker-a', role: 'field_worker' }, activeProject: { id: 'project-a', status: 'active' } };
+  const auth = { user: { id: 'worker-a', role }, activeProject: { id: 'project-a', status: 'active' } };
   const network = { isOnline: online };
   const loader = createModuleLoader({ stubs: {
     react: React, 'react/jsx-runtime': require('react/jsx-runtime'), zustand: require('zustand'), 'zustand/middleware': require('zustand/middleware'),
@@ -43,10 +52,11 @@ function load({ ref = reference(), params = { id: 'load-a' }, online = false, fa
     '@expo/vector-icons/FontAwesome': element('Icon'),
     '@/stores/authStore': { useAuthStore: Object.assign((select) => (select ? select(auth) : auth), { getState: () => auth }) },
     '@/lib/sync/networkStore': { useNetworkStore: Object.assign((select) => select(network), { getState: () => network }) },
-    '@/lib/sync/offlineQueue': { addToQueue: async (action, id) => { if (failQueue?.on) throw new Error(failQueue.message); if (queued.some(q => q.id === id)) throw new Error('This submission is already queued.'); queued.push({ id, action: plain(action) }); return id; } },
+    '@/lib/sync/offlineQueue': { addToQueue: async (action, id) => { if (failQueue?.on) throw new Error(failQueue.message); if (queued.some(q => q.id === id)) throw new Error('This submission is already queued.'); queued.push({ id, action: untimed(action, captured, id) }); return id; } },
     '@/lib/sync/syncManager': { processQueue: async () => ({ processed: 0, failed: 0 }) },
     '@/lib/utils/persistPhoto': { persistPhoto: async () => `file:///documents/receiving-photos/p${queued.length}-${deleted.length}.jpg` },
     '@/lib/api/licence': { deleteLicencePhotos: async (payload) => { deleted.push(...payload.photos.map(p => p.uri)); } },
+    '@/lib/api/tags': { lookupTag: async () => tagAnswer },
     // Like the real hook, saved changes show at once.
     '@/components/logistics/useLoadReference': { useLoadReference: () => build() },
     '@/components/inventory/useCountReference': { useCountReference: () => ({ data: { maps: [{ id: 'map-a', name: 'Yard' }], zones: [{ id: 'z-1', map_id: 'map-a', parent_id: null, name: 'Bay 1', shape: [], is_active: true }], images: {}, categories: [], items: [], savedAt: 'x' } }) },
@@ -67,7 +77,7 @@ function load({ ref = reference(), params = { id: 'load-a' }, online = false, fa
     cached = { count: queued.length, result: { data, base: ref, pending: [], refused: stuck, loads: loads.indexLoads(data), index: crates.indexLoad(data), known: crates.indexLoad(ref), loading: false, source: 'cache', error: '', reload: async () => {} } };
     return cached.result;
   };
-  return { loader, routes, queued, blur, deleted, records, network, params };
+  return { loader, routes, queued, blur, deleted, records, network, params, captured };
 }
 async function show(h, file, name) {
   const Screen = h.loader.load(file)[name];
@@ -101,7 +111,8 @@ test('load out: the checklist ticks scans ("N of M on board"); an unplanned piec
   await s.press(row('HU-AAAA01'));
   assert.equal(s.r.root.findByType('QRScanner').props.countLabel, '1 of 3 on board');
   await s.press(s.button('Done'));
-  assert.deepEqual(h.queued.map(q => [q.action.type, q.action.payload.op]), [['load_on', { loadId: 'load-a', pieces: [{ code: 'GT-1', dropoffStopId: 'stop-2' }], undo: ['HU-BBBB02'] }]]);
+  assert.deepEqual(h.queued.map(q => [q.action.type, q.action.payload.op]), [['load_on', { loadId: 'load-a', pieces: [{ code: 'GT-1', dropoffStopId: 'stop-2' }], undo: ['HU-BBBB02'], partial: true }]]);
+  assert.deepEqual(h.captured, h.queued.map(q => q.id), 'every step says when it was scanned');
   assert.equal(h.queued[0].action.payload.label, 'L-0003');
   assert.equal(h.routes.at(-1), 'back');
   await TestRenderer.act(async () => { s.r.unmount(); });
@@ -135,10 +146,12 @@ test('check-in saves the driver and companies as one load_save and the licence a
   await s.press(s.r.root.findAll(n => n.type === 'Button' && n.props.title === 'Broker')[0]);
   await s.press(s.button('Next: licence'));
   await type('Licence number', 'tx 98765-432');
+  await type('Issuing state', 'Texas');
   assert.equal(input('Licence number').props.autoComplete, 'off');
   await s.press(s.button('Take photo'));
   await new Promise(resolve => setTimeout(resolve, 10));
   assert.equal(h.records.get('checkin-draft-worker-a-project-a')?.includes('98765'), false, 'the draft on disk never has the number');
+  assert.equal(/licenceState|licenceExpiry|Texas/.test(h.records.get('checkin-draft-worker-a-project-a')), false, 'nor the issuing state or expiry');
   assert.match(h.records.get('checkin-draft-worker-a-project-a'), /Sam Ortiz/);
   await s.press(s.button('Next: review'));
   assert.ok(s.texts().some(t => /^Number entered · 1 photo$/.test(t)), 'the review never shows the number');
@@ -148,7 +161,7 @@ test('check-in saves the driver and companies as one load_save and the licence a
   assert.deepEqual(h.queued.map(q => [q.id, q.action.type]), [[saveId, 'load_save'], [licenceId, 'licence']]);
   assert.deepEqual(h.queued[0].action.payload.op, { loadId: 'load-a', driverName: 'Sam Ortiz', driverPhone: '555 0100', companies: [{ name: 'Gulf Freight', role: 'broker' }] });
   assert.equal(JSON.stringify(h.queued).includes('98765'), false, 'the queued items never hold the number');
-  assert.deepEqual(plain(h.loader.load('./lib/sync/licenceMemory.ts').recallLicence(licenceId)), { number: 'TX 98765-432' }, 'it waits in memory');
+  assert.deepEqual(plain(h.loader.load('./lib/sync/licenceMemory.ts').recallLicence(licenceId)), { number: 'TX 98765-432', state: 'Texas' }, 'it waits in memory');
   assert.equal(h.queued[1].action.payload.photos.length, 1);
   assert.equal(useCheckInStore.getState().licenceNumber, '', 'the draft lets go of the number');
   assert.notEqual(useCheckInStore.getState().saveId, saveId);
@@ -167,6 +180,7 @@ test('depart lists what stays behind and needs the driver’s name; then one loa
   assert.ok(s.texts().includes('HU-AAAA01 · Piece HU-AAAA01'));
   await s.press(s.button('Depart'));
   assert.deepEqual(named.queued.map(q => [q.action.type, q.action.payload.op]), [['load_depart', { loadId: 'load-a' }]]);
+  assert.deepEqual(named.captured, named.queued.map(q => q.id));
   await TestRenderer.act(async () => { s.r.unmount(); });
 });
 
@@ -183,10 +197,11 @@ test('unload: scan off against what is due; an area only at our own place; Finis
   assert.match((await s.scan('GT-1')).message, /due at North Site/);
   assert.equal(s.r.root.findByType('QRScanner').props.countLabel, '1 of 2 off here');
   await s.press(s.button('Finish stop…'));
-  assert.deepEqual(h.queued.map(q => q.action.payload.op), [{ loadId: 'load-a', stopId: 'stop-1', pieces: ['HU-AAAA01', 'GT-1'] }], 'scans are saved before finishing');
+  assert.deepEqual(h.queued.map(q => q.action.payload.op), [{ loadId: 'load-a', stopId: 'stop-1', pieces: ['HU-AAAA01', 'GT-1'], partial: true }], 'scans are saved before finishing');
   assert.ok(s.texts().some(t => /1 piece due here hasn’t been scanned off and will be marked missing: HU-BBBB02/.test(t)));
   await s.press(s.button('Finish stop'));
   assert.deepEqual(h.queued.at(-1).action, { type: 'stop_complete', payload: { op: { loadId: 'load-a', stopId: 'stop-1' }, label: 'L-0003' } });
+  assert.deepEqual(h.captured, h.queued.map(q => q.id));
   await TestRenderer.act(async () => { s.r.unmount(); });
 
   // At this project's own site, an area can be chosen and goes with the batch.
@@ -195,7 +210,7 @@ test('unload: scan off against what is due; an area only at our own place; Finis
   await TestRenderer.act(async () => { await o.r.root.findByType('AreaList').props.onSelect({ id: 'z-1', map_id: 'map-a', name: 'Bay 1' }); });
   await o.scan('GT-1');
   await o.press(o.button('Done for now'));
-  assert.deepEqual(own.queued.map(q => [q.action.payload.op, q.action.payload.zoneName]), [[{ loadId: 'load-a', stopId: 'stop-2', pieces: ['GT-1'], zoneId: 'z-1', siteMapId: 'map-a' }, 'Bay 1']]);
+  assert.deepEqual(own.queued.map(q => [q.action.payload.op, q.action.payload.zoneName]), [[{ loadId: 'load-a', stopId: 'stop-2', pieces: ['GT-1'], zoneId: 'z-1', siteMapId: 'map-a', partial: true }, 'Bay 1']]);
   await TestRenderer.act(async () => { o.r.unmount(); });
 });
 
@@ -242,7 +257,7 @@ test('review fixes: check-in can be done again after one is saved', async () => 
   await TestRenderer.act(async () => { s.r.unmount(); });
 });
 
-test('review fixes: unload never reopens a finished stop; Finish stop and Done wait until every scan is saved', async () => {
+test('review fixes: a finished stop takes late scans but is never finished again; Finish stop and Done wait until every scan is saved', async () => {
   const transit = reference({ loads: [{ ...baseLoad, status: 'in_transit', driver_name: 'Sam' }], lines: [line('HU-AAAA01', { status: 'on_board', on_at: 'x' }), line('HU-BBBB02', { status: 'on_board', on_at: 'x' })] });
   const failQueue = { on: false, message: 'Storage full' };
   const h = load({ ref: transit, failQueue });
@@ -265,15 +280,16 @@ test('review fixes: unload never reopens a finished stop; Finish stop and Done w
   failQueue.on = false;
   await s.press(s.button('Finish stop'));
   assert.deepEqual(h.queued.map(q => q.action.type), ['load_off', 'load_off', 'stop_complete']);
-  // Reopened (the screen stayed mounted): the finished stop isn't offered or reused.
+  // Reopened (the screen stayed mounted): the finished stop is offered for late scans only (022: until the load is closed).
   await leave(h);
   await TestRenderer.act(async () => { s.r.update(React.createElement(h.loader.load('./components/screens/UnloadScreen.tsx').UnloadScreenContent)); });
   assert.ok(s.texts().includes('Which stop are you at?'));
-  assert.equal(s.r.root.findAll(n => n.type === 'Button' && /Gulf Machine/.test(n.props.title)).length, 0);
-  // Even when opened for that stop by name.
+  assert.deepEqual(s.r.root.findAll(n => n.type === 'Button' && /Gulf Machine/.test(n.props.title)).map(n => n.props.title), ['1. Gulf Machine · Drop-off · Done: late scans only']);
+  // Opened for that stop by name: pieces can come off, but it isn't finished again.
   h.params.stopId = 'stop-1';
   await TestRenderer.act(async () => { s.r.update(React.createElement(h.loader.load('./components/screens/UnloadScreen.tsx').UnloadScreenContent)); });
-  assert.ok(s.texts().includes('Which stop are you at?'), 'a finished stop takes no more pieces');
+  assert.ok(s.texts().some(t => /This stop is finished/.test(t)));
+  assert.equal(s.r.root.findAll(n => n.type === 'Button' && n.props.title === 'Finish stop…').length, 0, 'a finished stop is never finished again');
   await TestRenderer.act(async () => { s.r.unmount(); });
 });
 
@@ -336,5 +352,128 @@ test('the user’s rules: no Finish stop at a shop or vendor; Depart and Finish 
   assert.equal(s.button('Depart').props.disabled, true);
   assert.ok(s.texts().some(t => /Record the driver's licence/.test(t)));
   assert.ok(s.button('Driver check-in'));
+  await TestRenderer.act(async () => { s.r.unmount(); });
+});
+
+const typeInto = (s, label, text) => TestRenderer.act(async () => { s.r.root.findAll(n => n.type === 'Input' && n.props.label === label)[0].props.onChangeText(text); });
+const choose = (s, label, value) => TestRenderer.act(async () => { s.r.root.findAll(n => n.type === 'Select' && n.props.label === label)[0].props.onChange(value); });
+
+test('022: office staff can let a load leave without the licence, giving a reason; a crew can’t', async () => {
+  const ref = reference({ loads: [{ ...baseLoad, driver_name: 'Sam Ortiz' }] });
+  const crew = load({ ref });
+  let s = await show(crew, './components/screens/DepartScreen.tsx', 'DepartScreenContent');
+  assert.ok(s.texts().some(t => /Record the driver's licence/.test(t)));
+  assert.equal(s.button('Leave without the licence (office)…'), undefined, 'not offered to a crew');
+  assert.ok(s.button('Driver check-in'));
+  await TestRenderer.act(async () => { s.r.unmount(); });
+
+  const office = load({ ref, role: 'office_staff' });
+  s = await show(office, './components/screens/DepartScreen.tsx', 'DepartScreenContent');
+  await s.press(s.button('Leave without the licence (office)…'));
+  assert.equal(s.button('Depart without the licence').props.disabled, true);
+  assert.ok(s.texts().some(t => /at least 5 characters/.test(t)));
+  await typeInto(s, 'Reason', 'Checked with the carrier by phone');
+  await s.press(s.button('Depart without the licence'));
+  assert.deepEqual(office.queued.map(q => q.action.payload.op), [{ loadId: 'load-a', overrideReason: 'Checked with the carrier by phone' }]);
+  assert.deepEqual(office.captured, office.queued.map(q => q.id));
+  await TestRenderer.act(async () => { s.r.unmount(); });
+});
+
+test('022: a crew can’t change the stops of the office’s load; office staff change only the stops not yet reached after it leaves', async () => {
+  const crew = load({ ref: reference({ loads: [{ ...baseLoad, started_in_field: false }] }) });
+  let s = await show(crew, './components/screens/LoadEditScreen.tsx', 'LoadEditScreenContent');
+  assert.ok(s.texts().some(t => /The office plans this load’s stops/.test(t)));
+  assert.equal(s.r.root.findAll(n => n.type === 'Select' && n.props.label === 'Add a stop').length, 0);
+  assert.equal(s.r.root.findAll(n => n.type === 'Button' && n.props.title === 'Remove').length, 0);
+  await typeInto(s, 'Truck number', 'T-9');
+  await s.press(s.button('Save changes'));
+  assert.deepEqual(crew.queued.map(q => q.action.payload.op), [{ loadId: 'load-a', truckNumber: 'T-9' }], 'the truck changes; the stops aren’t sent');
+  assert.deepEqual(crew.captured, crew.queued.map(q => q.id));
+  await TestRenderer.act(async () => { s.r.unmount(); });
+
+  const own = load({ ref: reference({ loads: [{ ...baseLoad, started_in_field: true }] }) });
+  s = await show(own, './components/screens/LoadEditScreen.tsx', 'LoadEditScreenContent');
+  assert.equal(s.r.root.findAll(n => n.type === 'Button' && n.props.title === 'Remove').length, 2, 'a crew plans the load it started');
+  await TestRenderer.act(async () => { s.r.unmount(); });
+
+  const transit = reference({ loads: [{ ...baseLoad, status: 'in_transit' }], stops: [{ ...stop('stop-1', 1, 'shop', 'Gulf Machine'), status: 'done' }, stop('stop-2', 2, 'site', 'North Site', 'both')] });
+  const office = load({ ref: transit, role: 'office_staff' });
+  s = await show(office, './components/screens/LoadEditScreen.tsx', 'LoadEditScreenContent');
+  assert.ok(s.texts().includes('1. Gulf Machine · Reached'));
+  assert.equal(s.r.root.findAll(n => n.type === 'Button' && n.props.title === 'Remove').length, 1, 'only the stop still to come');
+  assert.equal(s.r.root.findAll(n => n.type === 'Button' && n.props.accessibilityLabel === 'Move stop 2 up')[0].props.disabled, true, 'nothing moves ahead of a reached stop');
+  await choose(s, 'Add a stop', 'yard');
+  await s.press(s.button('Save changes'));
+  assert.deepEqual(office.queued[0].action.payload.op.stops.map(stop => stop.placeId), ['shop', 'site', 'yard']);
+  await TestRenderer.act(async () => { s.r.unmount(); });
+});
+
+test('022: loading a piece another load has planned asks where it comes off, then moves it to this load', async () => {
+  const ref = reference({
+    loads: [baseLoad, { ...baseLoad, id: 'load-b', load_number: 'L-0007', status: 'planning' }],
+    lines: [...reference().lines, line('GT-1', { id: 'line-b', load_id: 'load-b', load_number: 'L-0007', load_status: 'planning', dropoff_stop_id: 'stop-b' })],
+  });
+  const h = load({ ref });
+  const s = await show(h, './components/screens/LoadOutScreen.tsx', 'LoadOutScreenContent');
+  assert.match((await s.scan('gt-1')).message, /GT-1 is planned on load L-0007/);
+  assert.ok(s.texts().includes('GT-1 is planned on load L-0007. Choose where it comes off to move it to L-0003.'));
+  assert.ok(s.button('Leave it on L-0007'));
+  await s.press(s.button('2. North Site'));
+  await s.press(s.button('Done'));
+  assert.deepEqual(h.queued.map(q => q.action.payload.op.pieces), [[{ code: 'GT-1', dropoffStopId: 'stop-2', move: true }]]);
+  await TestRenderer.act(async () => { s.r.unmount(); });
+});
+
+test('022: at an outside shop or vendor only office staff finish the stop', async () => {
+  const transit = reference({
+    loads: [{ ...baseLoad, status: 'in_transit', driver_name: 'Sam' }],
+    stops: [{ ...stop('stop-1', 1, 'shop', 'Gulf Machine'), place_kind: 'outside_shop' }, stop('stop-2', 2, 'site', 'North Site', 'both')],
+    lines: [line('HU-AAAA01', { status: 'on_board', on_at: 'x' })],
+  });
+  const crew = load({ ref: transit, params: { id: 'load-a', stopId: 'stop-1' } });
+  let s = await show(crew, './components/screens/UnloadScreen.tsx', 'UnloadScreenContent');
+  assert.equal(s.button('Finish stop…'), undefined);
+  assert.ok(s.texts().some(t => /the office confirms the stop/.test(t)));
+  await TestRenderer.act(async () => { s.r.unmount(); });
+  const office = load({ ref: transit, params: { id: 'load-a', stopId: 'stop-1' }, role: 'office_staff' });
+  s = await show(office, './components/screens/UnloadScreen.tsx', 'UnloadScreenContent');
+  await s.press(s.button('Finish stop…'));
+  await s.press(s.button('Finish stop'));
+  assert.deepEqual(office.queued.map(q => q.action.type), ['stop_complete']);
+  await TestRenderer.act(async () => { s.r.unmount(); });
+});
+
+test('022: a crate moves as it is to a place and an area of a plan there; a loose item’s place is corrected with a reason; a packed one can’t be', async () => {
+  const h = load({ params: { code: 'hu-aaaa01' } });
+  let s = await show(h, './components/screens/RelocateScreen.tsx', 'RelocateScreenContent');
+  assert.ok(s.texts().includes('Now: Training Yard'));
+  await s.press(s.button('Save the move'));
+  assert.ok(s.texts().includes('Choose where the crate is now.'));
+  await choose(s, 'Place', 'site');
+  await s.press(s.button('Save the move'));
+  assert.ok(s.texts().includes('HU-AAAA01 is sealed: choose the area where it is now.'), 'a sealed crate keeps its seal only with an area where the place has a plan');
+  await choose(s, 'Place', 'shop');
+  assert.equal(s.r.root.findAll(n => n.type === 'AreaList').length, 0, 'no areas at an outside shop');
+  await choose(s, 'Place', 'site');
+  await TestRenderer.act(async () => { s.r.root.findByType('AreaList').props.onSelect({ id: 'z-1', map_id: 'map-a' }); });
+  await s.press(s.button('Save the move'));
+  assert.deepEqual(h.queued.map(q => q.action), [{ type: 'move', payload: { move: { unitCode: 'HU-AAAA01', placeId: 'site', zoneId: 'z-1', siteMapId: 'map-a' }, placeName: 'North Site', zoneName: 'Bay 1' } }]);
+  assert.deepEqual(h.captured, h.queued.map(q => q.id));
+  assert.equal(h.routes.at(-1), 'back');
+  await TestRenderer.act(async () => { s.r.unmount(); });
+
+  const item = load({ params: { tag: 'GT-1' }, tagAnswer: { kind: 'received', code: 'GT-1', can_receive: false, name: 'Spool', position: 'at_place', status: 'in_yard', place_id: 'yard', place_name: 'Training Yard', area: 'Bay 1' } });
+  s = await show(item, './components/screens/RelocateScreen.tsx', 'RelocateScreenContent');
+  assert.ok(s.texts().includes('Now: Training Yard · Bay 1'));
+  await choose(s, 'Place', 'site');
+  await typeInto(s, 'Reason (optional)', 'Found at North Site');
+  await s.press(s.button('Save the location'));
+  assert.deepEqual(item.queued.map(q => q.action), [{ type: 'relocate', payload: { relocate: { tag: 'GT-1', placeId: 'site', reason: 'Found at North Site' }, name: 'Spool', placeName: 'North Site' } }]);
+  await TestRenderer.act(async () => { s.r.unmount(); });
+
+  const packed = load({ params: { tag: 'GT-1' }, tagAnswer: { kind: 'received', code: 'GT-1', can_receive: false, position: 'in_crate', status: 'in_yard', crate_code: 'HU-BBBB02' } });
+  s = await show(packed, './components/screens/RelocateScreen.tsx', 'RelocateScreenContent');
+  assert.ok(s.texts().some(t => /packed in HU-BBBB02; move the crate instead/.test(t)));
+  assert.equal(s.button('Save the location').props.disabled, true);
   await TestRenderer.act(async () => { s.r.unmount(); });
 });

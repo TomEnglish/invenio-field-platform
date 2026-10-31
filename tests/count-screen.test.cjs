@@ -98,6 +98,9 @@ test('saving a count queues the contract payload and keeps the draft when the sa
   const [queued] = JSON.parse(bytes);
   assert.equal(queued.id, OPERATION);
   assert.equal(queued.action.type, 'count');
+  // 022: when the count was made on the device; an older count than the tag's latest is refused.
+  assert.match(queued.action.payload.count.capturedAt, /^\d{4}-\d\d-\d\dT[\d:.]+Z$/);
+  delete queued.action.payload.count.capturedAt;
   assert.deepEqual(queued.action.payload, {
     count: { tag: 'GT2-LO-001', name: 'Lube oil cooler', quantity: '2', uom: 'EA', condition: 'good', categoryId: 'valve', siteMapId: 'map-a', zoneId: 'zone-b', partNumber: 'LOC-22', pin: { x: 0.4, y: 0.6 } },
     photos: [{ uri: 'file:///documents/count-1.jpg' }],

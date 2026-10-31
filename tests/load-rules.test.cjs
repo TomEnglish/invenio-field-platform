@@ -198,15 +198,15 @@ test('unloading: due pieces tick; a piece due elsewhere is the wrong stop; one n
 
 test('the load editor sends only what changed; stops go only before the truck leaves', () => {
   const draft = { originPlaceId: 'yard', plannedDate: '2026-11-04', truckType: 'Flatbed', truckNumber: '', trailerNumber: '', bolNumber: '', notes: '', stops: [{ id: 's1', placeId: 'shop', kind: 'dropoff' }] };
-  assert.deepEqual(plain(loads.loadSavePayload('load-new', draft, undefined, [], false)), { loadId: 'load-new', originPlaceId: 'yard', plannedDate: '2026-11-04', truckType: 'Flatbed', stops: [{ id: 's1', placeId: 'shop', kind: 'dropoff' }] });
+  assert.deepEqual(plain(loads.loadSavePayload('load-new', draft, undefined, [], 'all')), { loadId: 'load-new', originPlaceId: 'yard', plannedDate: '2026-11-04', truckType: 'Flatbed', stops: [{ id: 's1', placeId: 'shop', kind: 'dropoff' }] });
   const before = load('load-a', { planned_date: '2026-11-04', truck_type: 'Flatbed' });
   const stops = [stop('s1', 1, 'shop', 'Gulf Machine')];
-  assert.deepEqual(plain(loads.loadSavePayload('load-a', draft, before, stops, false)), { loadId: 'load-a' });
-  assert.deepEqual(plain(loads.loadSavePayload('load-a', { ...draft, truckNumber: 'T-9', stops: [...draft.stops, { id: 's2', placeId: 'site', kind: 'both' }] }, before, stops, true)), { loadId: 'load-a', truckNumber: 'T-9' }, 'no stops after leaving');
-  assert.equal(loads.loadEditIssue({ ...draft, originPlaceId: null }, false), 'Choose where the load starts.');
-  assert.equal(loads.loadEditIssue({ ...draft, stops: [] }, false), 'Add at least one stop.');
-  assert.match(loads.loadEditIssue({ ...draft, stops: [{ id: 's1', placeId: 'shop', kind: 'pickup' }] }, false), /drop-off/);
-  assert.match(loads.loadEditIssue({ ...draft, plannedDate: '2026-02-30' }, false), /real date/);
+  assert.deepEqual(plain(loads.loadSavePayload('load-a', draft, before, stops, 'all')), { loadId: 'load-a' });
+  assert.deepEqual(plain(loads.loadSavePayload('load-a', { ...draft, truckNumber: 'T-9', stops: [...draft.stops, { id: 's2', placeId: 'site', kind: 'both' }] }, before, stops, 'none')), { loadId: 'load-a', truckNumber: 'T-9' }, 'no stops after leaving');
+  assert.equal(loads.loadEditIssue({ ...draft, originPlaceId: null }, 'all'), 'Choose where the load starts.');
+  assert.equal(loads.loadEditIssue({ ...draft, stops: [] }, 'all'), 'Add at least one stop.');
+  assert.match(loads.loadEditIssue({ ...draft, stops: [{ id: 's1', placeId: 'shop', kind: 'pickup' }] }, 'all'), /drop-off/);
+  assert.match(loads.loadEditIssue({ ...draft, plannedDate: '2026-02-30' }, 'all'), /real date/);
 });
 
 test('crates follow 022: delivered crates can change, crates on a truck or planned can’t', () => {
@@ -242,21 +242,23 @@ test('review fixes: check-in sends only changes; stop dates are kept; stops stil
   const dated = [{ ...stop('s1', 1, 'shop', 'Gulf Machine'), planned_date: '2026-11-05' }];
   const edit = { originPlaceId: 'yard', plannedDate: '', truckType: '', truckNumber: '', trailerNumber: '', bolNumber: '', notes: '',
     stops: [{ id: 's1', placeId: 'shop', kind: 'both', plannedDate: '2026-11-05' }] };
-  assert.deepEqual(plain(loads.loadSavePayload('load-a', edit, load('load-a'), dated, false).stops), [{ id: 's1', placeId: 'shop', kind: 'both', plannedDate: '2026-11-05' }], 'the office’s stop date is sent back');
+  assert.deepEqual(plain(loads.loadSavePayload('load-a', edit, load('load-a'), dated, 'all').stops), [{ id: 's1', placeId: 'shop', kind: 'both', plannedDate: '2026-11-05' }], 'the office’s stop date is sent back');
 
   const before = [stop('stop-1', 1, 'shop', 'Gulf Machine'), stop('stop-2', 2, 'site', 'North Site', 'both')];
   const manifest = [line('HU-AAAA01'), line('GT-1', { pickup_stop_id: 'stop-2', dropoff_stop_id: 'stop-1' })];
   const base = { ...edit, stops: [{ id: 'stop-1', placeId: 'shop', kind: 'dropoff' }, { id: 'stop-2', placeId: 'site', kind: 'both' }] };
-  assert.match(loads.loadEditIssue({ ...base, stops: [base.stops[1]] }, false, manifest, before), /The stop at Gulf Machine still has pieces planned for it/);
-  assert.match(loads.loadEditIssue({ ...base, stops: [{ ...base.stops[0], kind: 'pickup' }, base.stops[1]] }, false, manifest, before), /drop-off stop after its pick-up stop/);
-  assert.match(loads.loadEditIssue(base, false, manifest, before), /drop-off stop after its pick-up stop/, 'GT-1 is picked up at stop 2 but drops at stop 1');
-  assert.equal(loads.loadEditIssue({ ...base, stops: [base.stops[1], base.stops[0]] }, false, manifest, before), null, 'reordered so it works');
+  assert.match(loads.loadEditIssue({ ...base, stops: [base.stops[1]] }, 'all', manifest, before), /The stop at Gulf Machine still has pieces planned for it/);
+  assert.match(loads.loadEditIssue({ ...base, stops: [{ ...base.stops[0], kind: 'pickup' }, base.stops[1]] }, 'all', manifest, before), /drop-off stop after its pick-up stop/);
+  assert.match(loads.loadEditIssue(base, 'all', manifest, before), /drop-off stop after its pick-up stop/, 'GT-1 is picked up at stop 2 but drops at stop 1');
+  assert.equal(loads.loadEditIssue({ ...base, stops: [base.stops[1], base.stops[0]] }, 'all', manifest, before), null, 'reordered so it works');
 });
 
 test('review fixes: load-out and unload checks follow the server', () => {
   const ref = reference({ lines: [...reference().lines, line('GT-1', { pickup_stop_id: 'stop-1', dropoff_stop_id: 'stop-2' }), line('PIPE-M', { status: 'missing', on_at: 'x' })] });
   assert.equal(loads.classifyLoadOn(cx(ref), ix(ref), 'load-a', 'GT-1').kind, 'planned', 'a planned pick-up can go on here instead');
-  assert.match(loads.classifyLoadOn(cx(ref), ix(ref), 'load-a', 'PIPE-M').message, /missing from L-0003; the office marks it found first/);
+  // A repeat scan of a piece missing from this load changes nothing on the server: it comes off where it is found.
+  assert.equal(loads.classifyLoadOn(cx(ref), ix(ref), 'load-a', 'PIPE-M').kind, 'already');
+  assert.match(loads.classifyLoadOn(cx(ref), ix(ref), 'load-a', 'PIPE-M').message, /missing from L-0003.*Scan it off where it comes off/);
   const done = reference({ stops: [{ ...stop('stop-1', 1, 'shop', 'Gulf Machine'), status: 'done' }, stop('stop-2', 2, 'site', 'North Site', 'both')] });
   assert.match(loads.classifyLoadOn(cx(done), ix(done), 'load-a', 'HU-AAAA01').message, /Gulf Machine is already done/);
   const left = reference({ loads: [load('load-a', { status: 'in_transit' })] });

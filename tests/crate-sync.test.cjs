@@ -17,7 +17,7 @@ function setup({ tables = {}, online = true, rpc, onQuery, onWrite, onRead } = {
     const state = { table, projectId, columns, filters: [] };
     const filter = (op) => (column, value) => { state.filters.push([op, column, value]); return builder; };
     const builder = {
-      eq: filter('eq'), neq: filter('neq'), gt: filter('gt'), in: filter('in'), or: (expression) => { state.filters.push(['or', expression]); return builder; },
+      eq: filter('eq'), ilike: filter('ilike'), neq: filter('neq'), gt: filter('gt'), in: filter('in'), or: (expression) => { state.filters.push(['or', expression]); return builder; },
       order: () => builder,
       limit: () => builder,
       then: (resolve, reject) => builder.range(0, 999).then(resolve, reject),
@@ -29,7 +29,7 @@ function setup({ tables = {}, online = true, rpc, onQuery, onWrite, onRead } = {
           if (op === 'or') {
             const allowed = column.split(',').map(part => part.split('.'));
             rows = rows.filter(row => allowed.some(([field, test, wanted]) => (test === 'is' ? row[field] === null : row[field] === wanted)));
-          } else rows = rows.filter(row => (op === 'eq' ? valueAt(row, column) === value : op === 'neq' ? valueAt(row, column) !== value : op === 'in' ? value.includes(valueAt(row, column)) : valueAt(row, column) > value));
+          } else rows = rows.filter(row => (op === 'eq' ? valueAt(row, column) === value : op === 'ilike' ? String(valueAt(row, column) ?? '').toLowerCase() === value.replace(/\\(.)/g, '$1').toLowerCase() : op === 'neq' ? valueAt(row, column) !== value : op === 'in' ? value.includes(valueAt(row, column)) : valueAt(row, column) > value));
         }
         return { data: rows.slice(from, to + 1), error: null };
       },
@@ -192,7 +192,8 @@ test('refusals are recognised by their code (22023), never by words that could b
   assert.equal(h.presentation.crateRefused(item('CONNECTOR-12 is already in crate HU-ABC123; take it out of that crate first', '22023')), true);
   assert.equal(h.presentation.crateRefused(item('Network request failed', undefined)), false);
   assert.equal(h.presentation.crateRefused(item('JWT expired', 'PGRST301')), false);
-  assert.equal(h.presentation.crateRefused(item("Crate HU-CONN01 isn't in this project", '42501', 'unpack')), false, 'access errors retry');
+  // 022 refuses office-only steps with 42501 too: retrying unchanged can't help, so it waits for a decision.
+  assert.equal(h.presentation.crateRefused(item("Crate HU-CONN01 isn't in this project", '42501', 'unpack')), true, 'access refusals need a decision');
   assert.equal(h.presentation.crateRefused({ ...item('Choose a location', '22023'), action: { type: 'count', payload: {} } }), false, 'counts have their own recovery');
   assert.equal(h.presentation.countRecoveryAction({ ...item('Choose a location', '22023'), action: { type: 'count', payload: {} } }), 'fix');
 });

@@ -3,7 +3,8 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useAuthStore } from '@/stores/authStore';
 import { newOperationId } from '@/lib/utils/operationId';
 import type { CountOperationPayload, CountPhoto } from '@/lib/inventory/count';
-import type { PackQueuePayload, UnpackOperationPayload } from '@/lib/logistics/crates';
+import type { MoveQueuePayload, PackQueuePayload, RelocateQueuePayload, UnpackOperationPayload } from '@/lib/logistics/crates';
+import { DECISION_CODES } from './decisionCodes';
 import type { LicencePayload, LoadDepartPayload, LoadOffPayload, LoadOnPayload, LoadQueuePayload, LoadSavePayload, StopCompletePayload } from '@/lib/logistics/loads';
 
 const QUEUE_KEY = 'offline_queue';
@@ -24,6 +25,9 @@ export type QueueAction =
   // One whole pack session, and an unpack, as `apply_field_operation` takes them.
   | { type: 'pack'; payload: PackQueuePayload }
   | { type: 'unpack'; payload: UnpackOperationPayload }
+  // A crate moved without opening it, and a loose item's place corrected (022).
+  | { type: 'move'; payload: MoveQueuePayload }
+  | { type: 'relocate'; payload: RelocateQueuePayload }
   // Loads (022): each sent to apply_field_operation as `op`.
   | { type: 'load_save'; payload: LoadQueuePayload<LoadSavePayload> }
   | { type: 'load_on'; payload: LoadQueuePayload<LoadOnPayload> }
@@ -48,9 +52,8 @@ export interface QueueItem {
   refused?: boolean;
   deadLetter?: boolean;
 }
-// Codes that mean "refused, needs a decision": the server's 22023, and the
-// app's own for a licence whose number or photos are no longer on the device.
-export const DECISION_CODES = new Set(['22023', 'LICENCE_FORGOTTEN', 'PHOTO_GONE']);
+// Refused, needs a decision: see decisionCodes.
+export { DECISION_CODES };
 
 export async function getQueue(): Promise<QueueItem[]> {
   const raw = await AsyncStorage.getItem(QUEUE_KEY);
@@ -89,6 +92,22 @@ export async function addToQueue(action: QueueAction, id = newOperationId(), bef
     }
   });
   return id;
+}
+// Puts already-refused submissions in the queue just ahead of `beforeId`: the
+// pieces a partial step's server answer turned down, each waiting for a
+// decision in Sync (the same piece would be turned down again unchanged). An ID already queued is left as it is, so replaying the
+// step adds nothing twice.
+// They belong to the step's account and project, whoever is signed in now.
+export async function queueRefused(beforeId: string, owner: { userId: string; projectId: string }, entries: { id: string; action: QueueAction; error: string; code: string }[]): Promise<void> {
+  if (entries.length === 0) return;
+  await mutate((queue) => {
+    const at = queue.findIndex(item => item.id === beforeId);
+    const fresh = entries.filter(entry => !queue.some(item => item.id === entry.id)).map((entry): QueueItem => ({
+      id: entry.id, userId: owner.userId, projectId: owner.projectId, action: entry.action, createdAt: new Date().toISOString(), retryCount: 0, deadLetter: false,
+      lastError: entry.error, lastErrorCode: entry.code, refused: true,
+    }));
+    queue.splice(at >= 0 ? at : queue.length, 0, ...fresh);
+  });
 }
 // Rewrites a saved submission in place, e.g. to drop a licence number once
 // the server has it. The item keeps its place, ID and retry state.

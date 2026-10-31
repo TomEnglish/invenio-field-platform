@@ -8,6 +8,7 @@ import { useNetworkStore } from '@/lib/sync/networkStore';
 import { addToQueue, getQueue } from '@/lib/sync/offlineQueue';
 import { recordCountLocally } from '@/lib/api/inventory';
 import { buildCountPayload, categoryAvailabilityIssue, countReviewIssue } from '@/lib/inventory/count';
+import { capturedNow } from '@/lib/logistics/loads';
 import { areaPathLabel, buildAreaTree, locationKey, locationRule, staleLocation } from '@/lib/inventory/areas';
 import { QRScanner } from '@/components/scanning/QRScanner';
 import { CountItemStep } from '@/components/inventory/CountItemStep';
@@ -88,7 +89,7 @@ export function CountItemScreenContent({ homeRoute }: { homeRoute: string }) {
     };
     submitLock.current = true; setSubmitting(true); setError('');
     try {
-      const count = buildCountPayload(draft);
+      const count = { ...buildCountPayload(draft), capturedAt: capturedNow() };
       const zoneName = areaLabel(draft.location.zoneId, draft.location.zoneName) || undefined;
       await addToQueue({ type: 'count', payload: { count, photos: draft.photos, categoryLabel: draft.category.label || undefined, zoneName } }, operationId);
       if (sameContext()) await recordCountLocally(count, zoneName ?? null).catch(() => {});

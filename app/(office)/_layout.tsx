@@ -227,6 +227,14 @@ export default function OfficeLayout() {
             headerShown: false,
           }}
         />
+        {/* Moving a crate, or correcting where an item is. */}
+        <Tabs.Screen
+          name="relocate"
+          options={{
+            href: null,
+            headerShown: false,
+          }}
+        />
       </Tabs>
     </View>
   );

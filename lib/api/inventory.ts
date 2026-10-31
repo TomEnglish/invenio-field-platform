@@ -19,6 +19,8 @@ export interface SiteMap {
   image_width: number | null;
   image_height: number | null;
   updated_at: string | null;
+  // The yard or site the plan draws (022); none on a plan not yet tied to a place.
+  place_id?: string | null;
 }
 // An area on a site plan; areas nest through parent_id (migration 020).
 export interface SiteMapZone extends MapArea {
@@ -47,6 +49,7 @@ const KEYS = {
 const PAGE = 1000;
 const ITEM_CHUNK = 500;
 const LOOKUP_TIMEOUT_MS = 5000;
+const MAP_COLUMNS = 'id,name,storage_path,image_width,image_height,updated_at,is_active';
 export const ITEM_COLUMNS = 'id,uid,qr_code,inventory_item,item_description,part_number,quantity,uom,condition,count_status,category_id,site_map_id,pin_x,pin_y,zone_id,location,counted_at';
 export const EMPTY_REFERENCE: CountReference = { categories: [], maps: [], zones: [], items: [], images: {}, savedAt: null };
 const NULL_FIELDS = {
@@ -55,6 +58,13 @@ const NULL_FIELDS = {
 };
 
 // A weak signal can look online; tag lookups then fall back to the cache.
+// A tag matched whatever its capitals (022: tags are unique per project,
+// ignoring case): an ILIKE pattern that matches only this text.
+export const likeExactly = (text: string) => text.replace(/[\\%_]/g, char => `\\${char}`);
+// PostgREST reads * in a pattern as a wildcard, with no escape: a tag with
+// one is matched exactly as written instead.
+export const whereTag = <Q extends { ilike: (column: string, pattern: string) => Q; eq: (column: string, value: string) => Q }>(query: Q, column: string, tag: string): Q =>
+  (tag.includes('*') ? query.eq(column, tag) : query.ilike(column, likeExactly(tag)));
 export function withTimeout<T>(work: PromiseLike<T>, ms = LOOKUP_TIMEOUT_MS): Promise<T> {
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error('The server took too long to answer.')), ms);
@@ -180,7 +190,11 @@ async function runRefresh(): Promise<CountReference> {
   const client = getProjectClient();
   const [categories, maps, zones, items] = await Promise.all([
     fetchAll<InventoryCategory>(client, 'inventory_categories', 'id,parent_id,name,status,sort_order', query => query.neq('status', 'archived')),
-    fetchAll<SiteMap & { is_active: boolean }>(client, 'site_maps', 'id,name,storage_path,image_width,image_height,updated_at,is_active', query => query.eq('is_active', true)),
+    fetchAll<SiteMap & { is_active: boolean }>(client, 'site_maps', `${MAP_COLUMNS},place_id`, query => query.eq('is_active', true)).catch((error: Error) => {
+      // Before 022 a plan has no place.
+      if (!/place_id/.test(error.message)) throw error;
+      return fetchAll<SiteMap & { is_active: boolean }>(client, 'site_maps', MAP_COLUMNS, query => query.eq('is_active', true));
+    }),
     fetchAll<SiteMapZone>(client, 'site_map_zones', AREA_COLUMNS).catch((error: Error) => {
       if (!missingAreaColumns(error.message)) throw error;
       return fetchAll<Partial<SiteMapZone>>(client, 'site_map_zones', AREA_COLUMNS_BEFORE_020).then(rows => rows.map(withAreaDefaults));
@@ -242,7 +256,7 @@ export async function findInventoryByTag(tag: string): Promise<InventoryItem | n
   if (!wanted) return null;
   if (useNetworkStore.getState().isOnline) {
     try {
-      const { data, error } = await withTimeout<{ data: any[] | null; error: unknown }>(getProjectClient().from('inventory_records').select(ITEM_COLUMNS).eq('qr_code', wanted).limit(1));
+      const { data, error } = await withTimeout<{ data: any[] | null; error: unknown }>(whereTag(getProjectClient().from('inventory_records').select(ITEM_COLUMNS), 'qr_code', wanted).limit(1));
       if (!error && data?.[0]) return data[0] as InventoryItem;
     } catch { /* Fall back to the cache below. */ }
   }

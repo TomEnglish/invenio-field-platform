@@ -11,21 +11,26 @@ import { saveLoadChange } from '@/components/logistics/saveLoadChange';
 import { groupRoute } from '@/components/logistics/routes';
 import { useAuthStore } from '@/stores/authStore';
 import { newOperationId } from '@/lib/utils/operationId';
-import { isoDate, loadEditIssue, loadLabel, loadSavePayload, STOP_KINDS, type LoadEditDraft } from '@/lib/logistics/loads';
+import { capturedNow, isoDate, loadEditIssue, loadLabel, loadSavePayload, stopReached, stopRights, STOP_KINDS, type LoadEditDraft } from '@/lib/logistics/loads';
 
 const parseDate = (text: string) => { const [y, m, d] = text.split('-').map(Number); return text ? new Date(y, m - 1, d) : null; };
 
 // New or edit load: where it starts, its stops in order (each a drop-off, a
 // pick-up or both), the date and the truck. Saved as one load_save; a new
-// load's ID (and its stops') are made here, so it works offline. Stops can't
-// change once the truck has left.
+// load's ID (and its stops') are made here, so it works offline. The office
+// plans stops, except on a load a crew started; once the truck has left, only
+// office staff change them, and only the ones it hasn't reached.
 export function LoadEditScreenContent() {
   const { id = '', new: isNew } = useLocalSearchParams<{ id?: string; new?: string }>();
   const projectId = useAuthStore(s => s.activeProject?.id);
+  const office = useAuthStore(s => s.user?.role !== 'field_worker');
   const { loads, data, loading } = useLoadReference({ refresh: false });
   const load = loads.loads.get(id);
   const beforeStops = loads.stops.get(id) ?? [];
   const departed = !!load && !['planning', 'loading'].includes(load.status);
+  const rights = stopRights(isNew ? undefined : load, office);
+  // A stop the truck has reached stays where it is, as it is.
+  const fixed = (stopId: string) => rights !== 'all' && (rights === 'none' || stopReached(beforeStops.find(stop => stop.id === stopId)));
   // The draft belongs to one load and one visit (the screen stays mounted).
   const [state, setState] = useState<{ id: string; draft: LoadEditDraft } | null>(null);
   const draft = state?.id === id ? state.draft : null;
@@ -63,12 +68,12 @@ export function LoadEditScreenContent() {
 
   const save = async () => {
     if (saving) return;
-    const issue = loadEditIssue(draft, departed, loads.lines.get(id) ?? [], beforeStops);
+    const issue = loadEditIssue(draft, rights, loads.lines.get(id) ?? [], beforeStops);
     if (issue) { setError(issue); return; }
     setSaving(true); setError('');
     try {
-      const op = loadSavePayload(id, draft, load, beforeStops, departed);
-      if (Object.keys(op).length > 1) await saveLoadChange('load_save', op, loadLabel(load), operationId.current);
+      const op = loadSavePayload(id, draft, load, beforeStops, rights);
+      if (Object.keys(op).length > 1) await saveLoadChange('load_save', { ...op, capturedAt: capturedNow() }, loadLabel(load), operationId.current);
       operationId.current = newOperationId();
       if (isNew) router.replace({ pathname: groupRoute('load') as any, params: { id } });
       else router.back();
@@ -85,22 +90,23 @@ export function LoadEditScreenContent() {
 
       <View style={styles.section}>
         <Text style={styles.heading} accessibilityRole="header">Stops</Text>
-        {departed ? <Text style={styles.muted}>The truck has left, so the stops can’t change.</Text> : null}
+        {rights === 'none' ? <Text style={styles.muted}>{departed ? 'The truck has left; only the office can change its stops now.' : 'The office plans this load’s stops. Ask the office to change them.'}</Text>
+          : rights === 'pending' ? <Text style={styles.muted}>The truck has left: only the stops it hasn’t reached can change.</Text> : null}
         {draft.stops.map((stop, index) => <View key={stop.id} style={styles.card}>
-          <Text style={styles.rowTitle}>{index + 1}. {placeName(stop.placeId)}</Text>
+          <Text style={styles.rowTitle}>{index + 1}. {placeName(stop.placeId)}{rights === 'pending' && fixed(stop.id) ? ' · Reached' : ''}</Text>
           <View style={styles.chips}>
-            {STOP_KINDS.map(kind => <Button key={kind.value} title={kind.label} disabled={departed}
+            {STOP_KINDS.map(kind => <Button key={kind.value} title={kind.label} disabled={fixed(stop.id)}
               accessibilityLabel={stop.kind === kind.value ? `${kind.label}, chosen` : `Make stop ${index + 1} a ${kind.label.toLowerCase()}`}
               variant={stop.kind === kind.value ? 'primary' : 'secondary'} style={styles.chip}
               onPress={() => setStops(draft.stops.map((s, i) => (i === index ? { ...s, kind: kind.value } : s)))} />)}
           </View>
-          {departed ? null : <View style={styles.chips}>
-            <Button title="Up" variant="ghost" disabled={index === 0} accessibilityLabel={`Move stop ${index + 1} up`} onPress={() => move(index, -1)} style={styles.chip} />
-            <Button title="Down" variant="ghost" disabled={index === draft.stops.length - 1} accessibilityLabel={`Move stop ${index + 1} down`} onPress={() => move(index, 1)} style={styles.chip} />
+          {fixed(stop.id) ? null : <View style={styles.chips}>
+            <Button title="Up" variant="ghost" disabled={index === 0 || fixed(draft.stops[index - 1].id)} accessibilityLabel={`Move stop ${index + 1} up`} onPress={() => move(index, -1)} style={styles.chip} />
+            <Button title="Down" variant="ghost" disabled={index === draft.stops.length - 1 || fixed(draft.stops[index + 1].id)} accessibilityLabel={`Move stop ${index + 1} down`} onPress={() => move(index, 1)} style={styles.chip} />
             <Button title="Remove" variant="ghost" accessibilityLabel={`Remove stop ${index + 1}`} onPress={() => setStops(draft.stops.filter((_, i) => i !== index))} style={styles.chip} />
           </View>}
         </View>)}
-        {departed ? null : <Select label="Add a stop" value={adding} options={options} placeholder="Choose a place" searchable={places.length > 8}
+        {rights === 'none' ? null : <Select label="Add a stop" value={adding} options={options} placeholder="Choose a place" searchable={places.length > 8}
           onChange={placeId => { setStops([...draft.stops, { id: newOperationId(), placeId, kind: 'dropoff' }]); setAdding(undefined); }} />}
       </View>
 

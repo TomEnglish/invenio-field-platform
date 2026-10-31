@@ -31,7 +31,9 @@ export async function submitLicence(payload: LicencePayload, context: OperationC
     const details = recallLicence(context.operationId);
     if (!details) throw coded('The licence number is no longer on this device; record the licence again.', 'LICENCE_FORGOTTEN');
     assertContext();
-    const { data, error } = await supabase.rpc('record_driver_licence', { p_operation_id: context.operationId, p_load_id: current.loadId, p_licence: details });
+    const { data, error } = await supabase.rpc('record_driver_licence', {
+      p_operation_id: context.operationId, p_load_id: current.loadId, p_licence: { ...details, ...(current.capturedAt ? { capturedAt: current.capturedAt } : {}) },
+    });
     if (error) throw coded(error.message, error.code);
     if (!data?.recorded) throw new Error('The licence was not confirmed by the server. It will retry.');
     forgetLicence(context.operationId);
@@ -49,8 +51,13 @@ export async function submitLicence(payload: LicencePayload, context: OperationC
       } else bytes = await (await fetch(photo.uri)).arrayBuffer();
     } catch { throw coded('The licence photos are no longer on this device; record the licence again.', 'PHOTO_GONE'); }
     const { error } = await supabase.storage.from('driver-licences').upload(path, bytes, { contentType: 'image/jpeg', upsert: false });
-    if (error && !/already exists|duplicate|409/i.test(`${error.message} ${(error as any).statusCode ?? ''}`)) throw new Error(`Licence recorded; photo upload will retry: ${error.message}`);
+    const landed = !error || /already exists|duplicate|409/i.test(`${error.message} ${(error as any).statusCode ?? ''}`);
+    // Storage refuses a fifth file in the folder, and counts one that landed
+    // before a lost reply: attaching says whether it is there.
+    const refused = !landed && /row-level security|security policy|unauthori[sz]ed|403/i.test(`${error.message} ${(error as any).statusCode ?? ''}`);
+    if (!landed && !refused) throw new Error(`Licence recorded; photo upload will retry: ${error.message}`);
     const { error: attachError } = await supabase.rpc('attach_driver_licence_photo', { p_load_id: current.loadId, p_path: path });
+    if (attachError && refused) throw coded(`Licence recorded; storage refused the photo: ${error!.message}`, 'PHOTO_REFUSED');
     if (attachError) throw coded(`Licence recorded; photo will retry: ${attachError.message}`, attachError.code);
   }
   await deleteLicencePhotos(current);

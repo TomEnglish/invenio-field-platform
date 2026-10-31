@@ -3,13 +3,14 @@ import { getProjectClient } from '@/lib/supabaseProject';
 import { getCached, setCache } from '@/lib/sync/readCache';
 import { useNetworkStore } from '@/lib/sync/networkStore';
 import { useAuthStore } from '@/stores/authStore';
-import { fetchAll, withTimeout } from './inventory';
+import { fetchAll, whereTag, withTimeout } from './inventory';
 import { applyOperation, type OperationContext } from './operations';
-import { applyChanges, indexLoads, type Load, type LoadCompany, type LoadLine, type LoadOperation, type LoadQueuePayload, type LoadStop } from '@/lib/logistics/loads';
+import { applyChanges, indexLoads, splitRefused, type Load, type LoadCompany, type LoadLine, type LoadOperation, type LoadQueuePayload, type LoadStop, type RefusedPiece } from '@/lib/logistics/loads';
+import { queueRefused, type QueueAction } from '@/lib/sync/offlineQueue';
 import {
   crateCode, indexLoad, looksLikeCrate, mergeFresh, packedInText,
-  type CountedItem, type HandlingUnit, type LoadAction, type LoadReference, type PackQueuePayload, type Place, type UnitItem,
-  type UnpackOperationPayload, type YardMaterial,
+  type CountedItem, type HandlingUnit, type LoadAction, type LoadReference, type MoveQueuePayload, type PackQueuePayload, type Place,
+  type RelocateQueuePayload, type UnitItem, type UnpackOperationPayload, type YardMaterial,
 } from '@/lib/logistics/crates';
 
 // Crates and loads for Scan, the Crate and Pack screens and the Loads tab
@@ -34,7 +35,7 @@ const CHUNK = 500;
 const MAX_APPLIED = 500;
 const UNIT_COLUMNS_021 = 'id,code,kind,description,is_high_value,status,parent_id,parent_code,top_code,place_id,place_name,site_map_id,zone_id,location,item_count,unit_count';
 const UNIT_COLUMNS = `${UNIT_COLUMNS_021},top_status,load_id,load_number,load_line_status`;
-const LOAD_COLUMNS = 'id,load_number,status,origin_place_id,origin_name,planned_date,truck_type,truck_number,trailer_number,bol_number,driver_name,driver_phone,licence_recorded_at,notes,stop_count,stops_done,next_stop,planned_count,on_board_count,delivered_count,missing_count,flagged_count,departed_at,updated_at';
+const LOAD_COLUMNS = 'id,load_number,status,origin_place_id,origin_name,origin_kind,planned_date,truck_type,truck_number,trailer_number,bol_number,driver_name,driver_phone,licence_recorded_at,licence_override_at,started_in_field,notes,stop_count,stops_done,next_stop,planned_count,on_board_count,delivered_count,missing_count,written_off_count,flagged_count,departed_at,updated_at';
 const STOP_COLUMNS = 'id,load_id,seq,place_id,place_name,place_kind,kind,planned_date,status,due_count,delivered_count,missing_count';
 const LINE_COLUMNS = 'id,load_id,load_number,load_status,tag,piece_kind,name,is_high_value,status,flag,added_in_field,pickup_stop_id,dropoff_stop_id,dropoff_place,delivered_stop_id,delivered_place,is_current_position,on_at,off_at';
 const COMPANY_COLUMNS = 'load_id,position,name,role,contact_name,phone';
@@ -47,7 +48,13 @@ const unitColumns = () => (before022 ? UNIT_COLUMNS_021 : UNIT_COLUMNS);
 const ITEM_COLUMNS = 'unit_code,tag,name,quantity,uom,material_id,inventory_uid';
 const PLACE_COLUMNS = 'id,kind,name,project_id,city,state';
 const MATERIAL_COLUMNS = 'id,material_type,size,grade,current_quantity,qr_codes(code_value)';
-const RECORD_COLUMNS = 'uid,qr_code,inventory_item,quantity,uom,count_status';
+const RECORD_COLUMNS_021 = 'uid,qr_code,inventory_item,quantity,uom,count_status';
+const RECORD_COLUMNS = `${RECORD_COLUMNS_021},written_off_at`;
+// Before 022 there is no write-off.
+const readRecords = (query: (columns: string) => PromiseLike<any[]>) => Promise.resolve(query(RECORD_COLUMNS)).catch((error: Error) => {
+  if (!/written_off_at/.test(error?.message ?? '')) throw error;
+  return query(RECORD_COLUMNS_021);
+});
 
 function contextGuard() {
   const { user, activeProject } = useAuthStore.getState();
@@ -65,7 +72,7 @@ const toMaterial = (row: any): YardMaterial | null => {
   const tag = row.qr_codes?.code_value?.trim();
   return tag ? { id: row.id, tag, name: [row.material_type, row.size, row.grade].filter(Boolean).join(' ') || tag, quantity: Number(row.current_quantity) } : null;
 };
-const toRecord = (row: any): CountedItem => ({ uid: row.uid, tag: String(row.qr_code).trim(), name: row.inventory_item, quantity: row.quantity, uom: row.uom, status: row.count_status });
+const toRecord = (row: any): CountedItem => ({ uid: row.uid, tag: String(row.qr_code).trim(), name: row.inventory_item, quantity: row.quantity, uom: row.uom, status: row.written_off_at ? 'written_off' : row.count_status });
 
 // setCache names its key from the account and project at the moment it is
 // called, so the context is checked right before each write.
@@ -151,7 +158,7 @@ async function runRefresh(): Promise<LoadReference> {
     fetchAll<any>(client, 'handling_unit_items', ITEM_COLUMNS),
     fetchAll<Place>(shared, 'places', PLACE_COLUMNS, query => query.eq('is_active', true).or(`project_id.is.null,project_id.eq.${guard.projectId}`)),
     fetchAll<any>(client, 'materials', MATERIAL_COLUMNS, query => query.eq('status', 'in_yard').gt('current_quantity', 0)),
-    fetchAll<any>(client, 'inventory_records', RECORD_COLUMNS),
+    readRecords(columns => fetchAll<any>(client, 'inventory_records', columns)),
     trips,
   ]);
   if (!guard.current()) throw new Error('Project changed while loading. Pull to refresh.');
@@ -226,11 +233,12 @@ export async function lookupTagOnline(raw: string, alsoCrates: string[] = []): P
   if (looksLikeCrate(raw)) {
     return { units: await lookupCratesOnline([raw, ...alsoCrates]), items: [], materials: [], counted: [] };
   }
+  // Whatever its capitals: the server's spelling comes back.
   const tag = raw.trim();
   const [items, materials, records] = await Promise.all([
-    read(client.from('handling_unit_items').select(ITEM_COLUMNS).eq('tag', tag)),
-    read(client.from('materials').select(MATERIAL_COLUMNS.replace('qr_codes(', 'qr_codes!inner(')).eq('status', 'in_yard').gt('current_quantity', 0).eq('qr_codes.code_value', tag)),
-    read(client.from('inventory_records').select(RECORD_COLUMNS).eq('qr_code', tag)),
+    read(whereTag(client.from('handling_unit_items').select(ITEM_COLUMNS), 'tag', tag)),
+    read(whereTag(client.from('materials').select(MATERIAL_COLUMNS.replace('qr_codes(', 'qr_codes!inner(')).eq('status', 'in_yard').gt('current_quantity', 0), 'qr_codes.code_value', tag)),
+    readRecords(columns => read(whereTag(client.from('inventory_records').select(columns), 'qr_code', tag))),
   ]);
   return {
     units: [], items: items.map(toItem), counted: records.map(toRecord),
@@ -260,7 +268,7 @@ export async function itemOnLoadNow(tag: string, pending: LoadAction[]): Promise
   let line: LoadLine | undefined;
   if (useNetworkStore.getState().isOnline && !before022) {
     try {
-      const rows = await readRowsOnline(getProjectClient().from('load_line_overview').select(LINE_COLUMNS).eq('tag', wanted).eq('is_current_position', true).limit(1));
+      const rows = await readRowsOnline(whereTag(getProjectClient().from('load_line_overview').select(LINE_COLUMNS), 'tag', wanted).eq('is_current_position', true).limit(1));
       line = rows[0];
     } catch { /* The device's copy answers. */ }
   }
@@ -296,11 +304,33 @@ export async function submitPack(payload: PackQueuePayload, context: OperationCo
   await recordApplied({ type: 'pack', payload }, context).catch(() => {});
   return result as { id: string; code: string; status: string; created: boolean; item_count: number; unit_count: number };
 }
-// A load operation through apply_field_operation, sent unchanged.
+// A load operation through apply_field_operation, sent unchanged. A partial
+// load_on or load_off may turn some pieces down: each goes back in the queue,
+// ahead of the load's later steps, as a step of its own waiting for a
+// decision; only the pieces taken are laid over the device's copy.
 export async function submitLoadOperation(type: LoadOperation, payload: LoadQueuePayload<any>, context: OperationContext) {
   const result = await applyOperation(type, payload.op, context);
   if (!result || typeof result !== 'object') throw new Error('The load change was not confirmed by the server. It will retry.');
-  await recordApplied({ type, payload } as LoadAction, context).catch(() => {});
+  const refused: RefusedPiece[] = Array.isArray(result.refused) ? result.refused : [];
+  let applied = payload;
+  if (refused.length && (type === 'load_on' || type === 'load_off')) {
+    const split = splitRefused(type, payload, refused, context.operationId);
+    await queueRefused(context.operationId, context, split.steps.map(step => ({ ...step, action: step.action as QueueAction })));
+    applied = split.applied;
+  }
+  await recordApplied({ type, payload: applied } as LoadAction, context).catch(() => {});
+  return result;
+}
+// A crate moved without opening it, and a loose item's place corrected.
+export async function submitMove(payload: MoveQueuePayload, context: OperationContext) {
+  const result = await applyOperation('move', payload.move, context);
+  if (!result?.code) throw new Error('The move was not confirmed by the server. It will retry.');
+  await recordApplied({ type: 'move', payload }, context).catch(() => {});
+  return result;
+}
+export async function submitRelocate(payload: RelocateQueuePayload, context: OperationContext) {
+  const result = await applyOperation('relocate', payload.relocate, context);
+  if (!result?.tag) throw new Error('The new location was not confirmed by the server. It will retry.');
   return result;
 }
 export async function submitUnpack(payload: UnpackOperationPayload, context: OperationContext) {

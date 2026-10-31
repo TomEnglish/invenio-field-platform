@@ -27,7 +27,7 @@ function setup({ tables = {}, online = true, rpc, upload, before022 = false } = 
     const state = { table, columns, filters: [] };
     const filter = (op) => (column, value) => { state.filters.push([op, column, value]); return builder; };
     const builder = {
-      eq: filter('eq'), gt: filter('gt'), in: filter('in'), or: (expression) => { state.filters.push(['or', expression]); return builder; },
+      eq: filter('eq'), ilike: filter('ilike'), gt: filter('gt'), in: filter('in'), or: (expression) => { state.filters.push(['or', expression]); return builder; },
       order: () => builder, limit: () => builder,
       then: (resolve, reject) => builder.range(0, 999).then(resolve, reject),
       range: async (from, to) => {
@@ -35,7 +35,7 @@ function setup({ tables = {}, online = true, rpc, upload, before022 = false } = 
         if (flags.before022 && (/^load_/.test(table) || /top_status|load_line_status/.test(columns))) return { data: null, error: { code: '42703', message: /^load_/.test(table) ? `relation "public.${table}" does not exist` : 'column handling_unit_overview.top_status does not exist' } };
         let rows = (tables[table] ?? []).filter(row => !projectId || !('project_id' in row) || row.project_id === projectId);
         for (const [op, column, value] of state.filters) {
-          rows = rows.filter(row => (op === 'or' ? matches(row, column) : op === 'eq' ? valueAt(row, column) === value : op === 'in' ? value.includes(valueAt(row, column)) : valueAt(row, column) > value));
+          rows = rows.filter(row => (op === 'or' ? matches(row, column) : op === 'eq' ? valueAt(row, column) === value : op === 'ilike' ? String(valueAt(row, column) ?? '').toLowerCase() === value.replace(/\\(.)/g, '$1').toLowerCase() : op === 'in' ? value.includes(valueAt(row, column)) : valueAt(row, column) > value));
         }
         return { data: rows.slice(from, to + 1), error: null };
       },
@@ -91,7 +91,7 @@ test('each load operation is queued and sent to apply_field_operation unchanged'
   const summaries = (await h.queue.getQueue()).map(item => h.presentation.queueSummary(item));
   assert.deepEqual(plain(summaries), [
     { title: 'New load', detail: 'Load details · 1 stop' }, { title: 'New load', detail: 'Loading · 2 on · 1 taken off' }, { title: 'New load', detail: 'Departure' },
-    { title: 'New load', detail: 'Unloading · 1 off · Bay 1' }, { title: 'New load', detail: 'Stop finished' },
+    { title: 'New load', detail: 'Unloading · 1 off · HU-AAAA01 · Bay 1' }, { title: 'New load', detail: 'Stop finished' },
   ]);
   assert.deepEqual(plain(await h.sync.processQueue()), { processed: 5, failed: 0 });
   assert.deepEqual(h.calls.rpc.map(call => [call.name, call.args.p_operation_id, call.args.p_action, call.args.p_payload]), ops.map(([type, op], i) => ['apply_field_operation', OP(i), type, op]));
@@ -190,7 +190,8 @@ test('load and licence refusals come from the code; anything retries gave up on 
   assert.equal(h.presentation.crateRefused(item('load_on', 'Nothing is on the truck yet', '22023')), true);
   assert.match(h.presentation.queueRecoveryMessage(item('load_depart', 'Nothing is on the truck yet', '22023')), /refused this load change: “Nothing is on the truck yet”.*Later steps for this load wait/);
   assert.equal(h.presentation.crateRefused(item('load_on', 'Network request failed')), false);
-  assert.equal(h.presentation.canDiscard(item('licence', 'new row violates row-level security policy', '42501', { deadLetter: true })), true, 'a licence is never stuck on the device');
+  // Not a refusal: retries gave up (a refusal, 42501 included, is discardable anyway).
+  assert.equal(h.presentation.canDiscard(item('licence', 'Network request failed', undefined, { deadLetter: true })), true, 'a licence is never stuck on the device');
   assert.equal(h.presentation.canDiscard(item('load_save', 'Unsupported operation', '22023')), true);
   assert.equal(h.presentation.canDiscard(item('load_on', 'Network request failed')), false, 'still retrying');
 });
@@ -276,4 +277,109 @@ test('once 022 is deployed, the next download uses its columns again', async () 
   const { data } = await early.api.loadLoad();
   assert.ok(early.calls.queries.some(q => q.table === 'handling_unit_overview' && /top_status/.test(q.columns)));
   assert.equal(data.loads.length, 2);
+});
+
+test('022: a partial load_on takes what it can; each piece turned down waits in Sync as its own step, ahead of the departure, until it is moved here or discarded', async () => {
+  let refuseMove = true;
+  const h = setup({ rpc: async (name, args) => {
+    if (name !== 'apply_field_operation' || args.p_action !== 'load_on') return null;
+    const pieces = args.p_payload.pieces;
+    if (args.p_payload.partial) return { data: { load_id: 'load-n', on_board: 1, refused: [{ code: 'PIPE-2', list: 'pieces', message: 'PIPE-2 is planned on load L-0007; move it to this load or take it off that plan first', sqlstate: '22023' }], moved: [] }, error: null };
+    if (refuseMove && !pieces[0].move) return { data: null, error: { code: '22023', message: 'PIPE-2 is planned on load L-0007; move it to this load or take it off that plan first' } };
+    return { data: { load_id: 'load-n', on_board: 2, refused: [], moved: [{ code: 'PIPE-2', from: 'L-0007' }] }, error: null };
+  } });
+  const captured = '2026-10-31T10:00:00.000Z';
+  await h.queue.addToQueue({ type: 'load_on', payload: { op: { loadId: 'load-n', pieces: ['HU-AAAA01', { code: 'PIPE-2', dropoffStopId: 'stop-1' }], partial: true, capturedAt: captured }, label: 'L-0004' } }, OP(1));
+  await h.queue.addToQueue({ type: 'load_depart', payload: { op: { loadId: 'load-n', capturedAt: captured }, label: 'L-0004' } }, OP(2));
+  await h.sync.processQueue();
+  let queue = await h.queue.getQueue();
+  assert.deepEqual(plain(queue.map(item => [item.id, item.action.type, !!item.refused])), [['40000000-0000-4000-8000-010000000002', 'load_on', true], [OP(2), 'load_depart', false]], 'the departure waits behind the turned-down piece');
+  assert.equal(queue[0].lastErrorCode, '22023');
+  assert.deepEqual(plain(queue[0].action.payload.op), { loadId: 'load-n', pieces: [{ code: 'PIPE-2', dropoffStopId: 'stop-1' }], capturedAt: captured });
+  assert.equal(h.presentation.canMoveToLoad(queue[0]), true);
+  assert.match(h.presentation.queueRecoveryMessage(queue[0]), /Move it to this load, or discard this scan/);
+  assert.deepEqual(plain(h.presentation.queueSummary(queue[0])), { title: 'L-0004', detail: 'Loading · 1 on · PIPE-2' });
+  assert.equal(h.calls.rpc.filter(call => call.args.p_action === 'load_depart').length, 0);
+
+  // Replaying the step's answer adds nothing twice.
+  await h.queue.queueRefused(OP(2), { userId: 'worker-a', projectId: 'project-a' }, [{ id: queue[0].id, action: queue[0].action, error: 'again', code: '22023' }]);
+  assert.equal((await h.queue.getQueue()).length, 2);
+
+  // "Move it to this load": the same step, sent again with move.
+  await h.queue.replaceQueuedAction(queue[0].id, { ...queue[0].action, payload: { ...queue[0].action.payload, op: { ...queue[0].action.payload.op, pieces: [{ code: 'PIPE-2', dropoffStopId: 'stop-1', move: true }] } } });
+  await h.queue.retryQueueItem(queue[0].id);
+  refuseMove = false;
+  await h.sync.processQueue();
+  assert.equal((await h.queue.getQueue()).length, 0, 'moved, then the truck left');
+  const sent = h.calls.rpc.filter(call => call.name === 'apply_field_operation').map(call => [call.args.p_action, call.args.p_payload.pieces?.map(p => (typeof p === 'string' ? p : `${p.code}${p.move ? '+move' : ''}`))]);
+  assert.deepEqual(sent, [['load_on', ['HU-AAAA01', 'PIPE-2']], ['load_on', ['PIPE-2+move']], ['load_depart', undefined]]);
+});
+
+test('022: a step this user isn’t allowed (42501) waits for a decision instead of retrying; crate moves and item locations go to apply_field_operation', async () => {
+  const h = setup({ rpc: async (name, args) => {
+    if (args.p_action === 'stop_complete') return { data: null, error: { code: '42501', message: 'Office staff finish stops at outside shops and vendors' } };
+    if (args.p_action === 'move') return { data: { id: 'u-1', code: args.p_payload.unitCode, status: 'sealed' }, error: null };
+    if (args.p_action === 'relocate') return { data: { tag: args.p_payload.tag }, error: null };
+    return null;
+  } });
+  await h.queue.addToQueue({ type: 'stop_complete', payload: { op: { loadId: 'load-n', stopId: 'stop-1' }, label: 'L-0004' } }, OP(1));
+  await h.queue.addToQueue({ type: 'move', payload: { move: { unitCode: 'HU-AAAA01', placeId: 'site', capturedAt: '2026-10-31T10:00:00.000Z' }, placeName: 'North Site' } }, OP(2));
+  await h.queue.addToQueue({ type: 'relocate', payload: { relocate: { tag: 'PIPE-2', zoneId: 'z-4', siteMapId: 'map-a', reason: 'Found on rack 4' }, name: 'Pipe 4"', zoneName: 'Rack 4' } }, OP(3));
+  const summaries = (await h.queue.getQueue()).map(item => h.presentation.queueSummary(item));
+  assert.deepEqual(plain(summaries.slice(1)), [{ title: 'HU-AAAA01', detail: 'Crate moved · North Site' }, { title: 'Pipe 4"', detail: 'Item location · Tag PIPE-2 · Rack 4' }]);
+  assert.deepEqual(plain(await h.sync.processQueue()), { processed: 2, failed: 1 });
+  const [left] = await h.queue.getQueue();
+  assert.deepEqual([left.id, left.refused, left.retryCount, left.lastErrorCode], [OP(1), true, 0, '42501']);
+  assert.equal(h.presentation.canDiscard(left), true);
+  await h.sync.processQueue();
+  assert.equal(h.calls.rpc.filter(call => call.args.p_action === 'stop_complete').length, 1, 'not retried by itself');
+  assert.deepEqual(h.calls.rpc.filter(call => ['move', 'relocate'].includes(call.args.p_action)).map(call => [call.args.p_action, call.args.p_payload]),
+    [['move', { unitCode: 'HU-AAAA01', placeId: 'site', capturedAt: '2026-10-31T10:00:00.000Z' }], ['relocate', { tag: 'PIPE-2', zoneId: 'z-4', siteMapId: 'map-a', reason: 'Found on rack 4' }]]);
+});
+
+test('022: the licence is recorded with when it was taken down, so an older one never replaces a newer', async () => {
+  const h = setup();
+  h.memory.rememberLicence(OP(7), { number: NUMBER, state: 'TX' });
+  await h.queue.addToQueue({ type: 'licence', payload: { loadId: 'load-n', label: 'L-0004', photos: [{ uri: 'file:///documents/receiving-photos/front.jpg' }], capturedAt: '2026-10-31T09:30:00.000Z' } }, OP(7));
+  await h.sync.processQueue();
+  const recorded = h.calls.rpc.find(call => call.name === 'record_driver_licence');
+  assert.deepEqual(recorded.args.p_licence, { number: NUMBER, state: 'TX', capturedAt: '2026-10-31T09:30:00.000Z' });
+  assert.equal(storedEverywhere(h.records).includes('98765'), false);
+});
+
+test('review fixes: turned-down pieces stay with the step’s project; a refused licence photo is checked by attaching; any refusal can be discarded', async () => {
+  const h = setup({ rpc: async (name, args) => {
+    if (args.p_action !== 'load_on') return null;
+    h.auth.activeProject = { id: 'project-b', status: 'active' };
+    return { data: { load_id: 'load-n', refused: [{ code: 'PIPE-2', list: 'pieces', message: 'PIPE-2 was written off; an administrator can undo that', sqlstate: '22023' }], moved: [] }, error: null };
+  } });
+  await h.queue.addToQueue({ type: 'load_on', payload: { op: { loadId: 'load-n', pieces: ['PIPE-2'], partial: true }, label: 'L-0004' } }, OP(1));
+  await h.sync.processQueue();
+  const [left] = await h.queue.getQueue();
+  assert.deepEqual([left.userId, left.projectId], ['worker-a', 'project-a'], 'a project switch mid-answer doesn’t move it');
+
+  // Storage refuses a repeat of a photo that landed (the folder's limit counts it): attaching shows it is there.
+  let attachFails = false;
+  const p = setup({ upload: () => ({ error: { message: 'new row violates row-level security policy', statusCode: '403' } }), rpc: async (name) => (name === 'attach_driver_licence_photo' && attachFails ? { data: null, error: { code: '22023', message: 'Upload the photo before attaching it' } } : null) });
+  p.memory.rememberLicence(OP(7), { number: NUMBER });
+  await p.queue.addToQueue({ type: 'licence', payload: { loadId: 'load-n', label: 'L-0004', photos: [{ uri: 'file:///documents/receiving-photos/front.jpg' }] } }, OP(7));
+  await p.sync.processQueue();
+  assert.equal((await p.queue.getQueue()).length, 0, 'it was there: done');
+  attachFails = true;
+  p.memory.rememberLicence(OP(8), { number: NUMBER });
+  p.files.add('file:///documents/receiving-photos/front.jpg');
+  await p.queue.addToQueue({ type: 'licence', payload: { loadId: 'load-n', label: 'L-0004', photos: [{ uri: 'file:///documents/receiving-photos/front.jpg' }] } }, OP(8));
+  await p.sync.processQueue();
+  const [photo] = await p.queue.getQueue();
+  assert.deepEqual([photo.refused, photo.lastErrorCode], [true, 'PHOTO_REFUSED'], 'a fifth file: a decision, not five retries');
+  assert.match(p.presentation.queueRecoveryMessage(photo), /at most 4 licence files/);
+
+  const refusedTransfer = { id: 't', userId: 'worker-a', projectId: 'project-a', refused: true, lastErrorCode: '22023', lastError: 'PIPE-2 is packed in HU-AAAA01; take it out of the crate before moving it', action: { type: 'transfer', payload: { materialId: 'm' } } };
+  assert.equal(h.presentation.canDiscard(refusedTransfer), true);
+  assert.match(h.presentation.queueRecoveryMessage(refusedTransfer), /refused this: “PIPE-2 is packed in HU-AAAA01/);
+  const packedCount = { ...refusedTransfer, lastError: 'GT-1 is packed in HU-AAAA01; take it out of the crate before counting it', action: { type: 'count', payload: { count: { tag: 'GT-1' } } } };
+  assert.equal(h.presentation.countRecoveryAction(packedCount), 'discard', 'fixing it in Count can’t help');
+  const depart = { ...refusedTransfer, lastError: "Record the driver's licence number and a photo of it before load L-0004 leaves", action: { type: 'load_depart', payload: { op: { loadId: 'load-n' }, label: 'L-0004' } } };
+  assert.equal(h.presentation.needsLicence(depart), true);
+  assert.match(h.presentation.queueRecoveryMessage(depart), /Record the licence again in Driver check-in/);
 });

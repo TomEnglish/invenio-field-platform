@@ -118,7 +118,17 @@ Loads (logistics phase 2, contract in MSR migration 022):
   photos as temporary files, a licence queued ahead of its load's departure, and every licence
   item, file and detail cleared at sign-out.
 
-All tests pass (226 with loads). `npm run lint` and `npx expo export --platform web` also pass;
+- The reworked 022 contract (`contract-022`, `packed-note`, and new cases in `load-sync`,
+  `load-screens`, `count-begin`, `count-receiving-handoff` and `sync-screen`): the office's
+  licence override (Depart, and from Sync after a refusal); who changes stops (the office's
+  loads, a crew's own, only stops not yet reached after leaving); moving a piece from another
+  load's plan; late unloading at a finished stop or after delivery, and corrections; partial
+  batches whose turned-down pieces wait as their own steps; 42501 as a decision; written-off
+  pieces refused; crate moves and item relocations; capturedAt on every step; tags whatever
+  their capitals; lookup_tag deciding Scan and Count; item_positions for where an item is;
+  the material page's rules; activity from list_project_activity.
+
+All tests pass (252 with loads and the 022 rework). `npm run lint` and `npx expo export --platform web` also pass;
 the web login was verified in Chrome without console errors. Native camera,
 force-close/restart and hosted email/storage behavior remain release smoke checks.
 See the sibling MSR `docs/PLATFORM_RELEASE.md` for the coordinated release guide.

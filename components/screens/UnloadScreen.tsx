@@ -13,30 +13,37 @@ import { loadStyles as styles } from '@/components/logistics/loadStyles';
 import { useAuthStore } from '@/stores/authStore';
 import { newOperationId } from '@/lib/utils/operationId';
 import { activeAreas, areaPathLabel, buildAreaTree } from '@/lib/inventory/areas';
-import { applyLoadPending, classifyUnload, indexLoads, loadLabel, officeFinishes, openStops, unloadChecklist, STOP_KINDS } from '@/lib/logistics/loads';
+import { applyLoadPending, canFinishStop, capturedNow, classifyUnload, indexLoads, loadLabel, officeFinishes, unloadChecklist, unloadStops, STOP_KINDS } from '@/lib/logistics/loads';
 import { unresolvedFor } from '@/lib/sync/queuePresentation';
 import { colors } from '@/lib/design/tokens';
 
 type Area = { zoneId: string; siteMapId: string; zoneName: string } | null;
+// `at`: when the first of these scans was made (022's capturedAt).
+type Batch = { pieces: string[]; area: Area; at: string };
 
 // Unload at a stop: choose the stop, then scan pieces off against what is due
 // there. A piece due elsewhere comes off marked as the wrong stop; one not on
 // the truck's list comes off as an extra. An area can be chosen only at this
-// project's own yard or site. Saved as load_off batches; Finish stop sends
+// project's own yard or site. Saved as partial load_off batches (a piece the
+// server turns down waits in Sync on its own); Finish stop sends
 // stop_complete, after warning that unscanned pieces due here become missing.
+// Until the load is closed, pieces can still be scanned off at a finished stop.
 export function UnloadScreenContent() {
   const { id = '', stopId: param } = useLocalSearchParams<{ id?: string; stopId?: string }>();
   const projectId = useAuthStore(s => s.activeProject?.id);
+  const office = useAuthStore(s => s.user?.role !== 'field_worker');
   const { loads, index, data, pending, refused } = useLoadReference({ refresh: true });
   const count = useCountReference({ refresh: false });
   const load = loads.loads.get(id);
   const label = loadLabel(load);
   const [stopId, setStopId] = useState<string | null>(param || null);
-  // Only a stop still to finish; a finished one can't take more pieces.
-  const stop = openStops(loads, id).find(s => s.id === stopId);
+  // Any stop until the load is closed; a finished one takes late scans only.
+  const stops = unloadStops(loads, id);
+  const stop = stops.find(s => s.id === stopId);
   const ownPlace = !!stop && data.places.some(place => place.id === stop.place_id && place.project_id === projectId);
-  // The office confirms what arrived at shops and vendors; there, the crew only scans off.
-  const officeOnly = officeFinishes(stop);
+  // The office finishes stops at shops and vendors; there, a crew only scans off.
+  const finishable = canFinishStop(stop, office);
+  const officeOnly = !finishable && officeFinishes(stop) && stop?.status !== 'done';
   // Finishing behind scans the server hasn't taken would mark those pieces missing.
   const stuck = unresolvedFor([...pending, ...refused], id);
   const [area, setArea] = useState<Area>(null);
@@ -49,15 +56,15 @@ export function UnloadScreenContent() {
   const restart = () => { setStopId(param || null); setArea(null); setFinishing(false); setSaveError(''); finishId.current = newOperationId(); };
   useEffect(restart, [id, param]);
   useFocusEffect(useCallback(() => () => restart(), [id, param]));
-  const opFor = (pieces: string[], where: Area) => ({ loadId: id, stopId: stopId!, pieces, ...(where ? { zoneId: where.zoneId, siteMapId: where.siteMapId } : {}) });
-  const { batch, update, flush, error } = useScanBatch<{ pieces: string[]; area: Area }>({
-    empty: () => ({ pieces: [], area }),
+  const opFor = (pieces: string[], where: Area, at: string) => ({ loadId: id, stopId: stopId!, pieces, ...(where ? { zoneId: where.zoneId, siteMapId: where.siteMapId } : {}), partial: true, capturedAt: at });
+  const { batch, update, flush, error } = useScanBatch<Batch>({
+    empty: () => ({ pieces: [], area, at: '' }),
     count: b => b.pieces.length,
-    merge: (failed, since) => ({ pieces: [...failed.pieces, ...since.pieces.filter(p => !failed.pieces.includes(p))], area: failed.area }),
-    save: async b => { await saveLoadChange('load_off', opFor(b.pieces, b.area), label, undefined, b.area ? { zoneName: b.area.zoneName } : {}); },
+    merge: (failed, since) => ({ pieces: [...failed.pieces, ...since.pieces.filter(p => !failed.pieces.includes(p))], area: failed.area, at: failed.at || since.at }),
+    save: async b => { await saveLoadChange('load_off', opFor(b.pieces, b.area, b.at), label, undefined, b.area ? { zoneName: b.area.zoneName } : {}); },
   });
   const view = useMemo(() => (batch.pieces.length && stopId
-    ? indexLoads(applyLoadPending(data, [{ type: 'load_off', payload: { op: opFor(batch.pieces, batch.area), zoneName: batch.area?.zoneName } }])) : loads), [data, loads, batch, stopId]);
+    ? indexLoads(applyLoadPending(data, [{ type: 'load_off', payload: { op: opFor(batch.pieces, batch.area, batch.at), zoneName: batch.area?.zoneName } }])) : loads), [data, loads, batch, stopId]);
   const list = stopId ? unloadChecklist(view, id, stopId) : null;
   const maps = count.data.maps;
   const shownMap = maps.find(m => m.id === mapId) ?? maps[0] ?? null;
@@ -75,21 +82,21 @@ export function UnloadScreenContent() {
     if (scan.kind === 'extra' && scan.unchecked) {
       try {
         await flush();
-        await saveLoadChange('load_off', opFor([scan.tag], area), label, undefined, area ? { zoneName: area.zoneName } : {});
+        await saveLoadChange('load_off', opFor([scan.tag], area, capturedNow()), label, undefined, area ? { zoneName: area.zoneName } : {});
         setSaveError('');
       } catch (e: any) { setSaveError(`Could not save ${scan.tag}: ${e?.message ?? 'Please try again'}. Scan it again.`); }
       return { tone: 'info', message: `${scan.message} It isn't on this device; the server checks it.` };
     }
-    update(b => ({ ...b, area, pieces: b.pieces.includes(scan.tag) ? b.pieces : [...b.pieces, scan.tag] }));
+    update(b => ({ ...b, area, at: b.at || capturedNow(), pieces: b.pieces.includes(scan.tag) ? b.pieces : [...b.pieces, scan.tag] }));
     return { tone: scan.kind === 'due' || scan.kind === 'found' ? 'ok' : 'info', message: scan.message };
   };
   const finish = async () => {
-    if (saving || !stopId || officeOnly || stuck.length) return;
+    if (saving || !stopId || !finishable || stuck.length) return;
     setSaving(true);
     try {
       // Every scan off is saved before the stop is finished, or nothing is.
       if (!(await flush())) return;
-      await saveLoadChange('stop_complete', { loadId: id, stopId }, label, finishId.current);
+      await saveLoadChange('stop_complete', { loadId: id, stopId, capturedAt: capturedNow() }, label, finishId.current);
       finishId.current = newOperationId();
       setFinishing(false);
       router.back();
@@ -101,8 +108,9 @@ export function UnloadScreenContent() {
   if (!stopId || !stop) return <ScrollView style={styles.container} contentContainerStyle={styles.content}>
     <Stack.Screen options={{ headerShown: true, title: `Unload ${label}` }} />
     <Text style={styles.heading} accessibilityRole="header">Which stop are you at?</Text>
-    {openStops(loads, id).map(s => <Button key={s.id} title={`${s.seq}. ${s.place_name} · ${STOP_KINDS.find(k => k.value === s.kind)?.label} · ${s.due_count} due`} variant="secondary" onPress={() => setStopId(s.id)} />)}
-    {openStops(loads, id).length === 0 ? <Text style={styles.muted}>Every stop on this load is done.</Text> : null}
+    {stops.map(s => <Button key={s.id} title={`${s.seq}. ${s.place_name} · ${STOP_KINDS.find(k => k.value === s.kind)?.label} · ${s.status === 'done' ? 'Done: late scans only' : `${s.due_count} due`}`} variant={s.status === 'done' ? 'ghost' : 'secondary'} onPress={() => setStopId(s.id)} />)}
+    {stops.length === 0 ? <Text style={styles.muted}>{load.status === 'closed' || load.status === 'cancelled' ? `${label} is ${load.status}; nothing more comes off it.` : 'This load has no stops to unload at.'}</Text> : null}
+    {stops.length > 0 && stops.every(s => s.status === 'done') ? <Text style={styles.muted}>Every stop on this load is done. A piece that turns up can still be scanned off where it is.</Text> : null}
   </ScrollView>;
 
   return <View style={styles.container}>
@@ -136,11 +144,12 @@ export function UnloadScreenContent() {
       {list && list.total === 0 && list.extras.length === 0 ? <Text style={styles.muted}>Nothing is due here. Scan anything that comes off.</Text> : null}
       {error || saveError ? <Text style={styles.error} accessibilityRole="alert">{error || saveError}</Text> : null}
       {officeOnly ? <Text style={styles.muted}>{stop.place_name} is an outside shop or vendor: scan off what you hand over, and the office confirms the stop.</Text> : null}
-      {!officeOnly && stuck.length ? <View style={styles.refused}>
+      {stop.status === 'done' ? <Text style={styles.muted}>This stop is finished. A piece scanned off now is recorded here; one that was missing is found.</Text> : null}
+      {finishable && stuck.length ? <View style={styles.refused}>
         <Text style={styles.warning} accessibilityRole="alert">An earlier step for {label} hasn't uploaded. Retry or discard it in Sync before finishing this stop.</Text>
         <Button title="View Sync" variant="ghost" onPress={() => router.push('/sync')} />
       </View> : null}
-      {finishing && !officeOnly ? <View style={styles.refused}>
+      {finishing && finishable ? <View style={styles.refused}>
         <Text style={styles.warning} accessibilityRole="alert">{list?.waiting.length
           ? `${list.waiting.length} piece${list.waiting.length === 1 ? '' : 's'} due here ${list.waiting.length === 1 ? 'hasn’t' : 'haven’t'} been scanned off and will be marked missing: ${list.waiting.map(l => l.tag).join(', ')}.`
           : 'Everything due here is off.'} Finish {stop.place_name}?</Text>
@@ -152,7 +161,7 @@ export function UnloadScreenContent() {
     </ScrollView>
     <View style={styles.footer}>
       <Button title="Done for now" variant="secondary" onPress={async () => { if (await flush()) router.back(); }} style={styles.flex} />
-      {officeOnly ? null : <Button title="Finish stop…" disabled={stuck.length > 0} onPress={async () => { if (await flush()) setFinishing(true); }} style={styles.flex} />}
+      {finishable ? <Button title="Finish stop…" disabled={stuck.length > 0} onPress={async () => { if (await flush()) setFinishing(true); }} style={styles.flex} /> : null}
     </View>
   </View>;
 }

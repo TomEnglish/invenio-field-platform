@@ -10,19 +10,22 @@ import { saveLoadChange } from '@/components/logistics/saveLoadChange';
 import { loadStyles as styles } from '@/components/logistics/loadStyles';
 import { groupRoute } from '@/components/logistics/routes';
 import {
-  applyLoadPending, checklistText, classifyLoadOn, dropoffChoices, indexLoads, loadChecklist, loadLabel,
+  applyLoadPending, capturedNow, checklistText, classifyLoadOn, dropoffChoices, indexLoads, loadChecklist, loadLabel,
   type LoadLine, type LoadOnPiece, type LoadStop,
 } from '@/lib/logistics/loads';
 import { colors } from '@/lib/design/tokens';
 
-type Batch = { pieces: LoadOnPiece[]; undo: string[] };
+// `at`: when the first of these scans was made (022's capturedAt): a batch a
+// second phone saves across the departure still counts as loaded before it.
+type Batch = { pieces: LoadOnPiece[]; undo: string[]; at: string };
 const codeOf = (piece: LoadOnPiece) => (typeof piece === 'string' ? piece : piece.code);
 
 // Load out (or pick up at a stop after leaving, with `stopId`): scan pieces on
 // against the planned list, "12 of 14 on board". A piece that isn't planned
-// asks where it comes off. Tap a piece on board to take it off again. Scans
-// are saved as load_on operations in small batches; a piece this device
-// doesn't know goes on its own, so a refusal doesn't hold back the rest.
+// asks where it comes off; one another load has planned can be moved to this
+// one. Tap a piece on board to take it off again. Scans are saved as partial
+// load_on operations in small batches: a piece the server turns down waits in
+// Sync on its own. A piece this device doesn't know goes in its own step.
 export function LoadOutScreenContent() {
   const { id = '', stopId } = useLocalSearchParams<{ id?: string; stopId?: string }>();
   const at = stopId || null;
@@ -30,15 +33,16 @@ export function LoadOutScreenContent() {
   const load = loads.loads.get(id);
   const label = loadLabel(load);
   const stop = at ? (loads.stops.get(id) ?? []).find(s => s.id === at) : undefined;
-  const [asking, setAsking] = useState<{ tag: string; name: string; unchecked: boolean } | null>(null);
+  const [asking, setAsking] = useState<{ tag: string; name: string; unchecked: boolean; from?: string } | null>(null);
   const [saveError, setSaveError] = useState('');
-  const opFor = (batch: Batch) => ({ loadId: id, pieces: batch.pieces, ...(batch.undo.length ? { undo: batch.undo } : {}), ...(at ? { stopId: at } : {}) });
-  const { batch, update, flush, error } = useScanBatch<Batch>({
-    empty: () => ({ pieces: [], undo: [] }),
+  const opFor = (batch: Batch) => ({ loadId: id, pieces: batch.pieces, ...(batch.undo.length ? { undo: batch.undo } : {}), ...(at ? { stopId: at } : {}), partial: true, capturedAt: batch.at });
+  const { batch, update: change, flush, error } = useScanBatch<Batch>({
+    empty: () => ({ pieces: [], undo: [], at: '' }),
     count: b => b.pieces.length + b.undo.length,
-    merge: (failed, since) => ({ pieces: [...failed.pieces, ...since.pieces], undo: [...failed.undo, ...since.undo] }),
+    merge: (failed, since) => ({ pieces: [...failed.pieces, ...since.pieces], undo: [...failed.undo, ...since.undo], at: failed.at || since.at }),
     save: async b => { await saveLoadChange('load_on', opFor(b), label); },
   });
+  const update = (next: (b: Batch) => Batch) => change(b => ({ ...next(b), at: b.at || capturedNow() }));
   // Unsaved scans count too.
   const view = useMemo(() => (batch.pieces.length || batch.undo.length
     ? indexLoads(applyLoadPending(data, [{ type: 'load_on', payload: { op: opFor(batch) } }])) : loads), [data, loads, batch]);
@@ -58,12 +62,13 @@ export function LoadOutScreenContent() {
   };
   const chooseDropoff = async (dropoff: LoadStop) => {
     if (!asking) return;
-    const piece = { code: asking.tag, dropoffStopId: dropoff.id };
+    // Planned on another load (that hasn't left): loading it here takes it off that plan.
+    const piece = { code: asking.tag, dropoffStopId: dropoff.id, ...(asking.from ? { move: true } : {}) };
     setAsking(null);
     if (asking.unchecked) {
       try {
         await flush();
-        await saveLoadChange('load_on', { loadId: id, pieces: [piece], ...(at ? { stopId: at } : {}) }, label);
+        await saveLoadChange('load_on', { loadId: id, pieces: [piece], ...(at ? { stopId: at } : {}), partial: true, capturedAt: capturedNow() }, label);
         setSaveError('');
       } catch (e: any) { setSaveError(`Could not save ${piece.code}: ${e?.message ?? 'Please try again'}. Scan it again.`); }
     } else update(b => ({ ...b, pieces: [...b.pieces, piece] }));
@@ -80,11 +85,11 @@ export function LoadOutScreenContent() {
     <Stack.Screen options={{ headerShown: true, title: stop ? `Pick up at ${stop.place_name}` : `Load out ${label}` }} />
     <View style={styles.camera}><QRScanner continuous onScan={onScan} countLabel={checklistText(list)} /></View>
     {asking ? <View style={[styles.note, { margin: 16 }]}>
-      <Text style={styles.rowTitle}>{asking.tag} isn’t planned on {label}. Where does it come off?</Text>
+      <Text style={styles.rowTitle}>{asking.from ? `${asking.tag} is planned on load ${asking.from}. Choose where it comes off to move it to ${label}.` : `${asking.tag} isn’t planned on ${label}. Where does it come off?`}</Text>
       {asking.unchecked ? <Text style={styles.muted}>It isn’t on this device either; the server checks it when this uploads.</Text> : null}
       {choices.length === 0 ? <Text style={styles.warning}>There is no drop-off stop {at ? 'after this one' : 'yet'}. Add one in Edit load.</Text> : null}
       <View style={styles.chips}>{choices.map(choice => <Button key={choice.id} title={`${choice.seq}. ${choice.place_name}`} onPress={() => chooseDropoff(choice)} style={styles.chip} />)}</View>
-      <Button title="Leave it off" variant="ghost" onPress={() => setAsking(null)} />
+      <Button title={asking.from ? `Leave it on ${asking.from}` : 'Leave it off'} variant="ghost" onPress={() => setAsking(null)} />
     </View> : null}
     <ScrollView style={styles.list} contentContainerStyle={{ paddingBottom: 8 }}>
       {list.total === 0 ? <Text style={styles.muted}>Nothing is planned to go on here. Scan pieces to add them.</Text> : null}

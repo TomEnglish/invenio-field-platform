@@ -8,6 +8,7 @@ import { usePackStore } from '@/stores/packStore';
 import type { CountReference, SiteMapZone } from '@/lib/api/inventory';
 import { activeAreas, areaPathLabel, areaRequired, buildAreaTree, type LocationRule } from '@/lib/inventory/areas';
 import { NO_PACK_LOCATION, type Place } from '@/lib/logistics/crates';
+import { plansAt } from '@/lib/logistics/positions';
 import { colors, space, fontSize, fontWeight } from '@/lib/design/tokens';
 
 interface Props {
@@ -25,7 +26,9 @@ interface Props {
 // isn't inside another needs an area once the project has areas.
 export function CrateLocationStep({ reference, places, rule, insideOf, onNext, onBack }: Props) {
   const { location, setLocation, before } = usePackStore();
-  const maps = reference.maps;
+  // Areas come from the plans drawn for the chosen place (022): none at an outside shop or vendor.
+  const chosenPlace = places.find(place => place.id === (location.placeId ?? before?.placeId));
+  const maps = plansAt(reference.maps, chosenPlace);
   const [shownMap, setShownMap] = useState<string | null>(location.siteMapId);
   const [focus, setFocus] = useState<{ areaId: string; nonce: number } | null>(null);
   const [reveal, setReveal] = useState<{ areaId: string; nonce: number } | null>(null);
@@ -35,9 +38,7 @@ export function CrateLocationStep({ reference, places, rule, insideOf, onNext, o
   const tree = useMemo(() => buildAreaTree(areas), [areas]);
   const selected = location.zoneId && tree.byId.has(location.zoneId) ? location.zoneId : null;
   const imageUri = map ? reference.images[map.id] ?? null : null;
-  // Areas are on this project's own plans: none at an outside shop or vendor.
-  const chosenPlace = places.find(place => place.id === (location.placeId ?? before?.placeId));
-  const outside = !!chosenPlace && !chosenPlace.project_id;
+  const outside = !!chosenPlace && maps.length === 0;
   const needed = areaRequired(rule, null) && !before?.zoneId && !outside;
   const options = useMemo(() => [...places].sort((a, b) => a.name.localeCompare(b.name))
     .map(place => ({ value: place.id, label: [place.name, place.city].filter(Boolean).join(' · ') })), [places]);
@@ -45,7 +46,9 @@ export function CrateLocationStep({ reference, places, rule, insideOf, onNext, o
   const chooseArea = (area: SiteMapZone, from: 'list' | 'plan') => {
     if (!map) return;
     const label = areaPathLabel(tree, area.id);
-    setLocation({ ...location, siteMapId: map.id, zoneId: area.id, zoneName: label });
+    // A plan drawn for a place names it: the place goes with the area, so the server checks the area there.
+    const planPlace = map.place_id ? places.find(place => place.id === map.place_id) : undefined;
+    setLocation({ ...location, ...(planPlace ? { placeId: planPlace.id, placeName: planPlace.name } : {}), siteMapId: map.id, zoneId: area.id, zoneName: label });
     if (from === 'list') setFocus(current => ({ areaId: area.id, nonce: (current?.nonce ?? 0) + 1 }));
     else setReveal(current => ({ areaId: area.id, nonce: (current?.nonce ?? 0) + 1 }));
     setHint('');
@@ -78,10 +81,12 @@ export function CrateLocationStep({ reference, places, rule, insideOf, onNext, o
         searchable={places.length > 8}
         onChange={id => {
           const place = places.find(p => p.id === id);
-          setLocation({ ...location, placeId: id, placeName: place?.name ?? '', ...(place && !place.project_id ? { siteMapId: null, zoneId: null, zoneName: '' } : {}) });
+          // An area on a plan for somewhere else goes.
+          const kept = !location.siteMapId || plansAt(reference.maps, place).some(map => map.id === location.siteMapId);
+          setLocation({ ...location, placeId: id, placeName: place?.name ?? '', ...(kept ? {} : { siteMapId: null, zoneId: null, zoneName: '' }) });
         }}
       /> : null}
-      {outside ? <Text style={styles.text}>{chosenPlace!.name} isn’t one of this project’s yards or sites, so no area is needed.</Text> : null}
+      {outside ? <Text style={styles.text}>{chosenPlace!.name} has no site plan with areas, so no area is needed.</Text> : null}
       {!outside && maps.length > 1 ? (
         <ScrollView horizontal style={styles.strip} contentContainerStyle={styles.chips} showsHorizontalScrollIndicator={false}>
           {maps.map(m => <Button key={m.id} title={m.name} accessibilityLabel={m.id === map?.id ? `${m.name}, shown` : `Show ${m.name}`} variant={m.id === map?.id ? 'primary' : 'secondary'} onPress={() => { setShownMap(m.id); setFocus(null); }} style={styles.chip} />)}

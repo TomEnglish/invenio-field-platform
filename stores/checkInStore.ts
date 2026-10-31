@@ -6,8 +6,8 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import type { CheckInCompany, CheckInDraft } from '@/lib/logistics/loads';
 
 // One driver check-in for one load. The driver, companies and photo files
-// survive a restart; the licence number is never written to storage (see
-// `partialize`), so after a restart it is typed again. Saving queues two
+// survive a restart; the licence number, issuing state and expiry are never
+// written to storage (see `partialize`), so after a restart they are typed again. Saving queues two
 // items under saveId and licenceId, which change only once saved.
 interface CheckInState extends CheckInDraft {
   loadId: string;
@@ -16,6 +16,10 @@ interface CheckInState extends CheckInDraft {
   licenceId: string;
   // What the check-in began with: only changes from it are sent.
   start: Pick<CheckInDraft, 'driverName' | 'driverPhone' | 'companies'> | null;
+  // When Save was first pressed (022's capturedAt); kept so saving again
+  // after a failure queues the very same items.
+  capturedAt: string | null;
+  markCaptured: (at: string) => void;
 
   begin: (loadId: string, start: Pick<CheckInDraft, 'driverName' | 'driverPhone' | 'companies'>) => void;
   setStep: (step: number) => void;
@@ -26,8 +30,8 @@ interface CheckInState extends CheckInDraft {
   reset: () => void;
 }
 
-const initialState: Omit<CheckInState, 'begin' | 'setStep' | 'set' | 'setCompany' | 'addCompany' | 'removeCompany' | 'reset'> = {
-  loadId: '', step: 0, saveId: '', licenceId: '', start: null,
+const initialState: Omit<CheckInState, 'begin' | 'setStep' | 'set' | 'setCompany' | 'addCompany' | 'removeCompany' | 'reset' | 'markCaptured'> = {
+  loadId: '', step: 0, saveId: '', licenceId: '', start: null, capturedAt: null,
   driverName: '', driverPhone: '', companies: [], licenceNumber: '', licenceState: '', licenceExpiry: '', front: null, back: null,
 };
 const fresh = () => ({ ...initialState, saveId: newOperationId(), licenceId: newOperationId() });
@@ -38,6 +42,7 @@ export const useCheckInStore = create<CheckInState>()(
       ...initialState,
       begin: (loadId, start) => set({ ...fresh(), loadId, ...start, companies: start.companies.map(company => ({ ...company })), start: { ...start, companies: start.companies.map(company => ({ ...company })) } }),
       setStep: (step) => set({ step }),
+      markCaptured: (at) => set({ capturedAt: at }),
       set: (patch) => set(patch),
       setCompany: (index, company) => set((state) => ({ companies: state.companies.map((c, i) => (i === index ? company : c)) })),
       addCompany: () => set((state) => (state.companies.length >= 3 ? state : { companies: [...state.companies, { name: '', role: 'carrier', contactName: '', phone: '' }] })),
@@ -47,8 +52,8 @@ export const useCheckInStore = create<CheckInState>()(
     {
       name: 'checkin-draft-unscoped',
       skipHydration: true,
-      // Never the licence number.
-      partialize: ({ licenceNumber: _number, ...rest }) => rest,
+      // Never the licence details.
+      partialize: ({ licenceNumber: _number, licenceState: _state, licenceExpiry: _expiry, ...rest }) => rest,
       storage: createJSONStorage(() => Platform.OS === 'web' && typeof window === 'undefined' ? { getItem: async () => null, setItem: async () => {}, removeItem: async () => {} } : AsyncStorage),
     }
   )
