@@ -4,21 +4,8 @@ import { Input } from '@/components/ui/Input';
 import { Button } from '@/components/ui/Button';
 import { useReceivingStore } from '@/stores/receivingStore';
 import type { ExceptionType } from '@/types/database';
+import { DECISIONS, EXCEPTION_TYPES, RECEIVING_STEPS, type DecisionStatus } from '@/lib/utils/receivingLabels';
 import { colors } from '@/lib/design/tokens';
-
-type DecisionStatus = 'accepted' | 'partially_accepted' | 'rejected';
-
-const STATUSES: { value: DecisionStatus; label: string; color: string }[] = [
-  { value: 'accepted', label: 'Accept', color: colors.success },
-  { value: 'partially_accepted', label: 'Partial Accept', color: colors.warn },
-  { value: 'rejected', label: 'Reject', color: colors.danger },
-];
-
-const EXCEPTION_TYPES: { value: ExceptionType; label: string }[] = [
-  { value: 'wrong_type', label: 'Wrong Type' },
-  { value: 'wrong_count', label: 'Wrong Count' },
-  { value: 'damage', label: 'Damage' },
-];
 
 interface Props {
   onNext?: () => void;
@@ -56,11 +43,11 @@ export function DecisionStep({ onNext, onSubmit, onBack, submitting }: Props) {
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
-      <Text style={styles.title}>Decision</Text>
+      <Text style={styles.title}>{RECEIVING_STEPS[4]}</Text>
 
       <Text style={styles.label}>Status</Text>
       <View style={styles.row}>
-        {STATUSES.map((s) => (
+        {DECISIONS.map((s) => (
           <Button
             key={s.value}
             title={s.label}

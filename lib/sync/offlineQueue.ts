@@ -137,8 +137,15 @@ export async function retryQueueItem(id: string): Promise<void> {
     item.deadLetter = false; item.retryCount = 0; item.lastError = undefined; item.lastErrorCode = undefined; item.refused = false;
   });
 }
-export async function getQueueStats(): Promise<{ pending: number; deadLetters: number }> {
+// Refused (waiting for a decision) and given up on (automatic retries stopped)
+// are told apart: retrying a refusal unchanged doesn't help.
+export async function getQueueStats(): Promise<{ pending: number; deadLetters: number; refused: number }> {
   const queue = (await getQueue()).filter(belongsToCurrentContext);
-  return { pending: queue.filter(i => !i.deadLetter && !i.refused).length, deadLetters: queue.filter(i => i.deadLetter || i.refused).length };
+  const refused = (i: QueueItem) => !!i.refused || (!!i.lastErrorCode && DECISION_CODES.has(i.lastErrorCode));
+  return {
+    pending: queue.filter(i => !i.deadLetter && !refused(i)).length,
+    deadLetters: queue.filter(i => i.deadLetter && !refused(i)).length,
+    refused: queue.filter(refused).length,
+  };
 }
 export async function getQueueLength(): Promise<number> { return (await getQueueStats()).pending; }

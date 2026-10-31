@@ -14,7 +14,7 @@ import {
 import { router, useFocusEffect } from 'expo-router';
 import FontAwesome from '@expo/vector-icons/FontAwesome';
 import { Button } from '@/components/ui/Button';
-import { fetchMaterials, type MaterialWithLocation } from '@/lib/api/materials';
+import { fetchMaterials, SEARCH_MAX, type MaterialWithLocation } from '@/lib/api/materials';
 import { positionsOfMaterials } from '@/lib/api/tags';
 import { positionText, type ItemPosition } from '@/lib/logistics/positions';
 import { useAuthStore } from '@/stores/authStore';
@@ -37,6 +37,8 @@ export default function InventoryScreen() {
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const offsetRef = useRef(0);
+  // Each keystroke starts a search; only the latest one's results are shown.
+  const request = useRef(0);
   // Where each listed material is now (022's item_positions), when online.
   const [positions, setPositions] = useState<Map<string, ItemPosition>>(new Map());
   const addPositions = async (rows: MaterialWithLocation[]) => {
@@ -47,11 +49,14 @@ export default function InventoryScreen() {
   const isOnline = useNetworkStore((s) => s.isOnline);
 
   const load = async () => {
+    const id = ++request.current;
     setLoading(true);
     offsetRef.current = 0;
     const context = useAuthStore.getState();
-    const stillCurrent = () => context.user?.id === useAuthStore.getState().user?.id && context.activeProject?.id === useAuthStore.getState().activeProject?.id;
+    const stillCurrent = () => id === request.current && context.user?.id === useAuthStore.getState().user?.id && context.activeProject?.id === useAuthStore.getState().activeProject?.id;
     setMaterials([]);
+    // No "load more" for the last search while this one loads.
+    setHasMore(false);
     const cacheKey = `materials_${statusFilter}_${search}`;
     try {
       const result = await fetchMaterials({
@@ -69,6 +74,7 @@ export default function InventoryScreen() {
     } catch (e: any) {
       if (!stillCurrent()) return;
       const cached = !useNetworkStore.getState().isOnline ? await getCached<MaterialWithLocation[]>(cacheKey) : null;
+      if (!stillCurrent()) return;
       if (cached) {
         setMaterials(cached);
         setHasMore(false);
@@ -80,7 +86,8 @@ export default function InventoryScreen() {
   };
 
   const loadMore = async () => {
-    if (loadingMore || !hasMore) return;
+    if (loading || loadingMore || !hasMore) return;
+    const id = request.current;
     setLoadingMore(true);
     try {
       const result = await fetchMaterials({
@@ -88,10 +95,12 @@ export default function InventoryScreen() {
         search: search || undefined,
         offset: offsetRef.current,
       });
-      setMaterials((prev) => [...prev, ...result.data]);
-      setHasMore(result.hasMore);
-      offsetRef.current += result.data.length;
-      void addPositions(result.data);
+      if (id === request.current) {
+        setMaterials((prev) => [...prev, ...result.data]);
+        setHasMore(result.hasMore);
+        offsetRef.current += result.data.length;
+        void addPositions(result.data);
+      }
     } catch {}
     setLoadingMore(false);
   };
@@ -160,6 +169,7 @@ export default function InventoryScreen() {
           placeholderTextColor={colors.textSubtle}
           value={search}
           onChangeText={setSearch}
+          maxLength={SEARCH_MAX}
         />
       </View>
 

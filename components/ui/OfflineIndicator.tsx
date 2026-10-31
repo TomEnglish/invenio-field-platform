@@ -11,12 +11,12 @@ export function OfflineIndicator() {
   const isOnline = useNetworkStore((s) => s.isOnline);
   const { user, activeProject, accessMode } = useAuthStore();
   const [error, setError] = useState('');
-  const [stats, setStats] = useState({ pending: 0, deadLetters: 0 });
+  const [stats, setStats] = useState({ pending: 0, deadLetters: 0, refused: 0 });
   const insets = useSafeAreaInsets();
 
   useFocusEffect(useCallback(() => {
     let current = true;
-    setStats({ pending: 0, deadLetters: 0 });
+    setStats({ pending: 0, deadLetters: 0, refused: 0 });
     const refresh = () => getQueueStats().then(value => {
       if (current) { setStats(value); setError(''); }
     }).catch(() => { if (current) setError('Saved submissions could not be read. Open Sync & recovery.'); });
@@ -29,7 +29,7 @@ export function OfflineIndicator() {
     // Sits above the tab header and owns the status-bar inset, so it reads
     // as part of the navy header instead of drawing under the clock.
     <View style={{ paddingTop: insets.top, backgroundColor: colors.navBg }}>
-      <Link href="/sync" style={styles.syncLink}>Sync &amp; recovery{stats.pending + stats.deadLetters > 0 ? ` (${stats.pending + stats.deadLetters})` : ''}</Link>
+      <Link href="/sync" style={styles.syncLink}>Sync &amp; recovery{stats.pending + stats.deadLetters + stats.refused > 0 ? ` (${stats.pending + stats.deadLetters + stats.refused})` : ''}</Link>
       {error ? (
         <View style={[styles.banner, styles.bannerDanger]}>
           <Text accessibilityRole="alert" style={styles.text}>{error}</Text>
@@ -47,6 +47,13 @@ export function OfflineIndicator() {
         <View style={[styles.banner, styles.bannerInfo]}>
           <Text style={styles.text}>
             {stats.pending} queued action{stats.pending > 1 ? 's' : ''} waiting to sync
+          </Text>
+        </View>
+      )}
+      {stats.refused > 0 && (
+        <View style={[styles.banner, styles.bannerDanger]}>
+          <Text style={styles.text}>
+            {stats.refused} queued action{stats.refused > 1 ? 's' : ''} refused: open Sync to decide
           </Text>
         </View>
       )}

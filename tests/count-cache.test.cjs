@@ -8,7 +8,7 @@ const item = (qr_code, count_status, extra = {}) => ({
   condition: null, count_status, category_id: null, site_map_id: null, pin_x: null, pin_y: null, zone_id: null, location: null, counted_at: null, ...extra,
 });
 
-function setup({ tables = {}, online = true, failQueries = false, platform = 'ios', onQuery, before020 = false } = {}) {
+function setup({ tables = {}, online = true, failQueries = false, platform = 'ios', onQuery, before020 = false, beforeWrite } = {}) {
   const records = new Map();
   const files = new Map();
   const calls = { queries: [], signed: [], downloads: [], clients: 0 };
@@ -38,7 +38,7 @@ function setup({ tables = {}, online = true, failQueries = false, platform = 'io
   };
   const loader = createModuleLoader({ stubs: {
     'react-native': { Platform: { OS: platform } },
-    '@react-native-async-storage/async-storage': { getItem: async (k) => records.get(k) ?? null, setItem: async (k, v) => { records.set(k, v); } },
+    '@react-native-async-storage/async-storage': { getItem: async (k) => records.get(k) ?? null, setItem: async (k, v) => { if (beforeWrite) await beforeWrite(k); records.set(k, v); } },
     '@/stores/authStore': { useAuthStore: { getState: () => auth } },
     '@/lib/sync/networkStore': { useNetworkStore: { getState: () => network } },
     // Like the real client, the project is fixed when the client is created.
@@ -137,6 +137,65 @@ test('tag lookup asks the server online and the cache offline, and saved counts 
   assert.equal(t1.location, 'Zone B');
   assert.equal(t1.pin_x, 0.5);
   assert.equal(cached.find(i => i.qr_code === 'NEW-1').count_status, 'counted');
+});
+
+const counted = (tag, name, zoneName) => [{ tag, name, quantity: '1', uom: 'EA', condition: 'good', categoryId: null, siteMapId: 'map-a', zoneId: 'zone-b' }, zoneName];
+
+test('known limits: a count that won’t go through leaves the device copy, whatever the tag’s capitals; other counts stay', async () => {
+  const h = setup({ tables });
+  await h.api.loadCountReference();
+  await h.api.recordCountLocally(...counted('T-1', 'Cooler', 'Zone B'), 'op-1');
+  await h.api.recordCountLocally(...counted('NEW-1', 'Spare', null), 'op-new');
+  const items = async () => plain((await h.api.readCachedReference()).items);
+  assert.equal((await items()).find(i => i.qr_code === 'T-1').count_status, 'counted');
+  assert.equal('operation' in (await items()).find(i => i.qr_code === 'T-1'), false, 'the bookkeeping stays in storage');
+
+  await h.api.forgetLocalCount(' t-1 ', 'op-1');
+  const t1 = (await items()).find(i => i.qr_code === 'T-1');
+  assert.equal(t1.count_status, 'expected', 'back to what the download said');
+  assert.equal(t1.inventory_item, 'Item T-1');
+  assert.equal((await items()).find(i => i.qr_code === 'NEW-1').count_status, 'counted', 'another tag’s count stays');
+
+  await h.api.forgetLocalCount('NEW-1', 'op-new');
+  assert.equal((await items()).some(i => i.qr_code === 'NEW-1'), false, 'a tag counted only on this device goes');
+  const before = new Map(h.records);
+  await h.api.forgetLocalCount('T-2', 'op-2');
+  assert.deepEqual(h.records, before, 'nothing to forget writes nothing');
+});
+
+test('known limits: forgetting one count of a tag keeps the others: a recount stays, and an earlier count comes back', async () => {
+  const h = setup({ tables });
+  await h.api.loadCountReference();
+  const t1 = async () => plain((await h.api.readCachedReference()).items).find(i => i.qr_code === 'T-1');
+
+  // The first count, then a recount; the server refuses the first as older than the tag's latest.
+  await h.api.recordCountLocally(...counted('T-1', 'Cooler', 'Zone B'), 'op-1');
+  await h.api.recordCountLocally(...counted('T-1', 'Cooler, recounted', 'Zone C'), 'op-2');
+  await h.api.forgetLocalCount('T-1', 'op-1');
+  assert.equal((await t1()).inventory_item, 'Cooler, recounted', 'the recount stays');
+  await h.api.forgetLocalCount('T-1', 'op-2');
+  assert.equal((await t1()).count_status, 'expected', 'with both gone, the download’s copy shows');
+
+  // A count that went through, then a recount the server refuses: the first comes back.
+  await h.api.recordCountLocally(...counted('T-1', 'Cooler', 'Zone B'), 'op-3');
+  await h.api.recordCountLocally(...counted('T-1', 'Cooler, moved', 'Zone C'), 'op-4');
+  await h.api.forgetLocalCount('T-1', 'op-4');
+  const back = await t1();
+  assert.equal(back.count_status, 'counted');
+  assert.equal(back.location, 'Zone B');
+});
+
+test('known limits: saving a count and forgetting another at the same moment keeps both changes', async () => {
+  let slow = 0;
+  // Each write of the saved counts takes a while, as storage does: the other change could read the list meanwhile.
+  const h = setup({ tables, beforeWrite: async (key) => { if (/count_items_local/.test(key)) { slow += 1; for (let i = 0; i < 3; i++) await new Promise(resolve => setImmediate(resolve)); } } });
+  await h.api.loadCountReference();
+  await h.api.recordCountLocally(...counted('T-1', 'Cooler', 'Zone B'), 'op-1');
+  await Promise.all([h.api.forgetLocalCount('T-1', 'op-1'), h.api.recordCountLocally(...counted('NEW-9', 'Spare', null), 'op-9')]);
+  const items = plain((await h.api.readCachedReference()).items);
+  assert.ok(slow > 0);
+  assert.equal(items.find(i => i.qr_code === 'T-1').count_status, 'expected', 'the refused count stays forgotten');
+  assert.equal(items.find(i => i.qr_code === 'NEW-9')?.count_status, 'counted', 'the new count is kept');
 });
 
 test('the web build shows plans from a signed URL instead of storing them', async () => {

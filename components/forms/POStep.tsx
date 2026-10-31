@@ -3,6 +3,7 @@ import { ScrollView, Text, StyleSheet } from 'react-native';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { useReceivingStore } from '@/stores/receivingStore';
+import { RECEIVING_STEPS } from '@/lib/utils/receivingLabels';
 import { colors } from '@/lib/design/tokens';
 
 interface Props {
@@ -30,7 +31,7 @@ export function POStep({ onNext, onBack }: Props) {
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
-      <Text style={styles.title}>PO / Delivery Info</Text>
+      <Text style={styles.title}>{RECEIVING_STEPS[1]}</Text>
 
       <Input label="Vendor" value={vendor} onChangeText={setVendor} placeholder="Vendor name" />
       <Input label="PO Number" value={poNumber} onChangeText={setPONumber} placeholder="PO-12345" />

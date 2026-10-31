@@ -115,11 +115,30 @@ function mergeLocal(items: InventoryItem[], local: InventoryItem[]) {
   return [...merged, ...local.filter(item => !known.has(item.qr_code.trim()))];
 }
 
+// A count saved on this device, one per tag: the latest. It names its count
+// (the queued operation) and keeps the entry it replaced, so forgetting one
+// count brings back what was there before it.
+type LocalCount = Partial<InventoryItem> & { operation?: string; previous?: LocalCount | null };
+const shown = ({ operation: _operation, previous: _previous, ...item }: LocalCount) => expand(item);
+
 async function readItems(): Promise<InventoryItem[]> {
   const chunks = (await getCached<number>(KEYS.itemChunks)) ?? 0;
   const parts = await Promise.all(Array.from({ length: chunks }, (_, index) => getCached<Partial<InventoryItem>[]>(KEYS.itemChunk(index))));
-  const local = (await getCached<Partial<InventoryItem>[]>(KEYS.localItems)) ?? [];
-  return mergeLocal(parts.flatMap(part => part ?? []).map(expand), local.map(expand));
+  const local = (await getCached<LocalCount[]>(KEYS.localItems)) ?? [];
+  return mergeLocal(parts.flatMap(part => part ?? []).map(expand), local.map(shown));
+}
+
+// Saving a count and forgetting one change the same list: one at a time, so
+// neither loses the other's change.
+let localChange: Promise<unknown> = Promise.resolve();
+function changeLocalCounts(change: (local: LocalCount[]) => Promise<LocalCount[] | null>): Promise<void> {
+  const guard = contextGuard();
+  const next = localChange.then(async () => {
+    const updated = await change((await getCached<LocalCount[]>(KEYS.localItems)) ?? []);
+    if (updated && guard.current()) await setCache(KEYS.localItems, updated);
+  });
+  localChange = next.catch(() => {});
+  return next;
 }
 
 const AREA_COLUMNS = 'id,map_id,parent_id,name,shape,color,sort_order,is_active,location_id';
@@ -294,20 +313,46 @@ export async function countedAreaInfo(item: Pick<InventoryItem, 'zone_id' | 'sit
 
 // Reflect a saved count in the cached tags straight away, so progress and the
 // outstanding list are right offline. The next download replaces it.
-export async function recordCountLocally(count: CountOperationPayload, zoneName: string | null): Promise<void> {
-  const guard = contextGuard();
-  const existing = findItemByTag(await readItems(), count.tag);
-  if (existing?.count_status === 'received') return;
-  const local = ((await getCached<Partial<InventoryItem>[]>(KEYS.localItems)) ?? []).map(expand);
-  const updated: InventoryItem = {
-    ...(existing ?? { id: -Date.now(), uid: '', qr_code: count.tag, ...NULL_FIELDS } as InventoryItem),
-    inventory_item: count.name, quantity: count.quantity, uom: count.uom, condition: count.condition,
-    category_id: count.categoryId ?? existing?.category_id ?? null, site_map_id: count.siteMapId,
-    pin_x: count.pin?.x ?? null, pin_y: count.pin?.y ?? null, zone_id: count.zoneId,
-    location: zoneName ?? existing?.location ?? null, count_status: 'counted', counted_at: new Date().toISOString(),
-  };
-  if (count.description) updated.item_description = count.description;
-  if (count.partNumber) updated.part_number = count.partNumber;
-  const next = [...local.filter(item => item.qr_code.trim() !== count.tag.trim()), updated];
-  if (guard.current()) await setCache(KEYS.localItems, next.map(compact));
+// `operation`: the count's queued operation, for forgetLocalCount.
+export async function recordCountLocally(count: CountOperationPayload, zoneName: string | null, operation?: string): Promise<void> {
+  await changeLocalCounts(async local => {
+    const existing = findItemByTag(await readItems(), count.tag);
+    if (existing?.count_status === 'received') return null;
+    const updated: InventoryItem = {
+      ...(existing ?? { id: -Date.now(), uid: '', qr_code: count.tag, ...NULL_FIELDS } as InventoryItem),
+      inventory_item: count.name, quantity: count.quantity, uom: count.uom, condition: count.condition,
+      category_id: count.categoryId ?? existing?.category_id ?? null, site_map_id: count.siteMapId,
+      pin_x: count.pin?.x ?? null, pin_y: count.pin?.y ?? null, zone_id: count.zoneId,
+      location: zoneName ?? existing?.location ?? null, count_status: 'counted', counted_at: new Date().toISOString(),
+    };
+    if (count.description) updated.item_description = count.description;
+    if (count.partNumber) updated.part_number = count.partNumber;
+    const sameTag = (item: LocalCount) => (item.qr_code ?? '').trim() === count.tag.trim();
+    const replaced = local.find(sameTag) ?? null;
+    return [...local.filter(item => !sameTag(item)), { ...compact(updated), ...(operation ? { operation } : {}), previous: replaced }];
+  });
+}
+
+// A saved count that won't go through as it is (the server refused it, or it
+// was discarded or reopened from Sync) no longer shows on this device: its tag
+// is back to what was there before that count, whatever its capitals. A later
+// count of the same tag stays.
+export async function forgetLocalCount(tag: string, operation: string): Promise<void> {
+  const wanted = tag.trim().toLowerCase();
+  await changeLocalCounts(async local => {
+    let changed = false;
+    const next = local.flatMap(entry => {
+      if ((entry.qr_code ?? '').trim().toLowerCase() !== wanted) return [entry];
+      const kept = withoutCount(entry, operation);
+      if (kept !== entry) changed = true;
+      return kept ? [kept] : [];
+    });
+    return changed ? next : null;
+  });
+}
+function withoutCount(entry: LocalCount, operation: string): LocalCount | null {
+  if (entry.operation === operation) return entry.previous ?? null;
+  if (!entry.previous) return entry;
+  const previous = withoutCount(entry.previous, operation);
+  return previous === entry.previous ? entry : { ...entry, previous };
 }

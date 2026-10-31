@@ -91,11 +91,28 @@ export function loadOf(item: QueueItem): string | null {
 export function unresolvedFor(items: QueueItem[], loadId: string): QueueItem[] {
   return items.filter(item => loadOf(item) === loadId && (item.refused || item.deadLetter || !!item.lastError));
 }
+// Kinds of saved work the crew can discard once automatic retries give up on
+// it. A kind this build doesn't know is kept for an administrator.
+const DISCARD_WHEN_STUCK = new Set([...OWN_TYPES, 'receiving', 'transfer', 'issue']);
 // What Sync lets the crew discard: anything the server refused (it will be
-// refused again unchanged), and any crate, load or licence item that automatic
-// retries have given up on (a licence must never be stuck on the device).
+// refused again unchanged), and receipts, transfers, issues, crate, load and
+// licence items that automatic retries have given up on (a licence must never
+// be stuck on the device).
 export function canDiscard(item: QueueItem): boolean {
-  return countRecoveryAction(item) !== null || isRefused(item) || (!!item.deadLetter && OWN_TYPES.has(item.action?.type));
+  return countRecoveryAction(item) !== null || isRefused(item) || (!!item.deadLetter && DISCARD_WHEN_STUCK.has(item.action?.type));
+}
+// A licence the server or the device refused can't go through as it is: its
+// number or photos are gone, the server turned it down, or there is no room for
+// its photos. Each way on starts with discarding it (then recording it again in
+// Driver check-in), so Sync offers no retry.
+export function licenceRefused(item: QueueItem): boolean {
+  return item.action?.type === 'licence' && isRefused(item);
+}
+// Discarding drops only the photos when the rest is saved already: a receipt
+// stopped at its photos, or a licence whose number is on file.
+export function discardKeepsSaved(item: QueueItem): boolean {
+  if (item.action?.type === 'licence') return !!item.action.payload?.recorded;
+  return item.action?.type === 'receiving' && /photo/i.test(item.lastError ?? '');
 }
 // Saved work the server refused doesn't count as done anywhere on the device.
 export function refusedChange(item: QueueItem): boolean {
@@ -110,6 +127,7 @@ export function queueRecoveryMessage(item: QueueItem): string {
     if (item.lastErrorCode === 'PHOTO_GONE') return 'The licence photos are no longer on this device. Discard this and record the licence again in Driver check-in.';
     if (item.lastErrorCode === 'PHOTO_REFUSED') return 'The licence number is on file, but storage refused the photo: a load keeps at most 4 licence files, and crews can’t add them once the load is closed. Discard this; the office can remove old photos. The truck can’t leave without a photo.';
     if (/at most 4 licence photos/.test(error)) return 'The licence is on file, but this load already has 4 licence photos, so these can’t be added. Discard this; the office can remove old photos.';
+    if (item.action.payload?.recorded) return `The licence number is on file, but the server refused its photo: “${reason}”. Discard this and record the licence again in Driver check-in.`;
     return `The server refused the licence: “${reason}”. Discard it and record the licence again in Driver check-in.`;
   }
   if (needsLicence(item)) return 'The server needs the driver’s licence number and a photo of it before the truck leaves. Record the licence again in Driver check-in, then retry. Office staff can send the departure without it, with a reason.';
@@ -128,10 +146,12 @@ export function queueRecoveryMessage(item: QueueItem): string {
   if (countRecoveryAction(item) === 'fix') return 'The server refused this count. Fix it in Count, or discard it. Retrying unchanged will be refused again.';
   if (count && countRecoveryAction(item) === 'discard') return `The server refused this count: “${reason}”. Discard it; it can't be counted now.`;
   if (isRefused(item)) return `The server refused this: “${reason}”. Sort that out and retry, or discard it.`;
+  // A licence's photos go only after its number is on file.
+  if (/photo/i.test(error) && item.action?.type === 'licence') return 'The licence number is on file. Retry to finish uploading its photos.';
   if (/photo/i.test(error)) return `The ${count ? 'count' : 'receipt'} may already be saved. Retry to finish attaching its photos; the same submission will be reused.`;
   if (/access|permission|jwt|sign.in|unauthorized|account|project/i.test(error)) return 'Verify your sign-in and project access, then retry. Your saved submission is preserved.';
   if (/unsupported|unknown.*type/i.test(error)) return 'Ask an administrator to review this saved submission. Keep it on this device.';
-  if (item.deadLetter) return 'Automatic retries have stopped. Check the support details with your administrator before retrying.';
+  if (item.deadLetter) return 'Automatic retries have stopped. Check the support details with your administrator before retrying or discarding it.';
   if (/network|fetch|connect|timeout/i.test(error)) return 'Check your connection and retry when online. Your saved submission is preserved.';
   return error ? 'The upload could not complete. Retry when online; if it fails again, share the support details with your administrator.' : 'Saved on this device. Uploads start when online access is verified.';
 }
