@@ -147,6 +147,9 @@ test('packing: label, details, items scanned in and checked with the server, loc
 
   await TestRenderer.act(async () => { h.usePackStore.getState().setLocation({ placeId: 'yard', placeName: 'Training Yard', siteMapId: 'map-a', zoneId: 'bay-3', zoneName: 'Bay 3' }); });
   await press('PackReviewStep', 'onSave', true);
+  // 022: when the pack was saved on the device.
+  assert.match(h.queued[0].action.payload.pack.capturedAt, /^\d{4}-\d\d-\d\dT[\d:.]+Z$/);
+  delete h.queued[0].action.payload.pack.capturedAt;
   assert.deepEqual(h.queued, [{ id: operationId, action: { type: 'pack', payload: {
     pack: { unitCode: 'HU-NEW123', seal: true, placeId: 'yard', zoneId: 'bay-3', siteMapId: 'map-a', add: ['PIPE-2', 'PIPE-1', 'PIPE-8'] },
     zoneName: 'Bay 3', placeName: 'Training Yard',
@@ -180,7 +183,9 @@ test('a crate packed on another device is looked up by its label, so its type an
   await press('PackContentsStep', 'onNext');
   await press('CrateLocationStep', 'onNext');
   await press('PackReviewStep', 'onSave', false);
-  assert.deepEqual(h.queued[0].action.payload.pack, { unitCode: 'HU-SKID01', seal: false, add: ['PIPE-2'] }, 'only the new item goes');
+  const { capturedAt, ...pack } = h.queued[0].action.payload.pack;
+  assert.ok(capturedAt);
+  assert.deepEqual(pack, { unitCode: 'HU-SKID01', seal: false, add: ['PIPE-2'] }, 'only the new item goes');
 });
 
 test('a tag the copy accepted but the server refuses is marked, and saving waits for checks still running', async () => {

@@ -4,19 +4,24 @@ import { useAuthStore } from '@/stores/authStore';
 import { useNetworkStore } from '@/lib/sync/networkStore';
 import { belongsToCurrentContext, getQueue, subscribeQueue, type QueueItem } from '@/lib/sync/offlineQueue';
 import { refusedChange } from '@/lib/sync/queuePresentation';
+import { licenceKnown } from '@/lib/sync/licenceMemory';
 import { loadLoad, readCachedLoad } from '@/lib/api/logistics';
-import { applyPending, EMPTY_LOAD, indexLoad, type LoadAction, type LoadReference } from '@/lib/logistics/crates';
+import { EMPTY_LOAD, indexLoad, type LoadReference } from '@/lib/logistics/crates';
+import { applyChanges, indexLoads } from '@/lib/logistics/loads';
 
 // A pack or unpack saved here changes the copy straight away (see `pending`),
 // so a recent download doesn't need repeating each time a crate is shown.
 const REFRESH_AFTER_MS = 2 * 60 * 1000;
-const OVERLAID = new Set(['pack', 'unpack', 'count']);
+const OVERLAID = new Set(['pack', 'unpack', 'move', 'count', 'load_save', 'load_on', 'load_depart', 'load_off', 'stop_complete', 'licence']);
 
-// Saved packs, unpacks and counts that still count as happening: the server
+// Saved packs, unpacks, moves, counts and load changes that still count as happening: the server
 // hasn't refused them. Refused ones wait in Sync and change nothing here.
 export function waitingChanges(queue: QueueItem[]): { pending: QueueItem[]; refused: QueueItem[] } {
   const mine = queue.filter(item => OVERLAID.has(item.action?.type) && belongsToCurrentContext(item));
-  return { pending: mine.filter(item => !refusedChange(item)), refused: mine.filter(refusedChange) };
+  // A licence whose number was forgotten (the app closed before it uploaded) won't go through as it is.
+  const lost = (item: QueueItem) => item.action.type === 'licence' && !item.action.payload.recorded && !licenceKnown(item.id);
+  const stuck = (item: QueueItem) => refusedChange(item) || lost(item);
+  return { pending: mine.filter(item => !stuck(item)), refused: mine.filter(stuck) };
 }
 
 // Crates for the active project, reloaded whenever the screen is shown: the
@@ -74,9 +79,10 @@ export function useLoadReference({ refresh }: { refresh: boolean }) {
   }, [snapshot]));
 
   const { pending, refused } = waiting;
-  const data = useMemo(() => applyPending(base, pending.map(item => item.action as LoadAction)), [base, pending]);
+  const data = useMemo(() => applyChanges(base, pending.map(item => item.action)), [base, pending]);
   const index = useMemo(() => indexLoad(data), [data]);
+  const loads = useMemo(() => indexLoads(data), [data]);
   // What the server is known to have: the download and changes it accepted since.
   const known = useMemo(() => indexLoad(base), [base]);
-  return { data, index, known, base, pending, refused, loading, source, error, reload };
+  return { data, index, loads, known, base, pending, refused, loading, source, error, reload };
 }

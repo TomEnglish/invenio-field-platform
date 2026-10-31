@@ -126,6 +126,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     const signedOut = supabase.auth.signOut();
     try {
       await clearOfflineAccess(userId);
+      // Licence data never outlives a sign-out (loaded here to keep the store free of upload code).
+      await import('@/lib/api/licence').then(licence => licence.clearLicenceData()).catch(() => {});
       if (version === revision) await switchFieldScopes(null, null);
       const result = await signedOut;
       if (result.error) throw result.error;
@@ -158,5 +160,6 @@ export function handleSignedOut() {
   ++revision;
   useAuthStore.setState({ ...cleared, loading: false });
   void clearOfflineAccess(userId).catch(() => {});
+  void import('@/lib/api/licence').then(licence => licence.clearLicenceData()).catch(() => {});
   void switchFieldScopes(null, null).catch(() => {});
 }

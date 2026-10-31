@@ -6,7 +6,7 @@ const { createModuleLoader } = require('./helpers/load-typescript.cjs');
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
-function scanScreen({ material = null, counted = null, area = { path: 'T1 Pipe Racks › Rack 2', locationId: 'rack-t1-1-2' }, areaLater = null } = {}) {
+function scanScreen({ material = null, counted = null, area = { path: 'T1 Pipe Racks › Rack 2', locationId: 'rack-t1-1-2' }, areaLater = null, server = null } = {}) {
   const routes = [];
   const records = new Map();
   const loader = createModuleLoader({ stubs: {
@@ -14,16 +14,18 @@ function scanScreen({ material = null, counted = null, area = { path: 'T1 Pipe R
     'react/jsx-runtime': require('react/jsx-runtime'),
     zustand: require('zustand'),
     'zustand/middleware': require('zustand/middleware'),
-    'react-native': { Platform: { OS: 'ios' } },
+    'react-native': { Platform: { OS: 'ios', select: (options) => options.ios ?? options.default }, StyleSheet: { create: (styles) => styles }, Text: 'Text' },
     '@react-native-async-storage/async-storage': {
       getItem: async (key) => records.get(key) ?? null,
       setItem: async (key, value) => { records.set(key, value); },
       removeItem: async (key) => { records.delete(key); },
     },
     'expo-router': { router: { push: (route) => routes.push(route) } },
-    '@/components/scanning/QRScanner': { QRScanner: (props) => React.createElement('QRScanner', props) },
+    '@/components/scanning/QRScanner': { QRScanner: (props) => React.createElement('QRScanner', props, props.actions) },
     '@/components/ui/Button': { Button: (props) => React.createElement('Button', props) },
     '@/lib/api/qrcodes': { lookupMaterialByQR: async () => { if (material === 'offline') throw new Error('Network request failed'); return material; } },
+    // lookup_tag unavailable (offline or before 022) unless a test gives the server's answer.
+    '@/lib/api/tags': { lookupTag: async () => (server instanceof Error ? Promise.reject(server) : server) },
     '@/lib/api/inventory': {
       findInventoryByTag: async (tag) => (counted && counted.qr_code === tag ? counted : null),
       countedAreaInfo: async () => (areaLater ? areaLater : area),
@@ -113,4 +115,36 @@ test('the receiving location is labelled with the area that holds the rack link'
   assert.equal(draft.location.location_id, 'rack-t1');
   assert.equal(draft.locationLabel, 'T1 Pipe Racks', 'the parent that owns the link, not the child');
   assert.equal(draft.countedFrom.zoneName, 'T1 Pipe Racks › Rack 3');
+});
+
+async function scanned(h, code) {
+  let renderer, texts;
+  await TestRenderer.act(async () => { renderer = TestRenderer.create(React.createElement(h.ScanScreenContent, { materialDetailRoute: '/(field)/material-detail', receivingRoute: '/(field)/receiving', crateRoute: '/(field)/crate', packRoute: '/(field)/pack' })); });
+  await TestRenderer.act(async () => { await renderer.root.findByType('QRScanner').props.onScan(code); });
+  texts = renderer.root.findAll(n => n.type === 'Text').map(n => [].concat(n.props.children).join(''));
+  await TestRenderer.act(async () => { renderer.unmount(); });
+  return texts;
+}
+
+test('022: Scan asks lookup_tag what a code is; receiving opens only when the server says it may start', async () => {
+  const received = scanScreen({ server: { kind: 'received', code: 'GT2-LO-001', can_receive: false, material_id: 'mat-7' } });
+  await scanned(received, 'gt2-lo-001');
+  assert.deepEqual(JSON.parse(JSON.stringify(received.routes)), [{ pathname: '/(field)/material-detail', params: { id: 'mat-7' } }]);
+
+  const counted = scanScreen({ counted: countedRecord, server: { kind: 'counted', code: 'GT2-LO-001', can_receive: true } });
+  await scanned(counted, 'gt2-lo-001');
+  assert.deepEqual(JSON.parse(JSON.stringify(counted.routes)), ['/(field)/receiving']);
+  assert.equal(counted.useReceivingStore.getState().qrCodeValue, 'GT2-LO-001', 'the counted spelling');
+
+  const travelling = scanScreen({ server: { kind: 'counted', code: 'GT2-LO-001', can_receive: false, position: 'on_load', load_number: 'L-0003' } });
+  assert.ok((await scanned(travelling, 'GT2-LO-001')).some(t => /on load L-0003; receive it when it comes off/.test(t)));
+  assert.deepEqual(JSON.parse(JSON.stringify(travelling.routes)), [], 'receiving doesn’t open');
+
+  const written = scanScreen({ server: { kind: 'written_off', code: 'GT2-LO-001', can_receive: false } });
+  assert.ok((await scanned(written, 'GT2-LO-001')).some(t => /written off/.test(t)));
+  assert.deepEqual(JSON.parse(JSON.stringify(written.routes)), []);
+
+  const refused = scanScreen({ server: Object.assign(new Error('Tag numbers must be 1 to 120 characters'), { code: '22023' }) });
+  assert.ok((await scanned(refused, 'X')).some(t => /1 to 120 characters/.test(t)));
+  assert.deepEqual(JSON.parse(JSON.stringify(refused.routes)), []);
 });

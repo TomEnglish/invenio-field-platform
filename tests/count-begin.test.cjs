@@ -12,7 +12,7 @@ const downloaded = {
   ],
 };
 
-function setup({ record = null, material = null, online = true, switchDuringLookup = false, kept = { siteMapId: null, pin: null, zoneId: null, zoneName: '' }, reference: given } = {}) {
+function setup({ record = null, material = null, online = true, switchDuringLookup = false, kept = { siteMapId: null, pin: null, zoneId: null, zoneName: '' }, reference: given, server = null, copy = null } = {}) {
   const started = [];
   const auth = { user: { id: 'worker-a' }, activeProject: { id: 'project-a' } };
   const { beginCount } = createModuleLoader({ stubs: {
@@ -24,6 +24,10 @@ function setup({ record = null, material = null, online = true, switchDuringLook
       withTimeout: (work) => work,
     },
     '@/lib/api/qrcodes': { lookupMaterialByQR: async () => material },
+    // lookup_tag unavailable (offline or before 022) unless a test gives the server's answer.
+    '@/lib/api/tags': { lookupTag: async () => server },
+    // The device's copy of crates and loads, read when the server doesn't answer.
+    '@/lib/api/logistics': { readCachedLoad: async () => copy ?? { units: [], items: [], places: [], materials: [], counted: [], loads: [], stops: [], lines: [], companies: [], savedAt: null } },
   } }).load('./components/inventory/beginCount.ts');
   const reference = given ?? { categories: [{ id: 'valve', parent_id: null, name: 'Valves', status: 'active', sort_order: 0 }], maps: [], zones: [], items: [], images: {}, savedAt: null };
   return { start: (code) => beginCount(code, reference), started };
@@ -100,4 +104,28 @@ test('a record\'s own location on a retired plan or area gives way to the kept o
   const own = setup({ record: { ...onRetired, zone_id: 'rack2' }, reference: downloaded });
   await own.start('T-1');
   assert.equal(own.started[0].prefill.location.zoneId, 'rack2', 'a usable recorded area is used');
+});
+
+test('022: crate labels, and items packed in a crate, on a truck or written off, aren’t counted; the server says which through lookup_tag', async () => {
+  assert.match((await setup().start('hu-aaaa01')).message, /HU- codes are crate labels; count the items inside the crate/);
+  const packed = setup({ record: expected, server: { kind: 'counted', code: 'T-1', can_receive: true, position: 'in_crate', crate_code: 'HU-AAAA01' } });
+  assert.match((await packed.start('T-1')).message, /packed in HU-AAAA01; take it out of the crate before counting it/);
+  assert.equal(packed.started.length, 0);
+  const travelling = setup({ record: expected, server: { kind: 'counted', code: 'T-1', can_receive: false, position: 'on_load', load_number: 'L-0003' } });
+  assert.match((await travelling.start('T-1')).message, /on load L-0003; count it when it comes off/);
+  const gone = setup({ server: { kind: 'written_off', code: 'T-1', can_receive: false } });
+  assert.match((await gone.start('T-1')).message, /written off on a load/);
+  const loose = setup({ record: expected, server: { kind: 'expected', code: 'T-1', can_receive: true, position: 'unknown' } });
+  assert.equal((await loose.start('t-1')).started, true);
+  assert.equal(loose.started[0].tag, 'T-1', 'a tag already counted keeps its spelling');
+});
+
+test('022: offline, the device’s copy keeps a packed or travelling item from being counted', async () => {
+  const copy = (extra) => ({ units: [], items: [], places: [], materials: [], counted: [], loads: [], stops: [], lines: [], companies: [], savedAt: 'x', ...extra });
+  const packed = setup({ online: false, record: expected, copy: copy({ items: [{ unit_code: 'HU-AAAA01', tag: 'T-1', name: 'Cooler', quantity: 1, uom: 'EA', material_id: null, inventory_uid: 'u' }] }) });
+  assert.match((await packed.start('T-1')).message, /T-1 is packed in HU-AAAA01; take it out of the crate before counting it/);
+  const travelling = setup({ online: false, record: expected, copy: copy({ lines: [{ id: 'l', load_id: 'load-a', load_number: 'L-0003', tag: 'T-1', status: 'on_board' }] }) });
+  assert.match((await travelling.start('T-1')).message, /on load L-0003; count it when it comes off/);
+  const planned = setup({ online: false, record: expected, copy: copy({ lines: [{ id: 'l', load_id: 'load-a', load_number: 'L-0003', tag: 'T-1', status: 'planned' }] }) });
+  assert.equal((await planned.start('T-1')).started, true, 'planned on a load that hasn’t left: still counted where it is');
 });

@@ -8,7 +8,7 @@ import {
   Modal,
   TouchableOpacity,
 } from 'react-native';
-import { useLocalSearchParams, Stack } from 'expo-router';
+import { useLocalSearchParams, Stack, router } from 'expo-router';
 import FontAwesome from '@expo/vector-icons/FontAwesome';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
@@ -32,6 +32,9 @@ import { addToQueue } from '@/lib/sync/offlineQueue';
 import type { Location } from '@/types/database';
 import { colors } from '@/lib/design/tokens';
 import { PackedInNote } from '@/components/logistics/PackedInNote';
+import { groupRoute } from '@/components/logistics/routes';
+import { positionsOfMaterials } from '@/lib/api/tags';
+import { materialActions, positionText, type ItemPosition } from '@/lib/logistics/positions';
 
 export default function MaterialDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -45,6 +48,10 @@ export default function MaterialDetailScreen() {
   const isOnline = useNetworkStore((s) => s.isOnline);
   const [material, setMaterial] = useState<MaterialWithLocation | null>(null);
   const [loading, setLoading] = useState(true);
+  // Where it is now (022's item_positions) and what that allows; Ship Out is the office's.
+  const office = user?.role !== 'field_worker';
+  const [position, setPosition] = useState<ItemPosition | null>(null);
+  const actions = materialActions(position, office);
 
   // Transfer state
   const [showTransfer, setShowTransfer] = useState(false);
@@ -82,6 +89,7 @@ export default function MaterialDetailScreen() {
     try {
       const data = await fetchMaterialById(id);
       setMaterial(data);
+      setPosition((await positionsOfMaterials([id])).get(id) ?? null);
     } catch (e: any) {
       Alert.alert('Error', e.message);
     }
@@ -126,7 +134,8 @@ export default function MaterialDetailScreen() {
       .order('zone')
       .order('row')
       .order('rack');
-    setLocations((data as Location[]) ?? []);
+    // Held stock goes, for crews, only to a hold area.
+    setLocations(((data as Location[]) ?? []).filter(loc => !actions.holdOnly || loc.is_hold_area));
     setSelectedLocation('');
     setTransferReason('');
     setShowTransfer(true);
@@ -196,22 +205,44 @@ export default function MaterialDetailScreen() {
         {material.weight && <DetailRow label="Weight" value={`${material.weight} lbs`} />}
         {material.spec && <DetailRow label="Spec" value={material.spec} />}
         {material.qr_code_value && <DetailRow label="QR Code" value={material.qr_code_value} />}
-        {material.location_zone && (
+        {material.location_zone ? (
           <DetailRow
-            label="Location"
+            label="Rack"
             value={`${material.location_zone} - Row ${material.location_row}, Rack ${material.location_rack}`}
           />
-        )}
+        ) : position ? <DetailRow label="Rack" value="Not on a yard rack" /> : null}
+        {position ? <DetailRow label="Where" value={positionText(position)} /> : null}
         <DetailRow label="Received" value={new Date(material.created_at).toLocaleDateString()} />
       </View>
 
-      <PackedInNote tag={material.qr_code_value} />
+      {position?.crate_code && position.position === 'in_crate' ? (
+        <TouchableOpacity accessibilityRole="button" accessibilityLabel={`${positionText(position)}. Open the crate.`} style={styles.positionLink}
+          onPress={() => router.push({ pathname: groupRoute('crate') as any, params: { code: position.top_crate_code ?? position.crate_code! } })}>
+          <FontAwesome name="archive" size={16} color={colors.brandPrimary} />
+          <Text style={styles.positionText}>{positionText(position)}</Text>
+        </TouchableOpacity>
+      ) : position?.load_id && (position.position === 'on_load' || position.position === 'missing') ? (
+        <TouchableOpacity accessibilityRole="button" accessibilityLabel={`${positionText(position)}. Open the load.`} style={styles.positionLink}
+          onPress={() => router.push({ pathname: groupRoute('load') as any, params: { id: position.load_id! } })}>
+          <FontAwesome name="truck" size={16} color={colors.brandPrimary} />
+          <Text style={styles.positionText}>{positionText(position)}</Text>
+        </TouchableOpacity>
+      ) : !position ? <PackedInNote tag={material.qr_code_value} /> : null}
+
+      {material.status === 'in_yard' && material.current_quantity > 0 && (actions.transfer || actions.issue || (office && actions.ship) || actions.holdOnly) ? (
+        <View style={styles.noteBox}>
+          {[...new Set([actions.transfer, actions.issue, office ? actions.ship : null].filter(Boolean))].map(why => <Text key={why} style={styles.noteText}>{why}</Text>)}
+          {actions.holdOnly ? <Text style={styles.noteText}>Until the office releases it, it can only be transferred to a hold area.</Text> : null}
+          {position?.position === 'in_crate' && !actions.issue ? <Text style={styles.noteText}>Issuing all of it takes it out of {position.crate_code}; issuing part leaves the rest packed and opens the crate.</Text> : null}
+        </View>
+      ) : null}
 
       {material.status === 'in_yard' && material.current_quantity > 0 && (
         <View style={styles.actions}>
-          <Button title="Transfer" onPress={openTransfer} style={{ flex: 1 }} />
+          <Button title="Transfer" onPress={openTransfer} disabled={!!actions.transfer} style={{ flex: 1 }} />
           <Button
             title="Issue"
+            disabled={!!actions.issue}
             variant="secondary"
             onPress={() => {
               setJobNumber('');
@@ -221,8 +252,9 @@ export default function MaterialDetailScreen() {
             }}
             style={{ flex: 1 }}
           />
-          <Button
+          {office ? <Button
             title="Ship Out"
+            disabled={!!actions.ship}
             variant="secondary"
             onPress={() => {
               setDestination('');
@@ -232,15 +264,22 @@ export default function MaterialDetailScreen() {
               setShowShipOut(true);
             }}
             style={{ flex: 1 }}
-          />
+          /> : null}
         </View>
       )}
+      {/* Only once the server says where it is: before migration 022 there is no relocate. */}
+      {material.status === 'in_yard' && material.current_quantity > 0 && material.qr_code_value && position && !actions.relocate ? (
+        <Button title="Correct where it is" variant="ghost" onPress={() => router.push({ pathname: groupRoute('relocate') as any, params: { tag: material.qr_code_value! } })} />
+      ) : null}
 
       {/* Transfer Modal */}
       <Modal visible={showTransfer} transparent animationType="slide">
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
             <Text style={styles.modalTitle}>Transfer Material</Text>
+            <Text style={styles.availableText}>
+              From: {material.location_zone ? `${material.location_zone} - Row ${material.location_row}, Rack ${material.location_rack}` : 'not on a yard rack'}
+            </Text>
 
             <Text style={styles.label}>New Location</Text>
             <ScrollView style={styles.locationList}>
@@ -407,6 +446,10 @@ const styles = StyleSheet.create({
     marginBottom: 20,
   },
   title: { fontSize: 22, fontWeight: '700', color: colors.textPrimary },
+  positionLink: { flexDirection: 'row', alignItems: 'center', gap: 8, minHeight: 44, paddingHorizontal: 12, paddingVertical: 8, borderRadius: 10, backgroundColor: colors.brandPrimarySoft, marginBottom: 12 },
+  positionText: { flex: 1, fontSize: 15, fontWeight: '500', color: colors.textPrimary },
+  noteBox: { gap: 4, padding: 12, borderRadius: 10, backgroundColor: colors.warnSoft, marginBottom: 12 },
+  noteText: { fontSize: 14, color: colors.warnDeep, lineHeight: 20 },
   statusBadge: {
     backgroundColor: colors.successSoft,
     paddingHorizontal: 10,

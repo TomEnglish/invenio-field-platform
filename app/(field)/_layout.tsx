@@ -69,6 +69,15 @@ export default function FieldLayout() {
           }}
         />
         <Tabs.Screen
+          name="loads"
+          options={{
+            title: 'Loads',
+            tabBarIcon: ({ color }) => (
+              <FontAwesome name="truck" size={24} color={color} />
+            ),
+          }}
+        />
+        <Tabs.Screen
           name="inventory"
           options={{
             title: 'Inventory',
@@ -107,6 +116,49 @@ export default function FieldLayout() {
             headerShown: false,
           }}
         />
+        {/* Loads: steps opened from a load. */}
+        <Tabs.Screen
+          name="load"
+          options={{
+            href: null,
+            headerShown: false,
+          }}
+        />
+        <Tabs.Screen
+          name="load-edit"
+          options={{
+            href: null,
+            headerShown: false,
+          }}
+        />
+        <Tabs.Screen
+          name="load-checkin"
+          options={{
+            href: null,
+            headerShown: false,
+          }}
+        />
+        <Tabs.Screen
+          name="load-out"
+          options={{
+            href: null,
+            headerShown: false,
+          }}
+        />
+        <Tabs.Screen
+          name="load-depart"
+          options={{
+            href: null,
+            headerShown: false,
+          }}
+        />
+        <Tabs.Screen
+          name="load-unload"
+          options={{
+            href: null,
+            headerShown: false,
+          }}
+        />
         {/* Crates: opened from Scan. */}
         <Tabs.Screen
           name="crate"
@@ -117,6 +169,14 @@ export default function FieldLayout() {
         />
         <Tabs.Screen
           name="pack"
+          options={{
+            href: null,
+            headerShown: false,
+          }}
+        />
+        {/* Moving a crate, or correcting where an item is. */}
+        <Tabs.Screen
+          name="relocate"
           options={{
             href: null,
             headerShown: false,

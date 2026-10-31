@@ -146,6 +146,14 @@ export default function OfficeLayout() {
             headerShown: false,
           }}
         />
+        {/* Loads, reached from the Dashboard. */}
+        <Tabs.Screen
+          name="loads"
+          options={{
+            title: 'Loads',
+            href: null,
+          }}
+        />
         {/* Field count, reached from the Dashboard. */}
         <Tabs.Screen
           name="count"
@@ -161,6 +169,49 @@ export default function OfficeLayout() {
             headerShown: false,
           }}
         />
+        {/* Loads: steps opened from a load. */}
+        <Tabs.Screen
+          name="load"
+          options={{
+            href: null,
+            headerShown: false,
+          }}
+        />
+        <Tabs.Screen
+          name="load-edit"
+          options={{
+            href: null,
+            headerShown: false,
+          }}
+        />
+        <Tabs.Screen
+          name="load-checkin"
+          options={{
+            href: null,
+            headerShown: false,
+          }}
+        />
+        <Tabs.Screen
+          name="load-out"
+          options={{
+            href: null,
+            headerShown: false,
+          }}
+        />
+        <Tabs.Screen
+          name="load-depart"
+          options={{
+            href: null,
+            headerShown: false,
+          }}
+        />
+        <Tabs.Screen
+          name="load-unload"
+          options={{
+            href: null,
+            headerShown: false,
+          }}
+        />
         {/* Crates: opened from Scan. */}
         <Tabs.Screen
           name="crate"
@@ -171,6 +222,14 @@ export default function OfficeLayout() {
         />
         <Tabs.Screen
           name="pack"
+          options={{
+            href: null,
+            headerShown: false,
+          }}
+        />
+        {/* Moving a crate, or correcting where an item is. */}
+        <Tabs.Screen
+          name="relocate"
           options={{
             href: null,
             headerShown: false,

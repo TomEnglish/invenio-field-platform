@@ -10,6 +10,10 @@ const ICONS: Record<string, { name: any; color: string; bg: string }> = {
   receiving: { name: 'download', color: colors.brandPrimary, bg: colors.brandPrimarySoft },
   transfer: { name: 'exchange', color: colors.warn, bg: colors.warnSoft },
   issue: { name: 'sign-out', color: colors.success, bg: colors.successSoft },
+  count: { name: 'check-square-o', color: colors.brandPrimary, bg: colors.brandPrimarySoft },
+  crate: { name: 'archive', color: colors.warn, bg: colors.warnSoft },
+  load: { name: 'truck', color: colors.success, bg: colors.successSoft },
+  other: { name: 'info-circle', color: colors.textMuted, bg: colors.raised },
 };
 
 const PAGE_SIZE = 30;
@@ -25,20 +29,21 @@ export function ActivityScreenContent({ filterByCurrentUser }: ActivityScreenPro
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [hasMore, setHasMore] = useState(false);
-  const offsetRef = useRef(0);
+  // The oldest entry shown so far: the next page is older than it.
+  const cursorRef = useRef<string | undefined>(undefined);
 
   const load = async () => {
     if (filterByCurrentUser && !user) return;
     setLoading(true);
-    offsetRef.current = 0;
+    cursorRef.current = undefined;
     try {
       const result = await fetchRecentActivity(
         filterByCurrentUser ? user?.id : undefined,
-        { offset: 0, limit: PAGE_SIZE }
+        { limit: PAGE_SIZE }
       );
       setItems(result.data);
       setHasMore(result.hasMore);
-      offsetRef.current = result.data.length;
+      cursorRef.current = result.next;
     } catch (e: any) {
       Alert.alert('Error', e.message);
     }
@@ -51,11 +56,11 @@ export function ActivityScreenContent({ filterByCurrentUser }: ActivityScreenPro
     try {
       const result = await fetchRecentActivity(
         filterByCurrentUser ? user?.id : undefined,
-        { offset: offsetRef.current, limit: PAGE_SIZE }
+        { before: cursorRef.current, limit: PAGE_SIZE }
       );
       setItems((prev) => [...prev, ...result.data]);
       setHasMore(result.hasMore);
-      offsetRef.current += result.data.length;
+      cursorRef.current = result.next ?? cursorRef.current;
     } catch { }
     setLoadingMore(false);
   };

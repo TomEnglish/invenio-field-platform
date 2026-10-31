@@ -3,7 +3,9 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useAuthStore } from '@/stores/authStore';
 import { newOperationId } from '@/lib/utils/operationId';
 import type { CountOperationPayload, CountPhoto } from '@/lib/inventory/count';
-import type { PackQueuePayload, UnpackOperationPayload } from '@/lib/logistics/crates';
+import type { MoveQueuePayload, PackQueuePayload, RelocateQueuePayload, UnpackOperationPayload } from '@/lib/logistics/crates';
+import { DECISION_CODES } from './decisionCodes';
+import type { LicencePayload, LoadDepartPayload, LoadOffPayload, LoadOnPayload, LoadQueuePayload, LoadSavePayload, StopCompletePayload } from '@/lib/logistics/loads';
 
 const QUEUE_KEY = 'offline_queue';
 const MAX_RETRIES = 5;
@@ -22,7 +24,18 @@ export type QueueAction =
   | { type: 'count'; payload: { count: CountOperationPayload; photos: CountPhoto[]; categoryLabel?: string; zoneName?: string } }
   // One whole pack session, and an unpack, as `apply_field_operation` takes them.
   | { type: 'pack'; payload: PackQueuePayload }
-  | { type: 'unpack'; payload: UnpackOperationPayload };
+  | { type: 'unpack'; payload: UnpackOperationPayload }
+  // A crate moved without opening it, and a loose item's place corrected (022).
+  | { type: 'move'; payload: MoveQueuePayload }
+  | { type: 'relocate'; payload: RelocateQueuePayload }
+  // Loads (022): each sent to apply_field_operation as `op`.
+  | { type: 'load_save'; payload: LoadQueuePayload<LoadSavePayload> }
+  | { type: 'load_on'; payload: LoadQueuePayload<LoadOnPayload> }
+  | { type: 'load_depart'; payload: LoadQueuePayload<LoadDepartPayload> }
+  | { type: 'load_off'; payload: LoadQueuePayload<LoadOffPayload> }
+  | { type: 'stop_complete'; payload: LoadQueuePayload<StopCompletePayload> }
+  // A driver's licence: recorded outside apply_field_operation, then photos.
+  | { type: 'licence'; payload: LicencePayload };
 
 export interface QueueItem {
   id: string;
@@ -32,8 +45,15 @@ export interface QueueItem {
   createdAt: string;
   retryCount?: number;
   lastError?: string;
+  // The server's SQLSTATE (or an app code) for lastError.
+  lastErrorCode?: string;
+  // Refused: retrying unchanged can't help, so it waits for the crew to retry
+  // after sorting it out, fix it or discard it. Not retried automatically.
+  refused?: boolean;
   deadLetter?: boolean;
 }
+// Refused, needs a decision: see decisionCodes.
+export { DECISION_CODES };
 
 export async function getQueue(): Promise<QueueItem[]> {
   const raw = await AsyncStorage.getItem(QUEUE_KEY);
@@ -56,7 +76,9 @@ export function belongsToCurrentContext(item: QueueItem): boolean {
   const { user, activeProject, session } = useAuthStore.getState();
   return !!session && !!user && !!activeProject && item.userId === user.id && item.projectId === activeProject.id;
 }
-export async function addToQueue(action: QueueAction, id = newOperationId()): Promise<string> {
+// `before`: put the item ahead of the first queued item it matches (a licence
+// goes ahead of its load's departure, which needs it).
+export async function addToQueue(action: QueueAction, id = newOperationId(), before?: (item: QueueItem) => boolean): Promise<string> {
   const { user, activeProject, session, loading } = useAuthStore.getState();
   if (loading || !user || !activeProject || !session || activeProject.status !== 'active') throw new Error('An authenticated user and active project are required.');
   const item: QueueItem = { id, userId: user.id, projectId: activeProject.id, action, createdAt: new Date().toISOString(), retryCount: 0, deadLetter: false };
@@ -64,19 +86,47 @@ export async function addToQueue(action: QueueAction, id = newOperationId()): Pr
     const old = queue.find((i) => i.id === id);
     if (old) {
       if (old.userId !== item.userId || old.projectId !== item.projectId || JSON.stringify(old.action) !== JSON.stringify(action)) throw new Error('This submission is already queued. Review it in Sync before starting another.');
-    } else queue.push(item);
+    } else {
+      const at = before ? queue.findIndex(before) : -1;
+      if (at >= 0) queue.splice(at, 0, item); else queue.push(item);
+    }
   });
   return id;
+}
+// Puts already-refused submissions in the queue just ahead of `beforeId`: the
+// pieces a partial step's server answer turned down, each waiting for a
+// decision in Sync (the same piece would be turned down again unchanged). An ID already queued is left as it is, so replaying the
+// step adds nothing twice.
+// They belong to the step's account and project, whoever is signed in now.
+export async function queueRefused(beforeId: string, owner: { userId: string; projectId: string }, entries: { id: string; action: QueueAction; error: string; code: string }[]): Promise<void> {
+  if (entries.length === 0) return;
+  await mutate((queue) => {
+    const at = queue.findIndex(item => item.id === beforeId);
+    const fresh = entries.filter(entry => !queue.some(item => item.id === entry.id)).map((entry): QueueItem => ({
+      id: entry.id, userId: owner.userId, projectId: owner.projectId, action: entry.action, createdAt: new Date().toISOString(), retryCount: 0, deadLetter: false,
+      lastError: entry.error, lastErrorCode: entry.code, refused: true,
+    }));
+    queue.splice(at >= 0 ? at : queue.length, 0, ...fresh);
+  });
+}
+// Rewrites a saved submission in place, e.g. to drop a licence number once
+// the server has it. The item keeps its place, ID and retry state.
+export async function replaceQueuedAction(id: string, action: QueueAction): Promise<void> {
+  await mutate((queue) => { const item = queue.find((i) => i.id === id); if (item) item.action = action; });
 }
 export async function removeFromQueue(id: string): Promise<void> {
   await mutate((queue) => { const at = queue.findIndex((item) => item.id === id); if (at >= 0) queue.splice(at, 1); });
 }
-export async function markFailed(id: string, error: string): Promise<void> {
+export async function markFailed(id: string, error: string, code?: string): Promise<void> {
   await mutate((queue) => {
     const item = queue.find((i) => i.id === id);
     if (!item) return;
-    item.retryCount = (item.retryCount ?? 0) + 1;
     item.lastError = error;
+    item.lastErrorCode = code;
+    item.refused = !!code && DECISION_CODES.has(code);
+    // A refusal isn't a failed try: it waits for a decision instead.
+    if (item.refused) return;
+    item.retryCount = (item.retryCount ?? 0) + 1;
     item.deadLetter = item.retryCount >= MAX_RETRIES;
   });
 }
@@ -84,11 +134,11 @@ export async function retryQueueItem(id: string): Promise<void> {
   await mutate((queue) => {
     const item = queue.find((i) => i.id === id && belongsToCurrentContext(i));
     if (!item) throw new Error('Switch to the original account and project to retry.');
-    item.deadLetter = false; item.retryCount = 0; item.lastError = undefined;
+    item.deadLetter = false; item.retryCount = 0; item.lastError = undefined; item.lastErrorCode = undefined; item.refused = false;
   });
 }
 export async function getQueueStats(): Promise<{ pending: number; deadLetters: number }> {
   const queue = (await getQueue()).filter(belongsToCurrentContext);
-  return { pending: queue.filter(i => !i.deadLetter).length, deadLetters: queue.filter(i => i.deadLetter).length };
+  return { pending: queue.filter(i => !i.deadLetter && !i.refused).length, deadLetters: queue.filter(i => i.deadLetter || i.refused).length };
 }
 export async function getQueueLength(): Promise<number> { return (await getQueueStats()).pending; }

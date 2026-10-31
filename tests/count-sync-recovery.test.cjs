@@ -52,8 +52,10 @@ function syncScreen(queue, { draftTag = '', removeFails = false } = {}) {
       },
       belongsToCurrentContext: (item) => item.userId === auth.user.id && item.projectId === auth.activeProject.id,
     },
+    '@/lib/api/licence': { deleteLicencePhotos: async () => {} },
     '@/lib/sync/syncManager': { processQueue: async () => ({ processed: 0, failed: 0 }) },
     '@/components/ui/Button': { Button: (props) => React.createElement('Button', props) },
+    '@/components/ui/Input': { Input: (props) => React.createElement('Input', props) },
     '@/lib/design/tokens': { colors: new Proxy({}, { get: () => '#000' }) },
   } });
   return { SyncScreen: loader.load('./app/sync.tsx').default, calls, countState };
@@ -129,9 +131,9 @@ test('discarding asks first; a received tag can only be discarded; photo and con
 
 test('a crate change the server refused shows its reason and keeps Retry, with Discard after a confirmation', async () => {
   const reason = 'PIPE-1 is already in crate HU-AAAA01; take it out of that crate first';
-  const crate = (id, lastError, action) => ({ id, userId: 'worker-a', projectId: 'project-a', createdAt: '2026-10-29T12:00:00.000Z', retryCount: 1, deadLetter: false, lastError, action });
+  const crate = (id, lastError, action, code) => ({ id, userId: 'worker-a', projectId: 'project-a', createdAt: '2026-10-29T12:00:00.000Z', retryCount: 1, deadLetter: false, lastError, lastErrorCode: code, refused: code === '22023', action });
   const h = syncScreen([
-    crate('pack', reason, { type: 'pack', payload: { pack: { unitCode: 'HU-NEW123', add: ['PIPE-1'], seal: true }, zoneName: 'Bay 3' } }),
+    crate('pack', reason, { type: 'pack', payload: { pack: { unitCode: 'HU-NEW123', add: ['PIPE-1'], seal: true }, zoneName: 'Bay 3' } }, '22023'),
     crate('unpack', 'Network request failed', { type: 'unpack', payload: { unitCode: 'HU-AAAA01' } }),
   ]);
   const renderer = await render(h);
@@ -139,6 +141,7 @@ test('a crate change the server refused shows its reason and keeps Retry, with D
   assert.ok(texts(renderer).includes('Crate packing · 1 in · Sealed · Bay 3'));
   assert.ok(texts(renderer).includes(`The server refused this crate change: “${reason}”. Sort that out and retry, or discard the change.`));
   assert.equal(buttons(renderer, 'Retry upload').length, 2, 'a refusal can be sorted out on site and retried');
+  assert.ok(texts(renderer).includes('Refused: needs a decision'));
   assert.equal(buttons(renderer, 'Fix in Count').length, 0);
   assert.equal(buttons(renderer, 'Discard change…').length, 1, 'a connection failure just retries');
 

@@ -96,12 +96,14 @@ function scanScreen() {
     'react/jsx-runtime': require('react/jsx-runtime'),
     zustand: require('zustand'),
     'zustand/middleware': require('zustand/middleware'),
-    'react-native': { Platform: { OS: 'ios' } },
+    'react-native': { Platform: { OS: 'ios', select: (options) => options.ios ?? options.default }, StyleSheet: { create: (styles) => styles }, Text: 'Text' },
     '@react-native-async-storage/async-storage': { getItem: async (k) => records.get(k) ?? null, setItem: async (k, v) => { records.set(k, v); }, removeItem: async (k) => { records.delete(k); } },
     'expo-router': { router: { push: (route) => routes.push(route) } },
     '@/components/scanning/QRScanner': { QRScanner: (props) => React.createElement('QRScanner', props, props.actions) },
     '@/components/ui/Button': { Button: element('Button') },
     '@/lib/api/qrcodes': { lookupMaterialByQR: async (code) => { lookups.push(code); return null; } },
+    // lookup_tag unavailable (offline or before 022): the earlier lookups decide.
+    '@/lib/api/tags': { lookupTag: async () => null },
     '@/lib/api/inventory': { findInventoryByTag: async (code) => { lookups.push(code); return null; }, countedAreaInfo: async () => ({}) },
   } });
   const { ScanScreenContent } = loader.load('./components/screens/ScanScreen.tsx');

@@ -149,7 +149,8 @@ test('the outstanding list excludes found and pending tags and searches tag, nam
   same(count.outstandingTags(items, [], 'valve').map(i => i.qr_code), ['T-2 ']);
   same(count.recentCounts(items).map(i => i.qr_code), ['T-3', 'T-10']);
   assert.equal(count.findItemByTag(items, ' T-2').inventory_item, 'Valve', 'tags match trimmed');
-  assert.equal(count.findItemByTag(items, 't-1'), undefined, 'tags are case-sensitive');
+  // 022: a tag is unique per project whatever its capitals.
+  assert.equal(count.findItemByTag(items, 't-1').qr_code, 'T-1', 'tags match whatever their capitals');
 });
 
 test('receiving from a count pre-fills description, whole-number quantity and part number as spec', () => {
