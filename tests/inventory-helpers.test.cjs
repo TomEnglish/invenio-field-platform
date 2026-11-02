@@ -169,6 +169,16 @@ test('the counted banner reads like "Counted Oct 30 in Zone B"', () => {
   assert.equal(count.countedBannerText(null, null), 'Counted');
 });
 
+test('Count home shows the time on a 12-hour clock, like "2:05 PM"', () => {
+  const at = (hour, minute) => new Date(2026, 9, 30, hour, minute).toISOString();
+  assert.equal(count.shortTime(at(14, 5)), '2:05 PM');
+  assert.equal(count.shortTime(at(9, 15)), '9:15 AM');
+  assert.equal(count.shortTime(at(0, 0)), '12:00 AM', 'midnight');
+  assert.equal(count.shortTime(at(12, 30)), '12:30 PM', 'noon');
+  assert.equal(count.shortTime(null), '');
+  assert.equal(count.shortTime('not a date'), '');
+});
+
 test('a matched record pre-fills the draft; an expected one keeps the last location', () => {
   const record = {
     id: 1, uid: 'u', qr_code: 'T-1', inventory_item: 'Cooler', item_description: null, part_number: 'P-9', quantity: '2.000',

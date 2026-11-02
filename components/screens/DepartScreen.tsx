@@ -59,12 +59,12 @@ export function DepartScreenContent() {
     {stuck.length ? <Button title="View Sync" variant="secondary" onPress={() => router.push('/sync')} /> : null}
     {issue && !stuck.length && load && (!load.driver_name || check.licenceMissing) ? <Button title="Driver check-in" variant="secondary" onPress={() => router.push({ pathname: groupRoute('load-checkin') as any, params: { id } })} /> : null}
     {office && check.licenceMissing && load?.driver_name && !stuck.length ? (leaving ? <View style={styles.refused}>
-      <Text style={styles.warning}>Leaving without the driver’s licence is recorded on the load with your name and the reason.</Text>
-      <Input label="Reason" required value={override.reason} onChangeText={text => setOverride({ id, open: true, reason: text })} maxLength={OVERRIDE_MAX} multiline placeholder="e.g. Driver's licence checked by phone with the carrier" />
-      <Button title="Keep the licence requirement" variant="ghost" onPress={() => setOverride({ id, open: false, reason: '' })} />
-    </View> : <Button title="Leave without the licence (office)…" variant="ghost" onPress={() => setOverride({ id, open: true, reason: '' })} />) : null}
+      <Text style={styles.warning}>Leaving without the driver’s license is recorded on the load with your name and the reason.</Text>
+      <Input label="Reason" required value={override.reason} onChangeText={text => setOverride({ id, open: true, reason: text })} maxLength={OVERRIDE_MAX} multiline placeholder="e.g. Driver's license checked by phone with the carrier" />
+      <Button title="Keep the license requirement" variant="ghost" onPress={() => setOverride({ id, open: false, reason: '' })} />
+    </View> : <Button title="Leave without the license (office)…" variant="ghost" onPress={() => setOverride({ id, open: true, reason: '' })} />) : null}
     {error ? <Text style={styles.error} accessibilityRole="alert">{error}</Text> : null}
-    <Button title={leaving && check.licenceMissing ? 'Depart without the licence' : 'Depart'} onPress={depart} loading={saving} disabled={!!issue} />
+    <Button title={leaving && check.licenceMissing ? 'Depart without the license' : 'Depart'} onPress={depart} loading={saving} disabled={!!issue} />
     <Button title="Back" variant="ghost" onPress={() => router.back()} disabled={saving} />
   </ScrollView>;
 }

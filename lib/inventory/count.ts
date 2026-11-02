@@ -316,6 +316,13 @@ export function shortDate(iso: string | null | undefined): string {
   const date = iso ? new Date(iso) : null;
   return date && !Number.isNaN(date.getTime()) ? `${MONTHS[date.getMonth()]} ${date.getDate()}` : '';
 }
+// "2:05 PM": 12-hour, on the device's clock
+export function shortTime(iso: string | null | undefined): string {
+  const date = iso ? new Date(iso) : null;
+  if (!date || Number.isNaN(date.getTime())) return '';
+  const hours = date.getHours();
+  return `${hours % 12 || 12}:${String(date.getMinutes()).padStart(2, '0')} ${hours < 12 ? 'AM' : 'PM'}`;
+}
 
 // "Counted Oct 30 in Zone B"
 export function countedBannerText(countedAt: string | null | undefined, zoneName: string | null | undefined): string {

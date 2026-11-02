@@ -132,7 +132,7 @@ test('load out saves a piece this device doesn’t know on its own, so a refusal
   await TestRenderer.act(async () => { s.r.unmount(); });
 });
 
-test('check-in saves the driver and companies as one load_save and the licence as its own item; the number is never stored in the draft', async () => {
+test('check-in saves the driver and companies as one load_save and the license as its own item; the number is never stored in the draft', async () => {
   const h = load();
   const { useCheckInStore, switchCheckInScope } = h.loader.load('./stores/checkInStore.ts');
   await switchCheckInScope('worker-a', 'project-a');
@@ -147,10 +147,10 @@ test('check-in saves the driver and companies as one load_save and the licence a
   await s.press(s.button('Add company'));
   await type('Company 1', 'Gulf Freight');
   await s.press(s.r.root.findAll(n => n.type === 'Button' && n.props.title === 'Broker')[0]);
-  await s.press(s.button('Next: licence'));
-  await type('Licence number', 'tx 98765-432');
+  await s.press(s.button('Next: license'));
+  await type('License number', 'tx 98765-432');
   await type('Issuing state', 'Texas');
-  assert.equal(input('Licence number').props.autoComplete, 'off');
+  assert.equal(input('License number').props.autoComplete, 'off');
   await s.press(s.button('Take photo'));
   await new Promise(resolve => setTimeout(resolve, 10));
   assert.equal(h.records.get('checkin-draft-worker-a-project-a')?.includes('98765'), false, 'the draft on disk never has the number');
@@ -341,7 +341,7 @@ test('review fixes: a double tap on a piece takes it off once', async () => {
   await TestRenderer.act(async () => { s.r.unmount(); });
 });
 
-test('review fixes: a licence photo leaves no other copy on the device', async () => {
+test('review fixes: a license photo leaves no other copy on the device', async () => {
   const deleted = [], copied = [];
   const loader = createModuleLoader({ stubs: {
     'react-native': { Platform: { OS: 'ios' } },
@@ -388,7 +388,7 @@ test('the user’s rules: no Finish stop at a shop or vendor; Depart and Finish 
   const noLicence = load({ ref: reference({ loads: [{ ...baseLoad, driver_name: 'Sam' }] }) });
   s = await show(noLicence, './components/screens/DepartScreen.tsx', 'DepartScreenContent');
   assert.equal(s.button('Depart').props.disabled, true);
-  assert.ok(s.texts().some(t => /Record the driver's licence/.test(t)));
+  assert.ok(s.texts().some(t => /Record the driver's license/.test(t)));
   assert.ok(s.button('Driver check-in'));
   await TestRenderer.act(async () => { s.r.unmount(); });
 });
@@ -396,22 +396,22 @@ test('the user’s rules: no Finish stop at a shop or vendor; Depart and Finish 
 const typeInto = (s, label, text) => TestRenderer.act(async () => { s.r.root.findAll(n => n.type === 'Input' && n.props.label === label)[0].props.onChangeText(text); });
 const choose = (s, label, value) => TestRenderer.act(async () => { s.r.root.findAll(n => n.type === 'Select' && n.props.label === label)[0].props.onChange(value); });
 
-test('022: office staff can let a load leave without the licence, giving a reason; a crew can’t', async () => {
+test('022: office staff can let a load leave without the license, giving a reason; a crew can’t', async () => {
   const ref = reference({ loads: [{ ...baseLoad, driver_name: 'Sam Ortiz' }] });
   const crew = load({ ref });
   let s = await show(crew, './components/screens/DepartScreen.tsx', 'DepartScreenContent');
-  assert.ok(s.texts().some(t => /Record the driver's licence/.test(t)));
-  assert.equal(s.button('Leave without the licence (office)…'), undefined, 'not offered to a crew');
+  assert.ok(s.texts().some(t => /Record the driver's license/.test(t)));
+  assert.equal(s.button('Leave without the license (office)…'), undefined, 'not offered to a crew');
   assert.ok(s.button('Driver check-in'));
   await TestRenderer.act(async () => { s.r.unmount(); });
 
   const office = load({ ref, role: 'office_staff' });
   s = await show(office, './components/screens/DepartScreen.tsx', 'DepartScreenContent');
-  await s.press(s.button('Leave without the licence (office)…'));
-  assert.equal(s.button('Depart without the licence').props.disabled, true);
+  await s.press(s.button('Leave without the license (office)…'));
+  assert.equal(s.button('Depart without the license').props.disabled, true);
   assert.ok(s.texts().some(t => /at least 5 characters/.test(t)));
   await typeInto(s, 'Reason', 'Checked with the carrier by phone');
-  await s.press(s.button('Depart without the licence'));
+  await s.press(s.button('Depart without the license'));
   assert.deepEqual(office.queued.map(q => q.action.payload.op), [{ loadId: 'load-a', overrideReason: 'Checked with the carrier by phone' }]);
   assert.deepEqual(office.captured, office.queued.map(q => q.id));
   await TestRenderer.act(async () => { s.r.unmount(); });

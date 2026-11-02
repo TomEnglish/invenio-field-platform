@@ -120,7 +120,7 @@ test('022: crate labels, and items packed in a crate, on a truck or written off,
   assert.equal(loose.started[0].tag, 'T-1', 'a tag already counted keeps its spelling');
 });
 
-test('022: offline, the device’s copy keeps a packed or travelling item from being counted', async () => {
+test('022: offline, the device’s copy keeps a packed or traveling item from being counted', async () => {
   const copy = (extra) => ({ units: [], items: [], places: [], materials: [], counted: [], loads: [], stops: [], lines: [], companies: [], savedAt: 'x', ...extra });
   const packed = setup({ online: false, record: expected, copy: copy({ items: [{ unit_code: 'HU-AAAA01', tag: 'T-1', name: 'Cooler', quantity: 1, uom: 'EA', material_id: null, inventory_uid: 'u' }] }) });
   assert.match((await packed.start('T-1')).message, /T-1 is packed in HU-AAAA01; take it out of the crate before counting it/);

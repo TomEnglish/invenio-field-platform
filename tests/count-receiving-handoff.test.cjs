@@ -108,7 +108,7 @@ test('receiving opens at once; the area path and rack fill in after, without ove
   assert.equal(draft.location.location_id, 'chosen-by-hand');
 });
 
-test('the receiving location is labelled with the area that holds the rack link', async () => {
+test('the receiving location is labeled with the area that holds the rack link', async () => {
   const h = scanScreen({ counted: countedRecord, area: { path: 'T1 Pipe Racks › Rack 3', locationId: 'rack-t1', locationLabel: 'T1 Pipe Racks' } });
   await scan(h, 'GT2-LO-001');
   const draft = h.useReceivingStore.getState();

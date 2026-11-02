@@ -118,7 +118,7 @@ export function CheckInScreenContent() {
   if (saved) return <ScrollView contentContainerStyle={[styles.content, { justifyContent: 'center' }]}>
     <Stack.Screen options={{ headerShown: true, title: 'Checked in' }} />
     <Text style={styles.title} accessibilityRole="header" accessibilityLiveRegion="polite">Driver checked in</Text>
-    <Text style={styles.muted}>Saved on this device. It uploads when online; Sync shows anything waiting. The licence shows only as “Licence on file”.</Text>
+    <Text style={styles.muted}>Saved on this device. It uploads when online; Sync shows anything waiting. The license shows only as “License on file”.</Text>
     <Button title="Back to the load" onPress={() => router.back()} />
   </ScrollView>;
 
@@ -163,15 +163,15 @@ export function CheckInScreenContent() {
       </> : null}
 
       {step === 2 ? <>
-        {onFile ? <Text style={styles.text}>Licence on file. Enter it again only to correct it.</Text> : null}
-        {!onFile && load?.licence_recorded_at ? <Text style={styles.warning}>The licence on file is incomplete: the number or the photo of it is missing. Enter it again, with a photo of the front.</Text> : null}
+        {onFile ? <Text style={styles.text}>License on file. Enter it again only to correct it.</Text> : null}
+        {!onFile && load?.licence_recorded_at ? <Text style={styles.warning}>The license on file is incomplete: the number or the photo of it is missing. Enter it again, with a photo of the front.</Text> : null}
         {/* Typed only: no autofill, no suggestions, never shown again. */}
-        <Input label="Licence number" required={!onFile} value={draft.licenceNumber} onChangeText={text => draft.set({ licenceNumber: text })} maxLength={40}
+        <Input label="License number" required={!onFile} value={draft.licenceNumber} onChangeText={text => draft.set({ licenceNumber: text })} maxLength={40}
           autoCapitalize="characters" autoCorrect={false} autoComplete="off" importantForAutofill="no" textContentType="none" spellCheck={false} />
         <Input label="Issuing state" value={draft.licenceState} onChangeText={text => draft.set({ licenceState: text })} maxLength={40} />
-        <DatePicker label="Expiry" value={parseDate(draft.licenceExpiry)} onChange={date => draft.set({ licenceExpiry: date ? isoDate(date) : '' })} placeholder="Not entered" />
-        {photo('front', 'Front of the licence')}
-        {photo('back', 'Back of the licence (optional)')}
+        <DatePicker label="Expiration date" value={parseDate(draft.licenceExpiry)} onChange={date => draft.set({ licenceExpiry: date ? isoDate(date) : '' })} placeholder="Not entered" />
+        {photo('front', 'Front of the license')}
+        {photo('back', 'Back of the license (optional)')}
       </> : null}
 
       {step === REVIEW ? <>
@@ -187,9 +187,9 @@ export function CheckInScreenContent() {
           <Button title="Edit companies" variant="ghost" onPress={() => draft.setStep(1)} />
         </View>
         <View style={styles.card}>
-          <Text style={styles.heading}>Licence</Text>
-          <Text style={styles.text}>{draft.licenceNumber.trim() ? `Number entered · ${[draft.front, draft.back].filter(Boolean).length} photo${[draft.front, draft.back].filter(Boolean).length === 1 ? '' : 's'}` : onFile ? 'Licence on file' : 'Not entered'}</Text>
-          <Button title="Edit licence" variant="ghost" onPress={() => draft.setStep(2)} />
+          <Text style={styles.heading}>License</Text>
+          <Text style={styles.text}>{draft.licenceNumber.trim() ? `Number entered · ${[draft.front, draft.back].filter(Boolean).length} photo${[draft.front, draft.back].filter(Boolean).length === 1 ? '' : 's'}` : onFile ? 'License on file' : 'Not entered'}</Text>
+          <Button title="Edit license" variant="ghost" onPress={() => draft.setStep(2)} />
         </View>
       </> : null}
 
