@@ -20,7 +20,8 @@ export interface ActivityItem { id: string; type: ActivityType; description: str
 const list = (value: unknown) => (Array.isArray(value) ? value.length : 0);
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
 const words = (action: string) => {
-  const text = action.replace(/_/g, ' ').trim();
+  // Action names are code names: load_cancelled reads "Load canceled".
+  const text = action.replace(/_/g, ' ').replace(/\bcancelled\b/g, 'canceled').trim();
   return text ? text[0].toUpperCase() + text.slice(1) : 'Change';
 };
 

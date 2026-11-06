@@ -115,11 +115,11 @@ test('022: a piece another load had planned can be moved to this load from Sync:
   await TestRenderer.act(async () => { renderer.unmount(); });
 });
 
-test('review fixes: a departure held back for the licence can be sent without it by office staff, with a reason; a crew is told to record it', async () => {
+test('review fixes: a departure held back for the license can be sent without it by office staff, with a reason; a crew is told to record it', async () => {
   const setupSync = (role) => {
     const auth = { user: { id: 'worker-a', role }, activeProject: { id: 'project-a', name: 'Project A', status: 'active' }, accessMode: 'online', loading: false };
     const item = { id: 'depart', userId: 'worker-a', projectId: 'project-a', createdAt: '2026-10-31T10:00:00.000Z', refused: true, lastErrorCode: '22023',
-      lastError: "Record the driver's licence number and a photo of it before load L-0003 leaves", action: { type: 'load_depart', payload: { op: { loadId: 'load-a' }, label: 'L-0003' } } };
+      lastError: "Record the driver's license number and a photo of it before load L-0003 leaves", action: { type: 'load_depart', payload: { op: { loadId: 'load-a' }, label: 'L-0003' } } };
     const calls = [];
     const loader = createModuleLoader({ stubs: {
       react: React, 'react/jsx-runtime': require('react/jsx-runtime'),
@@ -147,18 +147,18 @@ test('review fixes: a departure held back for the licence can be sent without it
   let renderer;
   await TestRenderer.act(async () => { renderer = TestRenderer.create(React.createElement(crew.SyncScreen)); });
   const buttons = () => renderer.root.findAll(node => node.type === 'Button').map(node => node.props.title);
-  assert.ok(renderer.root.findAll(node => node.type === 'Text').some(node => /Record the licence again in Driver check-in/.test([].concat(node.props.children).join(''))));
-  assert.equal(buttons().includes('Leave without the licence (office)…'), false);
+  assert.ok(renderer.root.findAll(node => node.type === 'Text').some(node => /Record the license again in Driver check-in/.test([].concat(node.props.children).join(''))));
+  assert.equal(buttons().includes('Leave without the license (office)…'), false);
   await TestRenderer.act(async () => { renderer.unmount(); });
 
   const office = setupSync('office_staff');
   await TestRenderer.act(async () => { renderer = TestRenderer.create(React.createElement(office.SyncScreen)); });
   const button = (title) => renderer.root.findAll(node => node.type === 'Button' && node.props.title === title)[0];
-  await TestRenderer.act(async () => { button('Leave without the licence (office)…').props.onPress(); });
-  assert.equal(button('Send without the licence').props.disabled, true, 'a reason first');
-  await TestRenderer.act(async () => { renderer.root.findByType('Input').props.onChangeText('Licence checked by phone with the carrier'); });
-  await TestRenderer.act(async () => { await button('Send without the licence').props.onPress(); });
-  assert.deepEqual(office.calls, [['replace', 'depart', { loadId: 'load-a', overrideReason: 'Licence checked by phone with the carrier' }], ['retry', 'depart'], ['sync']]);
+  await TestRenderer.act(async () => { button('Leave without the license (office)…').props.onPress(); });
+  assert.equal(button('Send without the license').props.disabled, true, 'a reason first');
+  await TestRenderer.act(async () => { renderer.root.findByType('Input').props.onChangeText('License checked by phone with the carrier'); });
+  await TestRenderer.act(async () => { await button('Send without the license').props.onPress(); });
+  assert.deepEqual(office.calls, [['replace', 'depart', { loadId: 'load-a', overrideReason: 'License checked by phone with the carrier' }], ['retry', 'depart'], ['sync']]);
   await TestRenderer.act(async () => { renderer.unmount(); });
 });
 
@@ -206,45 +206,45 @@ async function showSync(h) {
 const saved = (id, action, extra = {}) => ({ id, userId: 'worker-a', projectId: 'project-a', createdAt: '2026-10-31T10:00:00.000Z', retryCount: 0, deadLetter: false, action, ...extra });
 const licence = (id, label, extra) => saved(id, { type: 'licence', payload: { loadId: `load-${id}`, label, photos: [{ uri: `file:///cache/licence-photos/${id}.jpg` }], ...extra.payload } }, { refused: true, ...extra.item });
 
-test('known limits: a licence the server or the device refused has no Retry upload; each card says to discard it', async () => {
+test('known limits: a license the server or the device refused has no Retry upload; each card says to discard it', async () => {
   const h = syncSetup([
-    licence('forgotten', 'L-0001', { item: { lastErrorCode: 'LICENCE_FORGOTTEN', lastError: 'The licence number is no longer on this device; record the licence again.' } }),
-    licence('gone', 'L-0002', { payload: { recorded: true }, item: { lastErrorCode: 'PHOTO_GONE', lastError: 'The licence photos are no longer on this device; record the licence again.' } }),
-    licence('server', 'L-0003', { item: { lastErrorCode: '22023', lastError: 'The licence expiry must be a real date' } }),
-    licence('storage', 'L-0004', { payload: { recorded: true }, item: { lastErrorCode: 'PHOTO_REFUSED', lastError: 'Licence recorded; storage refused the photo: new row violates row-level security policy' } }),
-    licence('full', 'L-0005', { payload: { recorded: true }, item: { lastErrorCode: '22023', lastError: 'Licence recorded; photo will retry: A load keeps at most 4 licence photos' } }),
+    licence('forgotten', 'L-0001', { item: { lastErrorCode: 'LICENCE_FORGOTTEN', lastError: 'The license number is no longer on this device; record the license again.' } }),
+    licence('gone', 'L-0002', { payload: { recorded: true }, item: { lastErrorCode: 'PHOTO_GONE', lastError: 'The license photos are no longer on this device; record the license again.' } }),
+    licence('server', 'L-0003', { item: { lastErrorCode: '22023', lastError: 'The license expiry must be a real date' } }),
+    licence('storage', 'L-0004', { payload: { recorded: true }, item: { lastErrorCode: 'PHOTO_REFUSED', lastError: 'License recorded; storage refused the photo: new row violates row-level security policy' } }),
+    licence('full', 'L-0005', { payload: { recorded: true }, item: { lastErrorCode: '22023', lastError: 'License recorded; photo will retry: A load keeps at most 4 license photos' } }),
   ]);
   const s = await showSync(h);
   for (const label of ['L-0001', 'L-0002', 'L-0003', 'L-0004', 'L-0005']) {
     assert.equal(s.byLabel(`Upload ${label}`).length, 0, `${label}: retrying can't help`);
-    assert.equal(s.byLabel(`Discard ${label}`)[0].props.title, 'Discard licence…');
+    assert.equal(s.byLabel(`Discard ${label}`)[0].props.title, 'Discard license…');
   }
-  assert.equal(s.texts().filter(text => /record the licence again in Driver check-in/.test(text)).length, 3);
-  assert.equal(s.texts().filter(text => /^The licence( number)? is on file, but .*Discard this; the office can remove old photos/.test(text)).length, 2);
+  assert.equal(s.texts().filter(text => /record the license again in Driver check-in/.test(text)).length, 3);
+  assert.equal(s.texts().filter(text => /^The license( number)? is on file, but .*Discard this; the office can remove old photos/.test(text)).length, 2);
   // A licence whose number is on file loses only its photos.
   await s.press(s.byLabel('Discard L-0002')[0]);
-  assert.ok(s.texts().includes("Discard this licence? The licence is on file, but its photos will not be uploaded, and this can't be undone."));
-  await s.press(s.button('Discard licence'));
+  assert.ok(s.texts().includes("Discard this license? The license is on file, but its photos will not be uploaded, and this can't be undone."));
+  await s.press(s.button('Discard license'));
   assert.deepEqual(h.calls.removed, ['gone']);
   assert.deepEqual(h.calls.deletedPhotos, ['file:///cache/licence-photos/gone.jpg']);
-  assert.ok(s.texts().includes('Licence discarded. Its photos will not be uploaded.'));
+  assert.ok(s.texts().includes('License discarded. Its photos will not be uploaded.'));
   await TestRenderer.act(async () => { s.r.unmount(); });
 });
 
-test('known limits: a licence card tells one story: the number on file, and its photos still to go or refused', async () => {
+test('known limits: a license card tells one story: the number on file, and its photos still to go or refused', async () => {
   const h = syncSetup([
     // Retries gave up at the photo upload: the number is on file, so it is a licence, not a receipt.
-    licence('photo', 'L-0006', { payload: { recorded: true }, item: { refused: false, retryCount: 5, deadLetter: true, lastError: 'Licence recorded; photo upload will retry: Network request failed' } }),
-    licence('closed', 'L-0007', { payload: { recorded: true }, item: { lastErrorCode: '42501', lastError: 'Licence recorded; photo will retry: That load is closed' } }),
+    licence('photo', 'L-0006', { payload: { recorded: true }, item: { refused: false, retryCount: 5, deadLetter: true, lastError: 'License recorded; photo upload will retry: Network request failed' } }),
+    licence('closed', 'L-0007', { payload: { recorded: true }, item: { lastErrorCode: '42501', lastError: 'License recorded; photo will retry: That load is closed' } }),
   ]);
   const s = await showSync(h);
-  assert.ok(s.texts().includes('The licence number is on file. Retry to finish uploading its photos.'));
+  assert.ok(s.texts().includes('The license number is on file. Retry to finish uploading its photos.'));
   assert.equal(s.texts().some(text => /receipt/.test(text)), false);
   assert.equal(s.byLabel('Upload L-0006')[0].props.title, 'Retry upload', 'not refused: it goes when retried');
-  assert.ok(s.texts().includes('The licence number is on file, but the server refused its photo: “That load is closed”. Discard this and record the licence again in Driver check-in.'));
+  assert.ok(s.texts().includes('The license number is on file, but the server refused its photo: “That load is closed”. Discard this and record the license again in Driver check-in.'));
   assert.equal(s.byLabel('Upload L-0007').length, 0);
   await s.press(s.byLabel('Discard L-0007')[0]);
-  assert.ok(s.texts().includes("Discard this licence? The licence is on file, but its photos will not be uploaded, and this can't be undone."));
+  assert.ok(s.texts().includes("Discard this license? The license is on file, but its photos will not be uploaded, and this can't be undone."));
   await TestRenderer.act(async () => { s.r.unmount(); });
 });
 

@@ -45,7 +45,7 @@ const ix = (ref = reference()) => loads.indexLoads(ref);
 const cx = (ref = reference()) => crates.indexLoad(ref);
 const on = (op) => ({ type: 'load_on', payload: { op: { loadId: 'load-a', ...op }, label: 'L-0003' } });
 
-test('check-in: the driver’s name, up to 3 named companies, and a licence (front photo) unless one is on file', () => {
+test('check-in: the driver’s name, up to 3 named companies, and a license (front photo) unless one is on file', () => {
   const ok = { driverName: ' Sam Ortiz ', driverPhone: '555 0100', companies: [{ name: 'Gulf Freight', role: 'broker', contactName: '', phone: '' }], licenceNumber: ' tx  1234-567 ', licenceState: 'TX', licenceExpiry: '2028-02-29', front: 'file:///f.jpg', back: null };
   assert.equal(loads.checkInIssue(ok, false), null);
   assert.deepEqual(plain(loads.checkInIssue({ ...ok, driverName: '  ' }, false)), { step: 0, message: 'Enter the driver’s name.' });
@@ -58,13 +58,13 @@ test('check-in: the driver’s name, up to 3 named companies, and a licence (fro
   assert.match(loads.checkInIssue({ ...ok, licenceExpiry: '2027-02-29' }, false).message, /real date/);
   assert.match(loads.checkInIssue({ ...ok, front: null }, false).message, /photo of the front/);
   const none = { ...ok, licenceNumber: '', licenceState: '', licenceExpiry: '', front: null };
-  assert.equal(loads.checkInIssue(none, false).step, 2, 'a licence is needed when none is on file');
+  assert.equal(loads.checkInIssue(none, false).step, 2, 'a license is needed when none is on file');
   assert.equal(loads.checkInIssue(none, true), null, 'optional when one is on file');
   assert.equal(loads.checkInIssue({ ...none, front: 'file:///f.jpg' }, true).step, 2, 'once started, it has to be complete');
 
   const { save, licence } = loads.checkInPayloads('load-a', 'L-0003', ok);
   assert.deepEqual(plain(save), { loadId: 'load-a', driverName: 'Sam Ortiz', driverPhone: '555 0100', companies: [{ name: 'Gulf Freight', role: 'broker' }] });
-  assert.deepEqual(plain(licence.payload), { loadId: 'load-a', label: 'L-0003', photos: [{ uri: 'file:///f.jpg' }] }, 'the queued item has no licence details');
+  assert.deepEqual(plain(licence.payload), { loadId: 'load-a', label: 'L-0003', photos: [{ uri: 'file:///f.jpg' }] }, 'the queued item has no license details');
   assert.deepEqual(plain(licence.details), { number: 'TX 1234-567', state: 'TX', expiry: '2028-02-29' });
   assert.equal(JSON.stringify(save).includes('1234'), false, 'the number never goes in the load_save');
   assert.equal(loads.checkInPayloads('load-a', 'L-0003', none).licence, null);
@@ -162,8 +162,8 @@ test('a load made offline is checked in, loaded, sent off, unloaded and finished
 
 test('departing needs the driver’s name and something on board; planned pieces left off stay behind', () => {
   assert.match(loads.departCheck(ix(), 'load-a').issue, /driver's name/);
-  assert.match(loads.departCheck(ix(reference({ loads: [load('load-a', { driver_name: 'Sam' })] })), 'load-a').issue, /Record the driver's licence \(number and a photo of the front\)/, 'the licence is needed before leaving');
-  assert.match(loads.departCheck(ix(loads.applyLoadPending(reference({ loads: [load('load-a', { driver_name: 'Sam' })] }), [{ type: 'licence', payload: { loadId: 'load-a', label: 'L-0003', photos: [] } }])), 'load-a').issue, /Nothing is on the truck/, 'a licence waiting to upload counts');
+  assert.match(loads.departCheck(ix(reference({ loads: [load('load-a', { driver_name: 'Sam' })] })), 'load-a').issue, /Record the driver's license \(number and a photo of the front\)/, 'the license is needed before leaving');
+  assert.match(loads.departCheck(ix(loads.applyLoadPending(reference({ loads: [load('load-a', { driver_name: 'Sam' })] }), [{ type: 'licence', payload: { loadId: 'load-a', label: 'L-0003', photos: [] } }])), 'load-a').issue, /Nothing is on the truck/, 'a license waiting to upload counts');
   const named = reference({ loads: [load('load-a', { driver_name: 'Sam', licence_recorded_at: '2026-10-31T08:00:00Z' })] });
   assert.equal(loads.departCheck(ix(named), 'load-a').issue, 'Nothing is on the truck yet.');
   const loaded = loads.applyLoadPending(named, [on({ pieces: ['HU-AAAA01'] })]);

@@ -13,7 +13,7 @@ import { loadStyles as styles } from '@/components/logistics/loadStyles';
 import { useAuthStore } from '@/stores/authStore';
 import { newOperationId } from '@/lib/utils/operationId';
 import { activeAreas, areaPathLabel, buildAreaTree } from '@/lib/inventory/areas';
-import { applyLoadPending, canFinishStop, capturedNow, classifyUnload, indexLoads, loadLabel, officeFinishes, unloadChecklist, unloadStops, STOP_KINDS } from '@/lib/logistics/loads';
+import { applyLoadPending, canFinishStop, capturedNow, classifyUnload, indexLoads, loadLabel, officeFinishes, unloadChecklist, unloadStops, LOAD_STATUS_LABELS, STOP_KINDS } from '@/lib/logistics/loads';
 import { plansAt } from '@/lib/logistics/positions';
 import { unresolvedFor } from '@/lib/sync/queuePresentation';
 import { colors } from '@/lib/design/tokens';
@@ -112,7 +112,7 @@ export function UnloadScreenContent() {
     <Stack.Screen options={{ headerShown: true, title: `Unload ${label}` }} />
     <Text style={styles.heading} accessibilityRole="header">Which stop are you at?</Text>
     {stops.map(s => <Button key={s.id} title={`${s.seq}. ${s.place_name} · ${STOP_KINDS.find(k => k.value === s.kind)?.label} · ${s.status === 'done' ? 'Done: late scans only' : `${s.due_count} due`}`} variant={s.status === 'done' ? 'ghost' : 'secondary'} onPress={() => setStopId(s.id)} />)}
-    {stops.length === 0 ? <Text style={styles.muted}>{load.status === 'closed' || load.status === 'cancelled' ? `${label} is ${load.status}; nothing more comes off it.` : 'This load has no stops to unload at.'}</Text> : null}
+    {stops.length === 0 ? <Text style={styles.muted}>{load.status === 'closed' || load.status === 'cancelled' ? `${label} is ${LOAD_STATUS_LABELS[load.status].toLowerCase()}; nothing more comes off it.` : 'This load has no stops to unload at.'}</Text> : null}
     {stops.length > 0 && stops.every(s => s.status === 'done') ? <Text style={styles.muted}>Every stop on this load is done. A piece that turns up can still be scanned off where it is.</Text> : null}
   </ScrollView>;
 

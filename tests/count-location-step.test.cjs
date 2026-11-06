@@ -72,7 +72,7 @@ const plain = (value) => JSON.parse(JSON.stringify(value));
 const texts = (r) => r.root.findAll(node => node.type === 'Text').map(node => node.children.flat(Infinity).filter(c => typeof c === 'string').join(''));
 const press = async (r, label) => {
   const [node] = r.root.findAll(n => n.type === 'Pressable' && n.props.accessibilityLabel === label);
-  assert.ok(node, `no control labelled "${label}"`);
+  assert.ok(node, `no control labeled "${label}"`);
   await TestRenderer.act(async () => { node.props.onPress(); });
 };
 const button = (r, title) => r.root.findAll(n => n.type === 'Button' && n.props.title === title)[0];

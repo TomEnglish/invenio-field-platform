@@ -27,9 +27,9 @@ export function LoadScreenContent() {
 
   const before = load.status === 'planning' || load.status === 'loading';
   const pickups = load.status === 'in_transit' ? stops.filter(stop => stop.kind !== 'dropoff' && stop.status !== 'done') : [];
-  const licence = licenceOnFile(load) ? 'Licence on file' : load.licence_waiting ? 'Licence saved on this device; it uploads when online'
-    : load.licence_override_at ? 'Left without a licence (the office gave a reason)'
-    : load.licence_recorded_at ? 'Licence incomplete: the number or the photo of it is missing' : 'No licence recorded yet';
+  const licence = licenceOnFile(load) ? 'License on file' : load.licence_waiting ? 'License saved on this device; it uploads when online'
+    : load.licence_override_at ? 'Left without a license (the office gave a reason)'
+    : load.licence_recorded_at ? 'License incomplete: the number or the photo of it is missing' : 'No license recorded yet';
   return <ScrollView
     style={styles.container}
     contentContainerStyle={styles.content}

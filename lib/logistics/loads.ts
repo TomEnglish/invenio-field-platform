@@ -10,7 +10,7 @@ export type StopStatus = 'pending' | 'arrived' | 'done';
 export type LineStatus = 'planned' | 'on_board' | 'delivered' | 'missing' | 'not_loaded' | 'removed' | 'written_off';
 export type CompanyRole = 'broker' | 'carrier' | 'dispatcher' | 'other';
 export const OPEN_LOADS: LoadStatus[] = ['planning', 'loading', 'in_transit'];
-export const LOAD_STATUS_LABELS: Record<LoadStatus, string> = { planning: 'Planning', loading: 'Loading', in_transit: 'In transit', delivered: 'Delivered', closed: 'Closed', cancelled: 'Cancelled' };
+export const LOAD_STATUS_LABELS: Record<LoadStatus, string> = { planning: 'Planning', loading: 'Loading', in_transit: 'In transit', delivered: 'Delivered', closed: 'Closed', cancelled: 'Canceled' };
 export const STOP_KINDS: { value: StopKind; label: string }[] = [{ value: 'dropoff', label: 'Drop-off' }, { value: 'pickup', label: 'Pick-up' }, { value: 'both', label: 'Both' }];
 export const COMPANY_ROLES: { value: CompanyRole; label: string }[] = [
   { value: 'broker', label: 'Broker' }, { value: 'carrier', label: 'Carrier' }, { value: 'dispatcher', label: 'Dispatcher' }, { value: 'other', label: 'Other' },
@@ -537,7 +537,7 @@ export function movedOnSince(lines: LoadLine[], line: LoadLine, unit?: Pick<Hand
   const other = lines.find(l => l.tag === line.tag && l.load_id !== line.load_id && (l.status === 'planned' || l.status === 'on_board' || l.status === 'missing'));
   if (other) return `${line.tag} is on load ${other.load_number ?? 'another load'} now; it can't come off this load again.`;
   const since = (l: LoadLine) => (l.off_at ?? l.on_at ?? '') > (line.off_at ?? '');
-  if (lines.some(l => l.tag === line.tag && l.id !== line.id && ['on_board', 'delivered', 'missing', 'written_off'].includes(l.status) && since(l))) return `${line.tag} has travelled on another load since it came off here.`;
+  if (lines.some(l => l.tag === line.tag && l.id !== line.id && ['on_board', 'delivered', 'missing', 'written_off'].includes(l.status) && since(l))) return `${line.tag} has traveled on another load since it came off here.`;
   if (line.piece_kind === 'crate' && unit && unit.status !== 'delivered') return `${line.tag} is ${(STATUS_LABELS[unit.status] ?? unit.status).toLowerCase()} now; it can't come off this load again.`;
   return null;
 }
@@ -574,8 +574,8 @@ export function departCheck(ix: LoadsIndex, loadId: string, office = false, over
   // The licence (number and a photo of the front) before the truck leaves; the server checks it too.
   if (licenceMissing) {
     const reason = override?.trim() ?? '';
-    if (!office || override === null) return result(`Record the driver's licence (number and a photo of the front) in Driver check-in before ${loadLabel(load)} leaves.`);
-    if (reason.length < OVERRIDE_MIN) return result(`Give a reason of at least ${OVERRIDE_MIN} characters for leaving without the licence.`);
+    if (!office || override === null) return result(`Record the driver's license (number and a photo of the front) in Driver check-in before ${loadLabel(load)} leaves.`);
+    if (reason.length < OVERRIDE_MIN) return result(`Give a reason of at least ${OVERRIDE_MIN} characters for leaving without the license.`);
     if (reason.length > OVERRIDE_MAX) return result(`Keep the reason to ${OVERRIDE_MAX} characters.`);
   }
   if (!lines.some(line => line.status === 'on_board')) return result('Nothing is on the truck yet.');
@@ -658,7 +658,7 @@ export interface CheckInDraft {
   front: string | null;
   back: string | null;
 }
-export const CHECK_IN_STEPS = ['Driver', 'Companies', 'Licence', 'Review'];
+export const CHECK_IN_STEPS = ['Driver', 'Companies', 'License', 'Review'];
 // Why the check-in can't be saved, with the step that fixes it. A licence is
 // needed unless one is on file already; then it is optional.
 export function checkInIssue(draft: CheckInDraft, licenceOnFile: boolean): { step: number; message: string } | null {
@@ -674,10 +674,10 @@ export function checkInIssue(draft: CheckInDraft, licenceOnFile: boolean): { ste
   }
   const entering = !!(draft.licenceNumber.trim() || draft.front || draft.back || draft.licenceState.trim() || draft.licenceExpiry.trim());
   if (!entering && licenceOnFile) return null;
-  if (!LICENCE_NUMBER.test(normaliseLicenceNumber(draft.licenceNumber))) return { step: 2, message: 'Enter the licence number: 3 to 40 letters, numbers, spaces or dashes.' };
+  if (!LICENCE_NUMBER.test(normaliseLicenceNumber(draft.licenceNumber))) return { step: 2, message: 'Enter the license number: 3 to 40 letters, numbers, spaces or dashes.' };
   if (draft.licenceState.trim().length > 40) return { step: 2, message: 'Keep the issuing state to 40 characters.' };
-  if (draft.licenceExpiry.trim() && !validDate(draft.licenceExpiry.trim())) return { step: 2, message: 'Enter the expiry as a real date.' };
-  if (!draft.front) return { step: 2, message: 'Take a photo of the front of the licence.' };
+  if (draft.licenceExpiry.trim() && !validDate(draft.licenceExpiry.trim())) return { step: 2, message: 'Enter the expiration date as a real date.' };
+  if (!draft.front) return { step: 2, message: 'Take a photo of the front of the license.' };
   return null;
 }
 // The check-in as up to two queued items: what changed of the driver and

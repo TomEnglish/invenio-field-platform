@@ -82,7 +82,7 @@ test('known limits: Review words the condition, decision, exception and photo ty
     assert.ok(step.includes(label), `the step offers ${label}`);
     assert.ok(review.texts.includes(label), `Review shows ${label}`);
   }
-  assert.ok(photo.texts.includes('Delivery Ticket'), 'the photo on its step is labelled the same');
+  assert.ok(photo.texts.includes('Delivery Ticket'), 'the photo on its step is labeled the same');
   for (const old of ['damaged', 'Partially accept', 'Quantity mismatch', 'delivery ticket', 'delivery_ticket']) assert.equal(review.texts.includes(old), false, old);
 
   const wrongType = setup({ decision: { status: 'accepted', has_exception: true, exception_type: 'wrong_type' }, inspection: { condition: 'good', inspection_pass: true } });

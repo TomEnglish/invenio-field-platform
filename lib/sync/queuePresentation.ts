@@ -7,7 +7,7 @@ export function queueSummary(item: QueueItem): { title: string; detail: string }
   const names: Record<string, string> = {
     receiving:'Receiving', transfer:'Material transfer', issue:'Material issue', shipment:'Outbound shipment', count:'Inventory count', pack:'Crate packing', unpack:'Crate unpacking',
     move:'Crate moved', relocate:'Item location',
-    load_save:'Load details', load_on:'Loading', load_depart:'Departure', load_off:'Unloading', stop_complete:'Stop finished', licence:'Driver licence',
+    load_save:'Load details', load_on:'Loading', load_depart:'Departure', load_off:'Unloading', stop_complete:'Stop finished', licence:'Driver license',
   };
   const kind = names[item.action?.type] || 'Saved submission';
   if (item.action?.type === 'receiving') {
@@ -30,14 +30,14 @@ export function queueSummary(item: QueueItem): { title: string; detail: string }
   // Never the licence number: only that one is waiting, and its photos.
   if (item.action?.type === 'licence') {
     const photos = payload.photos?.length ?? 0;
-    return { title: payload.label || 'Load', detail: [kind, payload.recorded ? 'Licence on file; photos still to upload' : 'Licence waiting to upload', `${photos} photo${photos === 1 ? '' : 's'}`].join(' · ') };
+    return { title: payload.label || 'Load', detail: [kind, payload.recorded ? 'License on file; photos still to upload' : 'License waiting to upload', `${photos} photo${photos === 1 ? '' : 's'}`].join(' · ') };
   }
   if (item.action && item.action.type.startsWith('load_') || item.action?.type === 'stop_complete') {
     const op = payload.op ?? {};
     const pieces = (op.pieces?.length ?? 0), undone = op.undo?.length ?? 0;
     const detail = item.action.type === 'load_on' ? [pieces ? `${pieces} on` : null, undone ? `${undone} taken off` : null, op.pieces?.length === 1 ? (typeof op.pieces[0] === 'string' ? op.pieces[0] : op.pieces[0]?.code) : null]
       : item.action.type === 'load_off' ? [`${pieces} off`, pieces === 1 ? op.pieces[0] : null, payload.zoneName]
-      : item.action.type === 'load_depart' ? [op.overrideReason ? 'Without the licence (office)' : null]
+      : item.action.type === 'load_depart' ? [op.overrideReason ? 'Without the license (office)' : null]
       : item.action.type === 'load_save' ? [op.driverName ? `Driver ${op.driverName}` : null, op.stops ? `${op.stops.length} stop${op.stops.length === 1 ? '' : 's'}` : null] : [];
     return { title: payload.label || 'Load', detail: [kind, ...detail].filter(Boolean).join(' · ') };
   }
@@ -56,7 +56,7 @@ export function isRefused(item: QueueItem): boolean {
 export const canMoveToLoad = (item: QueueItem) => item.action?.type === 'load_on' && isRefused(item) && MOVE_REFUSAL.test(item.lastError ?? '');
 // A departure the server held back for the driver's licence (number and a
 // photo). "Licence on file" on the device can mean only one of the two.
-export const needsLicence = (item: QueueItem) => item.action?.type === 'load_depart' && isRefused(item) && /driver's licence number and a photo/i.test(item.lastError ?? '');
+export const needsLicence = (item: QueueItem) => item.action?.type === 'load_depart' && isRefused(item) && /driver's licen[cs]e number and a photo/i.test(item.lastError ?? '');
 // A count the server refused will be refused again on every retry. Sync then
 // offers to reopen it in Count ("fix") or, for a received tag, only to
 // discard it. Photo, connection and sign-in failures are retried instead.
@@ -121,16 +121,16 @@ export function refusedChange(item: QueueItem): boolean {
 export function queueRecoveryMessage(item: QueueItem): string {
   const error = item.lastError || '';
   const count = item.action?.type === 'count';
-  const reason = error.replace(/^Licence recorded; photo (upload )?will retry: /, '').replace(/[.\s]+$/, '');
+  const reason = error.replace(/^Licen[cs]e recorded; photo (upload )?will retry: /, '').replace(/[.\s]+$/, '');
   if (crateRefused(item) && item.action.type === 'licence') {
-    if (item.lastErrorCode === 'LICENCE_FORGOTTEN') return 'The licence number is kept only until the app closes, and it closed before this uploaded. Discard this and record the licence again in Driver check-in.';
-    if (item.lastErrorCode === 'PHOTO_GONE') return 'The licence photos are no longer on this device. Discard this and record the licence again in Driver check-in.';
-    if (item.lastErrorCode === 'PHOTO_REFUSED') return 'The licence number is on file, but storage refused the photo: a load keeps at most 4 licence files, and crews can’t add them once the load is closed. Discard this; the office can remove old photos. The truck can’t leave without a photo.';
-    if (/at most 4 licence photos/.test(error)) return 'The licence is on file, but this load already has 4 licence photos, so these can’t be added. Discard this; the office can remove old photos.';
-    if (item.action.payload?.recorded) return `The licence number is on file, but the server refused its photo: “${reason}”. Discard this and record the licence again in Driver check-in.`;
-    return `The server refused the licence: “${reason}”. Discard it and record the licence again in Driver check-in.`;
+    if (item.lastErrorCode === 'LICENCE_FORGOTTEN') return 'The license number is kept only until the app closes, and it closed before this uploaded. Discard this and record the license again in Driver check-in.';
+    if (item.lastErrorCode === 'PHOTO_GONE') return 'The license photos are no longer on this device. Discard this and record the license again in Driver check-in.';
+    if (item.lastErrorCode === 'PHOTO_REFUSED') return 'The license number is on file, but storage refused the photo: a load keeps at most 4 license files, and crews can’t add them once the load is closed. Discard this; the office can remove old photos. The truck can’t leave without a photo.';
+    if (/at most 4 licen[cs]e photos/.test(error)) return 'The license is on file, but this load already has 4 license photos, so these can’t be added. Discard this; the office can remove old photos.';
+    if (item.action.payload?.recorded) return `The license number is on file, but the server refused its photo: “${reason}”. Discard this and record the license again in Driver check-in.`;
+    return `The server refused the license: “${reason}”. Discard it and record the license again in Driver check-in.`;
   }
-  if (needsLicence(item)) return 'The server needs the driver’s licence number and a photo of it before the truck leaves. Record the licence again in Driver check-in, then retry. Office staff can send the departure without it, with a reason.';
+  if (needsLicence(item)) return 'The server needs the driver’s license number and a photo of it before the truck leaves. Record the license again in Driver check-in, then retry. Office staff can send the departure without it, with a reason.';
   if (canMoveToLoad(item)) return `The server turned this piece down: “${reason}”. Move it to this load, or discard this scan to leave it on the other load. Later steps for this load wait until then.`;
   if (crateRefused(item) && LOAD_TYPES.has(item.action.type)) return `The server refused this load change: “${reason}”. Sort that out and retry, or discard the change. Later steps for this load wait until then.`;
   if (crateRefused(item) && item.action.type === 'relocate') return `The server refused this location change: “${reason}”. Sort that out and retry, or discard it.`;
@@ -147,7 +147,7 @@ export function queueRecoveryMessage(item: QueueItem): string {
   if (count && countRecoveryAction(item) === 'discard') return `The server refused this count: “${reason}”. Discard it; it can't be counted now.`;
   if (isRefused(item)) return `The server refused this: “${reason}”. Sort that out and retry, or discard it.`;
   // A licence's photos go only after its number is on file.
-  if (/photo/i.test(error) && item.action?.type === 'licence') return 'The licence number is on file. Retry to finish uploading its photos.';
+  if (/photo/i.test(error) && item.action?.type === 'licence') return 'The license number is on file. Retry to finish uploading its photos.';
   if (/photo/i.test(error)) return `The ${count ? 'count' : 'receipt'} may already be saved. Retry to finish attaching its photos; the same submission will be reused.`;
   if (/access|permission|jwt|sign.in|unauthorized|account|project/i.test(error)) return 'Verify your sign-in and project access, then retry. Your saved submission is preserved.';
   if (/unsupported|unknown.*type/i.test(error)) return 'Ask an administrator to review this saved submission. Keep it on this device.';

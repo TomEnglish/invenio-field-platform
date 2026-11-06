@@ -56,13 +56,13 @@ const cx = (ref = reference()) => crates.indexLoad(ref);
 const on = (op, loadId = 'load-a') => ({ type: 'load_on', payload: { op: { loadId, ...op }, label: 'L-0003' } });
 const off = (op, loadId = 'load-a') => ({ type: 'load_off', payload: { op: { loadId, ...op }, label: 'L-0003' } });
 
-test('the licence before leaving: crews need it; office staff can leave without it, giving a reason of 5 to 500 characters', () => {
+test('the license before leaving: crews need it; office staff can leave without it, giving a reason of 5 to 500 characters', () => {
   const ref = reference({ lines: [line('HU-AAAA01', { status: 'on_board', on_at: 'x' })] });
   const crew = loads.departCheck(ix(ref), 'load-a');
-  assert.match(crew.issue, /Record the driver's licence/);
+  assert.match(crew.issue, /Record the driver's license/);
   assert.equal(crew.licenceMissing, true);
-  assert.match(loads.departCheck(ix(ref), 'load-a', false, 'Checked by phone').issue, /Record the driver's licence/, 'a crew can never override');
-  assert.match(loads.departCheck(ix(ref), 'load-a', true).issue, /Record the driver's licence/, 'not overriding until asked');
+  assert.match(loads.departCheck(ix(ref), 'load-a', false, 'Checked by phone').issue, /Record the driver's license/, 'a crew can never override');
+  assert.match(loads.departCheck(ix(ref), 'load-a', true).issue, /Record the driver's license/, 'not overriding until asked');
   assert.match(loads.departCheck(ix(ref), 'load-a', true, '').issue, /at least 5 characters/);
   assert.match(loads.departCheck(ix(ref), 'load-a', true, ' abc ').issue, /at least 5 characters/);
   assert.match(loads.departCheck(ix(ref), 'load-a', true, 'x'.repeat(501)).issue, /500 characters/);
@@ -268,7 +268,7 @@ test('where an item is (item_positions), and what the material page, Count and S
   assert.equal(positions.plansAt(maps, null).length, 3);
 });
 
-test('project activity reads only the safe details, names loads from the device’s copy, and never shows a licence', () => {
+test('project activity reads only the safe details, names loads from the device’s copy, and never shows a license', () => {
   const row = (action, details = {}, extra = {}) => ({ id: action, created_at: '2026-10-31T10:00:00Z', user_id: 'u', user_name: 'Sam Ortiz', action, entity_type: 'load', entity_id: 'load-a', details, ...extra });
   const named = new Map([['load-a', 'L-0003']]);
   assert.deepEqual(plain(activity.describeActivity(row('load_loaded', { on: ['HU-1', 'HU-2'], moved_from: [{ code: 'HU-2', from: 'L-0007' }] }), named)),
@@ -279,6 +279,8 @@ test('project activity reads only the safe details, names loads from the device�
   assert.equal(activity.describeActivity(row('handling_unit_packed', { added: ['A', 'B'], removed: [] })).detail, '2 in — Sam Ortiz');
   assert.equal(activity.describeActivity(row('item_relocated', { tag: 'PIPE-2', reason: 'Found on rack 4' })).description, 'Corrected where PIPE-2 is');
   assert.equal(activity.describeActivity(row('line_found', {})).type, 'load');
+  assert.deepEqual(plain(activity.describeActivity(row('load_cancelled'), named)), { id: 'load_cancelled', type: 'load', description: 'Load canceled', created_at: '2026-10-31T10:00:00Z', detail: 'Load canceled — Sam Ortiz' },
+    'the action name keeps its spelling; the words are US English');
 });
 
 test('review fixes: late scans, corrections and moves follow the server; Ship Out of planned stock; positions for notes', () => {
@@ -292,7 +294,7 @@ test('review fixes: late scans, corrections and moves follow the server; Ship Ou
   const base = { loads: [load('load-a', { status: 'delivered' }), load('load-b', { load_number: 'L-0007', status: 'delivered' })], stops: [stop('stop-1', 1, 'shop', 'Gulf Machine', 'dropoff', { status: 'done' }), stop('stop-2', 2, 'site', 'North Site', 'dropoff', { status: 'done' })] };
   const off1 = line('GT-1', { status: 'delivered', delivered_stop_id: 'stop-1', delivered_place: 'Gulf Machine', off_at: '2026-10-30T10:00:00Z' });
   const travelled = reference({ ...base, lines: [off1, line('GT-1', { id: 'line-b', load_id: 'load-b', load_number: 'L-0007', status: 'delivered', on_at: '2026-10-30T12:00:00Z', off_at: '2026-10-30T14:00:00Z' })] });
-  assert.match(loads.classifyUnload(cx(travelled), ix(travelled), 'load-a', 'stop-2', 'GT-1').message, /travelled on another load since it came off here/);
+  assert.match(loads.classifyUnload(cx(travelled), ix(travelled), 'load-a', 'stop-2', 'GT-1').message, /traveled on another load since it came off here/);
   assert.equal(loads.applyLoadPending(travelled, [off({ stopId: 'stop-2', pieces: ['GT-1'] })]).lines.find(l => l.id === 'line-GT-1').delivered_stop_id, 'stop-1');
   const repacked = reference({ ...base, units: [unit('HU-AAAA01', { status: 'sealed' })], lines: [line('HU-AAAA01', { status: 'delivered', delivered_stop_id: 'stop-1', off_at: '2026-10-30T10:00:00Z' })] });
   assert.match(loads.classifyUnload(cx(repacked), ix(repacked), 'load-a', 'stop-2', 'HU-AAAA01').message, /HU-AAAA01 is sealed now; it can't come off this load again/);
@@ -317,12 +319,12 @@ test('review fixes: late scans, corrections and moves follow the server; Ship Ou
   assert.match(positions.copyCountIssue(cx(reference({ items: [{ unit_code: 'HU-AAAA01', tag: 'GT-1', name: '', quantity: 1, uom: 'EA', material_id: null, inventory_uid: 'u-1' }] })), 'GT-1'), /packed in HU-AAAA01/);
 });
 
-test('022 a929f62: the licence counts only when complete (number and photo); an uploaded one counts at once; activity names its subject', () => {
+test('022 a929f62: the license counts only when complete (number and photo); an uploaded one counts at once; activity names its subject', () => {
   const lines = [line('HU-AAAA01', { status: 'on_board', on_at: 'x' })];
   const partly = reference({ loads: [load('load-a', { licence_recorded_at: '2026-10-31T09:00:00Z', licence_complete: false })], lines });
   const check = loads.departCheck(ix(partly), 'load-a');
   assert.equal(check.licenceMissing, true, 'a number without a photo (or the reverse) isn’t enough to leave');
-  assert.match(check.issue, /Record the driver's licence/);
+  assert.match(check.issue, /Record the driver's license/);
   assert.equal(loads.departCheck(ix(partly), 'load-a', true, 'Checked by phone').issue, null, 'the office can still let it leave');
   const whole = reference({ loads: [load('load-a', { licence_recorded_at: '2026-10-31T09:00:00Z', licence_complete: true })], lines });
   assert.equal(loads.departCheck(ix(whole), 'load-a').issue, null);

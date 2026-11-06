@@ -125,7 +125,7 @@ test('tag lookup asks the server online and the cache offline, and saved counts 
   h.network.isOnline = false;
   assert.equal((await h.api.findInventoryByTag('T-1')).count_status, 'expected');
   assert.equal(await h.api.findInventoryByTag('NOPE'), null);
-  assert.deepEqual(plain(await h.api.countedAreaInfo({ zone_id: 'zone-b2', site_map_id: 'map-a', location: null })), { path: 'Zone B › Bay 2', locationId: 'rack-b', locationLabel: 'Zone B' }, 'the nearest linked rack above the area, labelled with that area');
+  assert.deepEqual(plain(await h.api.countedAreaInfo({ zone_id: 'zone-b2', site_map_id: 'map-a', location: null })), { path: 'Zone B › Bay 2', locationId: 'rack-b', locationLabel: 'Zone B' }, 'the nearest linked rack above the area, labeled with that area');
   assert.deepEqual(plain(await h.api.countedAreaInfo({ zone_id: null, site_map_id: null, location: ' Legacy rack ' })), { path: 'Legacy rack', locationId: null, locationLabel: null });
 
   await h.api.recordCountLocally({ tag: 'T-1', name: 'Cooler', quantity: '2', uom: 'EA', condition: 'good', categoryId: 'gen1', siteMapId: 'map-a', zoneId: 'zone-b', pin: { x: 0.5, y: 0.5 } }, 'Zone B');

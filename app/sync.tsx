@@ -25,7 +25,7 @@ function SupportDetails({ title = 'Support details', children }: {title?: string
 // confirmation alike: "Discard this crate change?"
 function kindOf(item: QueueItem): string {
   const type = item.action.type;
-  return type === 'count' ? 'count' : type === 'licence' ? 'licence' : type === 'receiving' ? 'receipt'
+  return type === 'count' ? 'count' : type === 'licence' ? 'license' : type === 'receiving' ? 'receipt'
     : type === 'transfer' ? 'material transfer' : type === 'issue' ? 'material issue' : type === 'shipment' ? 'shipment'
     : ['pack', 'unpack', 'move'].includes(type) ? 'crate change' : type === 'relocate' ? 'location change'
     : type.startsWith('load_') || type === 'stop_complete' ? 'load change' : 'change';
@@ -33,7 +33,7 @@ function kindOf(item: QueueItem): string {
 // What discarding leaves out: all of it, or only the photos when the rest is saved.
 function discardLoss(item: QueueItem): string {
   if (!discardKeepsSaved(item)) return 'It will not be uploaded';
-  return `${item.action.type === 'licence' ? 'The licence is on file' : 'It may already be saved'}, but its photos will not be uploaded`;
+  return `${item.action.type === 'licence' ? 'The license is on file' : 'It may already be saved'}, but its photos will not be uploaded`;
 }
 export default function SyncScreen() {
   const { user, activeProject, accessMode, loading } = useAuthStore();
@@ -181,11 +181,11 @@ export default function SyncScreen() {
         {recovery === 'fix' && <Button title="Fix in Count" accessibilityLabel={`Fix ${summary.title} in Count`} disabled={busy} onPress={() => fixCount(item)} />}
         {canMoveToLoad(item) && <Button title="Move it to this load" accessibilityLabel={`Move it to ${summary.title}`} disabled={!canSync || busy} onPress={() => moveToLoad(item)} />}
         {office && needsLicence(item) && (overriding?.id === item.id ? <View style={styles.confirm}>
-          <Text style={styles.warning}>Leaving without the driver’s licence is recorded on the load with your name and the reason.</Text>
+          <Text style={styles.warning}>Leaving without the driver’s license is recorded on the load with your name and the reason.</Text>
           <Input label="Reason" required value={overriding.reason} onChangeText={text => setOverriding({ id: item.id, reason: text })} maxLength={OVERRIDE_MAX} multiline />
-          <Button title="Send without the licence" disabled={!canSync || busy || overriding.reason.trim().length < OVERRIDE_MIN} onPress={() => leaveWithoutLicence(item, overriding.reason)} />
-          <Button title="Keep the licence requirement" variant="ghost" disabled={busy} onPress={() => setOverriding(null)} />
-        </View> : <Button title="Leave without the licence (office)…" variant="secondary" disabled={busy} onPress={() => setOverriding({ id: item.id, reason: '' })} />)}
+          <Button title="Send without the license" disabled={!canSync || busy || overriding.reason.trim().length < OVERRIDE_MIN} onPress={() => leaveWithoutLicence(item, overriding.reason)} />
+          <Button title="Keep the license requirement" variant="ghost" disabled={busy} onPress={() => setOverriding(null)} />
+        </View> : <Button title="Leave without the license (office)…" variant="secondary" disabled={busy} onPress={() => setOverriding({ id: item.id, reason: '' })} />)}
         {retryable && <Button title={item.lastError || item.deadLetter ? 'Retry upload' : 'Upload now'} accessibilityLabel={`Upload ${summary.title}`} disabled={!canSync || busy} onPress={() => sync(item.id)} variant="secondary" />}
         {discardable && (confirmDiscard === item.id ? <View style={styles.confirm}>
           <Text accessibilityRole="alert" style={styles.warning}>Discard this {what}? {discardLoss(item)}, and this can't be undone.</Text>

@@ -12,7 +12,7 @@ import { useAuthStore } from '@/stores/authStore';
 import { useNetworkStore } from '@/lib/sync/networkStore';
 import { belongsToCurrentContext, getQueue, subscribeQueue, type QueueItem } from '@/lib/sync/offlineQueue';
 import { refusedChange } from '@/lib/sync/queuePresentation';
-import { countProgress, outstandingTags, recentCounts, shortDate } from '@/lib/inventory/count';
+import { countProgress, outstandingTags, recentCounts, shortDate, shortTime } from '@/lib/inventory/count';
 import { areaPathLabel, buildAreaTree } from '@/lib/inventory/areas';
 import { colors, radius, space, fontSize, fontWeight, touchTarget } from '@/lib/design/tokens';
 
@@ -83,7 +83,7 @@ export function CountHomeScreenContent({ countItemRoute }: { countItemRoute: str
     } finally { setOpening(false); }
   };
 
-  const savedAt = data.savedAt ? `${shortDate(data.savedAt)} ${new Date(data.savedAt).toTimeString().slice(0, 5)}` : '';
+  const savedAt = data.savedAt ? `${shortDate(data.savedAt)}, ${shortTime(data.savedAt)}` : '';
   const status = loading && !savedAt ? 'Loading count data…'
     : !savedAt ? (online ? 'Count data could not be loaded. Pull down to retry.' : 'Offline · open Count once while online to save categories, site plans and expected tags.')
     : error ? `Could not refresh · using data saved ${savedAt}`

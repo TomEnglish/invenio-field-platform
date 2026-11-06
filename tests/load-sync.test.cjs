@@ -98,7 +98,7 @@ test('each load operation is queued and sent to apply_field_operation unchanged'
   assert.equal((await h.queue.getQueue()).length, 0);
 });
 
-test('the licence: details only in memory, recorded first, photos uploaded without upsert, then the files deleted', async () => {
+test('the license: details only in memory, recorded first, photos uploaded without upsert, then the files deleted', async () => {
   let failOnce = true;
   const h = setup({ upload: (path) => (path.endsWith('-1.jpg') && failOnce ? (failOnce = false, { error: { message: 'Network request failed' } }) : { error: null }) });
   const photos = [{ uri: 'file:///documents/receiving-photos/front.jpg' }, { uri: 'file:///documents/receiving-photos/back.jpg' }];
@@ -106,7 +106,7 @@ test('the licence: details only in memory, recorded first, photos uploaded witho
   await h.queue.addToQueue({ type: 'licence', payload: { loadId: 'load-n', label: 'L-0004', photos } }, OP(7));
   assert.equal(storedEverywhere(h.records).includes('98765'), false, 'never in storage, even before it uploads');
   const [saved] = await h.queue.getQueue();
-  assert.deepEqual(plain(h.presentation.queueSummary(saved)), { title: 'L-0004', detail: 'Driver licence · Licence waiting to upload · 2 photos' });
+  assert.deepEqual(plain(h.presentation.queueSummary(saved)), { title: 'L-0004', detail: 'Driver license · License waiting to upload · 2 photos' });
 
   await h.sync.processQueue();
   const record = h.calls.rpc.find(call => call.name === 'record_driver_licence');
@@ -118,7 +118,7 @@ test('the licence: details only in memory, recorded first, photos uploaded witho
   assert.equal(waiting.action.payload.recorded, true);
   assert.match(waiting.lastError, /photo upload will retry/);
   assert.equal(waiting.refused, false, 'a photo failure retries');
-  assert.equal(h.presentation.queueSummary(waiting).detail, 'Driver licence · Licence on file; photos still to upload · 2 photos');
+  assert.equal(h.presentation.queueSummary(waiting).detail, 'Driver license · License on file; photos still to upload · 2 photos');
   assert.equal(h.files.size, 2, 'files kept until every photo is in');
 
   // The retry doesn't record again; an upload that already landed counts as done.
@@ -133,7 +133,7 @@ test('the licence: details only in memory, recorded first, photos uploaded witho
   assert.equal(storedEverywhere(landed.records).includes('98765'), false);
 });
 
-test('a licence the app no longer holds (closed, or photos gone) waits for a decision; signing out clears every licence', async () => {
+test('a license the app no longer holds (closed, or photos gone) waits for a decision; signing out clears every license', async () => {
   const photos = [{ uri: 'file:///documents/receiving-photos/front.jpg' }];
   const forgot = setup();
   await forgot.queue.addToQueue({ type: 'licence', payload: { loadId: 'load-n', label: 'L-0004', photos } }, OP(8));
@@ -163,16 +163,16 @@ test('a licence the app no longer holds (closed, or photos gone) waits for a dec
   assert.ok(out.calls.deleted.includes(photos[0].uri) && out.calls.deleted.includes('file:///cache/licence-photos/'));
 });
 
-test('a refused load step (22023) waits for a decision and holds back the load’s later steps; a licence goes ahead of its departure', async () => {
+test('a refused load step (22023) waits for a decision and holds back the load’s later steps; a license goes ahead of its departure', async () => {
   const h = setup({ rpc: (name, args) => (name === 'apply_field_operation' && args.p_operation_id === OP(1) ? { data: null, error: { message: 'PIPE-3 is already on load L-0007', code: '22023' } } : null) });
   await h.queue.addToQueue({ type: 'load_on', payload: { op: { loadId: 'load-n', pieces: ['PIPE-3'] }, label: 'L-0004' } }, OP(1));
   await h.queue.addToQueue({ type: 'load_depart', payload: { op: { loadId: 'load-n' }, label: 'L-0004' } }, OP(2));
   h.memory.rememberLicence(OP(3), { number: NUMBER });
   await h.queue.addToQueue({ type: 'licence', payload: { loadId: 'load-n', label: 'L-0004', photos: [] } }, OP(3), item => item.action.type === 'load_depart' && h.presentation.loadOf(item) === 'load-n');
-  assert.deepEqual(plain((await h.queue.getQueue()).map(i => i.id)), [OP(1), OP(3), OP(2)], 'the licence goes ahead of the departure');
+  assert.deepEqual(plain((await h.queue.getQueue()).map(i => i.id)), [OP(1), OP(3), OP(2)], 'the license goes ahead of the departure');
   await h.sync.processQueue();
   await h.sync.processQueue();
-  assert.deepEqual(h.calls.rpc.map(c => c.args.p_operation_id), [OP(1)], 'tried once; the licence and departure wait behind it');
+  assert.deepEqual(h.calls.rpc.map(c => c.args.p_operation_id), [OP(1)], 'tried once; the license and departure wait behind it');
   const [refused] = await h.queue.getQueue();
   assert.deepEqual(plain([refused.refused, refused.retryCount]), [true, 0]);
   assert.deepEqual(plain(h.presentation.unresolvedFor(await h.queue.getQueue(), 'load-n').map(i => i.id)), [OP(1)]);
@@ -181,17 +181,17 @@ test('a refused load step (22023) waits for a decision and holds back the load�
   assert.deepEqual(h.calls.rpc.slice(1).map(c => c.name), ['record_driver_licence', 'apply_field_operation'], 'discarded: the rest go, in order');
 });
 
-test('load and licence refusals come from the code; anything retries gave up on can be discarded', () => {
+test('load and license refusals come from the code; anything retries gave up on can be discarded', () => {
   const h = setup();
   const item = (type, lastError, lastErrorCode, extra = {}) => ({ id: 'x', userId: 'worker-a', projectId: 'project-a', lastError, lastErrorCode, refused: lastErrorCode === '22023', action: { type, payload: { op: { loadId: 'l' }, label: 'L-0004', loadId: 'l', photos: [] } }, ...extra });
-  assert.equal(h.presentation.crateRefused(item('licence', 'Enter the licence number: 3 to 40 letters, numbers, spaces or dashes', '22023')), true);
-  assert.match(h.presentation.queueRecoveryMessage(item('licence', 'Enter the licence number: 3 to 40 letters, numbers, spaces or dashes', '22023')), /record the licence again in Driver check-in/);
-  assert.match(h.presentation.queueRecoveryMessage(item('licence', 'A load keeps at most 4 licence photos', '22023')), /already has 4 licence photos/);
+  assert.equal(h.presentation.crateRefused(item('licence', 'Enter the license number: 3 to 40 letters, numbers, spaces or dashes', '22023')), true);
+  assert.match(h.presentation.queueRecoveryMessage(item('licence', 'Enter the license number: 3 to 40 letters, numbers, spaces or dashes', '22023')), /record the license again in Driver check-in/);
+  assert.match(h.presentation.queueRecoveryMessage(item('licence', 'A load keeps at most 4 license photos', '22023')), /already has 4 license photos/);
   assert.equal(h.presentation.crateRefused(item('load_on', 'Nothing is on the truck yet', '22023')), true);
   assert.match(h.presentation.queueRecoveryMessage(item('load_depart', 'Nothing is on the truck yet', '22023')), /refused this load change: “Nothing is on the truck yet”.*Later steps for this load wait/);
   assert.equal(h.presentation.crateRefused(item('load_on', 'Network request failed')), false);
   // Not a refusal: retries gave up (a refusal, 42501 included, is discardable anyway).
-  assert.equal(h.presentation.canDiscard(item('licence', 'Network request failed', undefined, { deadLetter: true })), true, 'a licence is never stuck on the device');
+  assert.equal(h.presentation.canDiscard(item('licence', 'Network request failed', undefined, { deadLetter: true })), true, 'a license is never stuck on the device');
   assert.equal(h.presentation.canDiscard(item('load_save', 'Unsupported operation', '22023')), true);
   assert.equal(h.presentation.canDiscard(item('load_on', 'Network request failed')), false, 'still retrying');
 });
@@ -337,7 +337,7 @@ test('022: a step this user isn’t allowed (42501) waits for a decision instead
     [['move', { unitCode: 'HU-AAAA01', placeId: 'site', capturedAt: '2026-10-31T10:00:00.000Z' }], ['relocate', { tag: 'PIPE-2', zoneId: 'z-4', siteMapId: 'map-a', reason: 'Found on rack 4' }]]);
 });
 
-test('022: the licence is recorded with when it was taken down, so an older one never replaces a newer', async () => {
+test('022: the license is recorded with when it was taken down, so an older one never replaces a newer', async () => {
   const h = setup();
   h.memory.rememberLicence(OP(7), { number: NUMBER, state: 'TX' });
   await h.queue.addToQueue({ type: 'licence', payload: { loadId: 'load-n', label: 'L-0004', photos: [{ uri: 'file:///documents/receiving-photos/front.jpg' }], capturedAt: '2026-10-31T09:30:00.000Z' } }, OP(7));
@@ -350,7 +350,7 @@ test('022: the licence is recorded with when it was taken down, so an older one 
   assert.equal(storedEverywhere(h.records).includes('98765'), false);
 });
 
-test('review fixes: turned-down pieces stay with the step’s project; a refused licence photo is checked by attaching; any refusal can be discarded', async () => {
+test('review fixes: turned-down pieces stay with the step’s project; a refused license photo is checked by attaching; any refusal can be discarded', async () => {
   const h = setup({ rpc: async (name, args) => {
     if (args.p_action !== 'load_on') return null;
     h.auth.activeProject = { id: 'project-b', status: 'active' };
@@ -375,14 +375,24 @@ test('review fixes: turned-down pieces stay with the step’s project; a refused
   await p.sync.processQueue();
   const [photo] = await p.queue.getQueue();
   assert.deepEqual([photo.refused, photo.lastErrorCode], [true, 'PHOTO_REFUSED'], 'a fifth file: a decision, not five retries');
-  assert.match(p.presentation.queueRecoveryMessage(photo), /at most 4 licence files/);
+  assert.match(p.presentation.queueRecoveryMessage(photo), /at most 4 license files/);
 
   const refusedTransfer = { id: 't', userId: 'worker-a', projectId: 'project-a', refused: true, lastErrorCode: '22023', lastError: 'PIPE-2 is packed in HU-AAAA01; take it out of the crate before moving it', action: { type: 'transfer', payload: { materialId: 'm' } } };
   assert.equal(h.presentation.canDiscard(refusedTransfer), true);
   assert.match(h.presentation.queueRecoveryMessage(refusedTransfer), /refused this: “PIPE-2 is packed in HU-AAAA01/);
   const packedCount = { ...refusedTransfer, lastError: 'GT-1 is packed in HU-AAAA01; take it out of the crate before counting it', action: { type: 'count', payload: { count: { tag: 'GT-1' } } } };
   assert.equal(h.presentation.countRecoveryAction(packedCount), 'discard', 'fixing it in Count can’t help');
-  const depart = { ...refusedTransfer, lastError: "Record the driver's licence number and a photo of it before load L-0004 leaves", action: { type: 'load_depart', payload: { op: { loadId: 'load-n' }, label: 'L-0004' } } };
+  const depart = { ...refusedTransfer, lastError: "Record the driver's license number and a photo of it before load L-0004 leaves", action: { type: 'load_depart', payload: { op: { loadId: 'load-n' }, label: 'L-0004' } } };
   assert.equal(h.presentation.needsLicence(depart), true);
-  assert.match(h.presentation.queueRecoveryMessage(depart), /Record the licence again in Driver check-in/);
+  assert.match(h.presentation.queueRecoveryMessage(depart), /Record the license again in Driver check-in/);
+  // Before migration 025 the server spelled it "licence"; saved items may still hold that.
+  assert.equal(h.presentation.needsLicence({ ...depart, lastError: "Record the driver's licence number and a photo of it before load L-0004 leaves" }), true, 'the UK spelling still matches');
+});
+
+test('US spelling: refusals saved with the older "licence" wording are still recognized', () => {
+  const h = setup();
+  const item = (lastError, extra = {}) => ({ id: 'x', userId: 'worker-a', projectId: 'project-a', lastError, lastErrorCode: '22023', refused: true, action: { type: 'licence', payload: { loadId: 'l', label: 'L-0004', photos: [], ...extra } } });
+  assert.match(h.presentation.queueRecoveryMessage(item('A load keeps at most 4 licence photos')), /already has 4 license photos/);
+  assert.equal(h.presentation.queueRecoveryMessage(item('Licence recorded; photo will retry: That load is closed', { recorded: true })),
+    'The license number is on file, but the server refused its photo: “That load is closed”. Discard this and record the license again in Driver check-in.');
 });
