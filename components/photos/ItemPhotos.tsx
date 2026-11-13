@@ -13,42 +13,61 @@ type Shown =
   | { receipt: string; status: 'ready'; photos: ItemPhoto[]; missing: number };
 
 const caption = (photo: ItemPhoto) => [photo.label, photoTakenText(photo.takenAt)].filter(Boolean).join(' · ');
-// The device's copy when its links still work, so photos already seen show at once, offline too.
+// What the device last found for the item shows at once, offline too; the server is asked again for anything new.
 const startFor = (receipt: string): Shown => {
   const found = keptItemPhotos(receipt);
   return found ? { receipt, status: 'ready', ...found } : { receipt, status: 'loading' };
 };
 
 // What an item looks like: the photos taken when it was received, and when it
-// was counted. Tapping one opens it full screen. Photos come from the server, so
-// photos not yet seen show only while the phone is online.
+// was counted. Tapping one opens it full screen. Photos come from the server:
+// those already seen on this phone show offline too, and the rest load when the
+// phone is online. Photos on screen stay until a newer answer replaces them.
 export function ItemPhotos({ receivingRecordId }: { receivingRecordId: string | null | undefined }) {
   const receipt = receivingRecordId ?? '';
   const online = useNetworkStore(s => s.isOnline);
   const [state, setState] = useState<Shown>(() => startFor(receipt));
   const [refresh, setRefresh] = useState(0);
   const [open, setOpen] = useState<{ receipt: string; index: number } | null>(null);
-  // Photos whose image did not download (no signal, or a link past its hour), by id.
+  // Thumbnails whose image did not download (no signal, or a link past its hour), by photo id;
+  // and the photo the full-screen view could not show. One doesn't mark the other.
   const [broken, setBroken] = useState<{ receipt: string; ids: Set<string> }>({ receipt, ids: new Set() });
-  const fresh = useRef(false);    // the next load asks the server, past the device's copy
-  const dropped = useRef(false);  // the signal dropped while this load was under way
+  const [viewerBroken, setViewerBroken] = useState<string | null>(null);
+  const resign = useRef<string[]>([]);  // photos the next load asks new links for
+  const dropped = useRef(false);        // the signal dropped while this load was under way
+  const latest = useRef<Shown>(state);
+  latest.current = state;
+
+  const load = (ids: string[] = []) => { resign.current = [...new Set([...resign.current, ...ids])]; setRefresh(n => n + 1); };
 
   useEffect(() => {
     if (!receipt) return;
     let live = true;
-    const kept = fresh.current ? null : keptItemPhotos(receipt);
-    fresh.current = false;
+    const fresh = resign.current;
+    resign.current = [];
     dropped.current = false;
-    setBroken({ receipt, ids: new Set() });
-    if (kept) { setState({ receipt, status: 'ready', ...kept }); return; }
-    setState({ receipt, status: 'loading' });
-    fetchItemPhotos(receipt)
-      .then(found => { if (live) setState(found ? { receipt, status: 'ready', ...found } : { receipt, status: 'offline' }); })
+    const before = latest.current.receipt === receipt ? latest.current : startFor(receipt);
+    if (before !== latest.current) setState(before);
+    if (before.status !== 'ready') setState({ receipt, status: 'loading' });
+    fetchItemPhotos(receipt, { resign: fresh })
+      .then(found => {
+        if (!live) return;
+        if (found) {
+          setState({ receipt, status: 'ready', ...found });
+          // Photos that got new links load again.
+          setBroken(now => now.receipt !== receipt ? { receipt, ids: new Set() } : { receipt, ids: new Set([...now.ids].filter(id => !fresh.includes(id))) });
+          setViewerBroken(now => now && fresh.includes(now) ? null : now);
+        } else if (latest.current.status !== 'ready' || latest.current.receipt !== receipt) {
+          setState({ receipt, status: 'offline' });
+        }
+      })
       .catch(() => {
         if (!live) return;
+        // Photos already shown stay; the next answer replaces them.
+        if (latest.current.status === 'ready' && latest.current.receipt === receipt) return;
         if (!useNetworkStore.getState().isOnline) setState({ receipt, status: 'offline' });
         // The signal went and came back during the load: try once more now it's back.
-        else if (dropped.current) { fresh.current = true; setRefresh(n => n + 1); }
+        else if (dropped.current) load(fresh);
         else setState({ receipt, status: 'error' });
       });
     return () => { live = false; };
@@ -59,7 +78,9 @@ export function ItemPhotos({ receivingRecordId }: { receivingRecordId: string | 
   // Back online: load what didn't show. Photos already shown stay when the signal drops.
   useEffect(() => {
     if (!online) { if (shown.status === 'loading') dropped.current = true; return; }
-    if (shown.status === 'offline' || shown.status === 'error' || failedIds.size) { fresh.current = true; setRefresh(n => n + 1); }
+    if (shown.status === 'offline' || shown.status === 'error' || failedIds.size || viewerBroken) {
+      load([...failedIds, ...(viewerBroken ? [viewerBroken] : [])]);
+    }
   }, [online]);
 
   if (!receipt) return null;
@@ -69,6 +90,7 @@ export function ItemPhotos({ receivingRecordId }: { receivingRecordId: string | 
   const close = () => setOpen(null);
   const step = (by: number) => setOpen(now => now && { receipt: now.receipt, index: (now.index + by + photos.length) % photos.length });
   const markBroken = (id: string) => setBroken(now => now.receipt === receipt && now.ids.has(id) ? now : { receipt, ids: new Set(now.receipt === receipt ? now.ids : []).add(id) });
+  const reloadBroken = () => load([...failedIds]);
 
   return (
     <View style={styles.section}>
@@ -78,35 +100,45 @@ export function ItemPhotos({ receivingRecordId }: { receivingRecordId: string | 
       {shown.status === 'error' ? (
         <View style={styles.retry}>
           <Text style={styles.note} accessibilityRole="alert">Photos could not be loaded.</Text>
-          <Button title="Try again" variant="secondary" onPress={() => { fresh.current = true; setRefresh(n => n + 1); }} />
+          <Button title="Try again" variant="secondary" onPress={() => load()} />
         </View>
       ) : null}
       {shown.status === 'ready' && !photos.length && !shown.missing ? <Text style={styles.note}>No photos were taken for this item.</Text> : null}
       {photos.length ? (
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.strip}>
-          {photos.map((photo, index) => (
-            <Pressable
-              key={photo.id}
-              accessibilityRole="imagebutton"
-              accessibilityLabel={`Open photo ${index + 1} of ${photos.length}: ${caption(photo)}`}
-              onPress={() => setOpen({ receipt, index })}
-              style={({ pressed }) => [styles.thumb, pressed && styles.pressed]}
-            >
-              {failedIds.has(photo.id) ? (
-                <View style={[styles.thumbImage, styles.thumbMissing]}><Text style={styles.missingText}>Unavailable</Text></View>
-              ) : (
-                <Image source={{ uri: photo.uri }} style={styles.thumbImage} onError={() => markBroken(photo.id)} accessibilityIgnoresInvertColors />
-              )}
-              <Text style={styles.thumbLabel} numberOfLines={1}>{photo.short}</Text>
-              <Text style={styles.thumbDate} numberOfLines={1}>{shortDate(photo.takenAt)}</Text>
-            </Pressable>
-          ))}
+          {photos.map((photo, index) => {
+            const unavailable = failedIds.has(photo.id);
+            return (
+              <Pressable
+                key={`${photo.id}|${photo.uri}`}
+                accessibilityRole="imagebutton"
+                accessibilityLabel={unavailable
+                  ? `Photo ${index + 1} of ${photos.length}, unavailable: ${caption(photo)}`
+                  : `Open photo ${index + 1} of ${photos.length}: ${caption(photo)}`}
+                onPress={() => { setViewerBroken(null); setOpen({ receipt, index }); }}
+                style={({ pressed }) => [styles.thumb, pressed && styles.pressed]}
+              >
+                {unavailable ? (
+                  <View style={[styles.thumbImage, styles.thumbMissing]}><Text style={styles.missingText}>Unavailable</Text></View>
+                ) : (
+                  <Image source={{ uri: photo.uri }} style={styles.thumbImage} onError={() => markBroken(photo.id)} accessibilityIgnoresInvertColors />
+                )}
+                <Text style={styles.thumbLabel} numberOfLines={1}>{photo.short}</Text>
+                <Text style={styles.thumbDate} numberOfLines={1}>{shortDate(photo.takenAt)}</Text>
+              </Pressable>
+            );
+          })}
         </ScrollView>
       ) : null}
       {shown.status === 'ready' && shown.missing ? (
         <Text style={styles.note}>{shown.missing === 1 ? '1 photo could not be opened.' : `${shown.missing} photos could not be opened.`}</Text>
       ) : null}
-      {failedIds.size ? <Text style={styles.note}>Photos marked Unavailable load again when the signal returns.</Text> : null}
+      {failedIds.size ? (
+        <View style={styles.retry}>
+          <Text style={styles.note}>{failedIds.size === 1 ? '1 photo did not load.' : `${failedIds.size} photos did not load.`}</Text>
+          <Button title="Reload photos" variant="secondary" onPress={reloadBroken} />
+        </View>
+      ) : null}
 
       <Modal visible={!!current} animationType="fade" onRequestClose={close} supportedOrientations={['portrait', 'landscape']}>
         {current ? (
@@ -119,10 +151,15 @@ export function ItemPhotos({ receivingRecordId }: { receivingRecordId: string | 
                 <FontAwesome name="close" size={22} color={colors.navInk} />
               </Pressable>
             </View>
-            {failedIds.has(current.id) ? (
-              <View style={styles.viewerMissing}><Text style={styles.viewerNote} accessibilityRole="alert">This photo could not be opened. Check the connection and try again.</Text></View>
+            {viewerBroken === current.id ? (
+              <View style={styles.viewerMissing}>
+                <Text style={styles.viewerNote} accessibilityRole="alert">This photo could not be opened.</Text>
+                <Pressable accessibilityRole="button" accessibilityLabel="Try this photo again" onPress={() => load([current.id])} style={styles.navButton}>
+                  <Text style={styles.navText}>Try again</Text>
+                </Pressable>
+              </View>
             ) : (
-              <Image source={{ uri: current.uri }} style={styles.viewerImage} resizeMode="contain" onError={() => markBroken(current.id)} accessibilityLabel={caption(current)} accessibilityIgnoresInvertColors />
+              <Image key={current.uri} source={{ uri: current.uri }} style={styles.viewerImage} resizeMode="contain" onError={() => setViewerBroken(current.id)} accessibilityLabel={caption(current)} accessibilityIgnoresInvertColors />
             )}
             {photos.length > 1 ? (
               <View style={styles.viewerNav}>
@@ -161,7 +198,7 @@ const styles = StyleSheet.create({
   viewerCaption: { flex: 1, fontSize: fontSize.body, fontWeight: fontWeight.semibold, color: colors.navInk },
   iconButton: { minWidth: touchTarget, minHeight: touchTarget, alignItems: 'center', justifyContent: 'center' },
   viewerImage: { flex: 1, width: '100%' },
-  viewerMissing: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: space[6] },
+  viewerMissing: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: space[3], paddingHorizontal: space[6] },
   viewerNote: { fontSize: fontSize.md, color: colors.navInk, textAlign: 'center' },
   viewerNav: { flexDirection: 'row', justifyContent: 'space-between', paddingHorizontal: space[4], paddingTop: space[3] },
   navButton: { flexDirection: 'row', alignItems: 'center', gap: space[2], minHeight: touchTarget, paddingHorizontal: space[3] },
