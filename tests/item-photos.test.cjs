@@ -13,6 +13,7 @@ const plain = (value) => JSON.parse(JSON.stringify(value));
 // photos stored for an item's receipt and its count, and their links.
 function photosApi({ online = true, tables = {}, failing = [], unsigned = [] } = {}) {
   const requests = [], signing = [];
+  const auth = { user: { id: 'worker-a' }, activeProject: { id: 'project-a' } };
   const query = (table, scoped) => {
     const request = { table, scoped, calls: [] };
     requests.push(request);
@@ -39,9 +40,10 @@ function photosApi({ online = true, tables = {}, failing = [], unsigned = [] } =
     '@/lib/supabase': { supabase: { from: (table) => query(table, false), storage } },
     '@/lib/supabaseProject': { getProjectClient: () => ({ from: (table) => query(table, true) }) },
     '@/lib/sync/networkStore': { useNetworkStore: { getState: () => ({ isOnline: online }) } },
+    '@/stores/authStore': { useAuthStore: { getState: () => auth } },
     'lib/api/inventory.ts': { withTimeout: (work) => Promise.resolve(work) },
-  } });
-  return { api: loader.load('./lib/api/photos.ts'), requests, signing };
+  }, globals: { Date } });
+  return { api: loader.load('./lib/api/photos.ts'), requests, signing, auth };
 }
 
 const tables = {
@@ -57,10 +59,10 @@ const tables = {
 test('an item\'s photos come from its receipt and its count, oldest first, each with a link that lasts an hour', async () => {
   const h = photosApi({ tables });
   const found = await h.api.fetchItemPhotos(RECEIPT);
-  assert.deepEqual(plain(found.photos.map(photo => [photo.label, photo.uri])), [
-    ['Count photo', 'https://files.test/inventory-photos/u1/op-9-0.jpg'],
-    ['Receiving photo: Damage', `https://files.test/inspection-photos/${RECEIPT}/op-1-0-damage.jpg`],
-    ['Receiving photo: Delivery ticket', `https://files.test/inspection-photos/${RECEIPT}/op-1-1-delivery_ticket.jpg`],
+  assert.deepEqual(plain(found.photos.map(photo => [photo.label, photo.short, photo.uri])), [
+    ['Count photo', 'Count', 'https://files.test/inventory-photos/u1/op-9-0.jpg'],
+    ['Receiving photo: Damage', 'Damage', `https://files.test/inspection-photos/${RECEIPT}/op-1-0-damage.jpg`],
+    ['Receiving photo: Delivery ticket', 'Delivery ticket', `https://files.test/inspection-photos/${RECEIPT}/op-1-1-delivery_ticket.jpg`],
   ]);
   assert.equal(found.missing, 0);
   const asked = h.requests.map(request => [request.table, request.scoped]);
@@ -69,6 +71,31 @@ test('an item\'s photos come from its receipt and its count, oldest first, each 
   assert.deepEqual(plain(h.signing.map(call => [call.bucket, call.paths.length, call.seconds])), [['inspection-photos', 2, 3600], ['inventory-photos', 1, 3600]]);
   assert.equal(h.api.photoTakenText('2026-10-27T19:05:00Z'), 'Oct 27, 2026, 2:05 PM');
   assert.equal(h.api.photoTakenText(null), '');
+});
+
+test('what was found is kept for the same account and project while its links last, and ordered by the moment taken', async () => {
+  const h = photosApi({ tables: { ...tables, inspection_photos: [
+    { receiving_record_id: RECEIPT, storage_path: `${RECEIPT}/b.jpg`, photo_type: 'general', created_at: '2026-10-27T19:05:00.5+00:00' },
+    { receiving_record_id: RECEIPT, storage_path: `${RECEIPT}/a.jpg`, photo_type: 'damage', created_at: '2026-10-27T19:05:00+00:00' },
+    { receiving_record_id: RECEIPT, storage_path: '', photo_type: 'general', created_at: '2026-10-27T19:06:00+00:00' },
+  ] } });
+  assert.equal(h.api.keptItemPhotos(RECEIPT), null, 'nothing kept before the first answer');
+  const found = await h.api.fetchItemPhotos(RECEIPT);
+  assert.deepEqual(plain(found.photos.map(photo => photo.short)), ['Count', 'Damage', 'General'], 'a whole second sorts before a later fraction of it');
+  assert.equal(found.missing, 1, 'a listed photo with no file counts as one that could not be opened');
+  assert.equal(h.api.keptItemPhotos(RECEIPT), found);
+  h.auth.activeProject = { id: 'project-b' };
+  assert.equal(h.api.keptItemPhotos(RECEIPT), null, 'not for another project');
+  h.auth.activeProject = { id: 'project-a' };
+  h.auth.user = { id: 'worker-b' };
+  assert.equal(h.api.keptItemPhotos(RECEIPT), null, 'not for another account');
+  h.auth.user = { id: 'worker-a' };
+  const now = Date.now;
+  try {
+    Date.now = () => now() + h.api.PHOTO_KEEP_MS + 1;
+    assert.equal(h.api.keptItemPhotos(RECEIPT), null, 'not once the links are close to expiring');
+  } finally { Date.now = now; }
+  assert.ok(h.api.PHOTO_KEEP_MS < h.api.PHOTO_LINK_SECONDS * 1000);
 });
 
 test('offline, with no receipt, or with a photo the server can\'t link, it says so instead of guessing', async () => {
@@ -90,27 +117,38 @@ test('offline, with no receipt, or with a photo the server can\'t link, it says 
 });
 
 // components/photos/ItemPhotos.tsx with the photo API and network faked.
-function photosSection(answers) {
+function photosSection(answers, { native = {} } = {}) {
   const network = { isOnline: true };
-  const calls = [];
+  const calls = [], kept = new Map();
   const element = (name) => (props) => React.createElement(name, props, props.children);
   const loader = createModuleLoader({ stubs: {
     react: React, 'react/jsx-runtime': require('react/jsx-runtime'),
-    'react-native': { View: 'View', Text: 'Text', Image: 'Image', Pressable: 'Pressable', ScrollView: 'ScrollView', Modal: 'Modal', StyleSheet: { create: (s) => s } },
+    'react-native': { View: 'View', Text: 'Text', Image: 'Image', Pressable: 'Pressable', ScrollView: 'ScrollView', Modal: 'Modal', StyleSheet: { create: (s) => s }, ...native },
     '@expo/vector-icons/FontAwesome': element('Icon'),
     '@/components/ui/Button': { Button: (props) => React.createElement('Button', props) },
     '@/lib/api/photos': {
-      fetchItemPhotos: async (receipt) => { calls.push(receipt); const next = answers.shift(); if (next instanceof Error) throw next; return next; },
+      fetchItemPhotos: async (receipt) => {
+        calls.push(receipt);
+        const next = await answers.shift();
+        if (next instanceof Error) throw next;
+        if (next) kept.set(receipt, next);
+        return next;
+      },
+      keptItemPhotos: (receipt) => kept.get(receipt) ?? null,
       photoTakenText: (iso) => iso ? `taken ${iso.slice(0, 10)}` : '',
     },
-    '@/lib/sync/networkStore': { useNetworkStore: (select) => select(network) },
+    '@/lib/inventory/count': { shortDate: (iso) => iso ? `on ${iso.slice(5, 10)}` : '' },
+    '@/lib/sync/networkStore': { useNetworkStore: Object.assign((select) => select(network), { getState: () => network }) },
     '@/lib/design/tokens': { colors: new Proxy({}, { get: () => '#000' }), radius: new Proxy({}, { get: () => 4 }), space: new Proxy({}, { get: () => 4 }), fontSize: new Proxy({}, { get: () => 4 }), fontWeight: new Proxy({}, { get: () => '500' }), touchTarget: 44 },
   } });
-  return { ItemPhotos: loader.load('./components/photos/ItemPhotos.tsx').ItemPhotos, network, calls };
+  return { ItemPhotos: loader.load('./components/photos/ItemPhotos.tsx').ItemPhotos, network, calls, kept };
 }
 const settle = () => TestRenderer.act(async () => { await new Promise(resolve => setTimeout(resolve, 5)); });
 const textOf = (r) => r.root.findAll(n => n.type === 'Text').map(n => [].concat(n.props.children).join('')).join(' | ');
-const photo = (n, label, takenAt) => ({ id: `p${n}`, uri: `https://files.test/p${n}.jpg`, label, takenAt });
+const photo = (n, label, takenAt) => ({ id: `p${n}`, uri: `https://files.test/p${n}.jpg`, label, short: label === 'Count photo' ? 'Count' : label.replace('Receiving photo: ', ''), takenAt });
+const thumbsOf = (r) => r.root.findAll(n => n.type === 'Pressable' && n.props.accessibilityRole === 'imagebutton');
+const render = async (h, receipt) => { let r; await TestRenderer.act(async () => { r = TestRenderer.create(React.createElement(h.ItemPhotos, { receivingRecordId: receipt })); }); await settle(); return r; };
+const rerender = async (r, h, receipt) => { await TestRenderer.act(async () => { r.update(React.createElement(h.ItemPhotos, { receivingRecordId: receipt })); }); await settle(); };
 
 test('the item screen shows its photos, and one opens full screen and pages to the next', async () => {
   const h = photosSection([{ photos: [photo(1, 'Count photo', '2026-10-26T15:00:00Z'), photo(2, 'Receiving photo: Damage', '2026-10-27T19:05:00Z')], missing: 1 }]);
@@ -121,6 +159,7 @@ test('the item screen shows its photos, and one opens full screen and pages to t
   const thumbs = r.root.findAll(n => n.type === 'Pressable' && n.props.accessibilityRole === 'imagebutton');
   assert.deepEqual(thumbs.map(n => n.props.accessibilityLabel), ['Open photo 1 of 2: Count photo · taken 2026-10-26', 'Open photo 2 of 2: Receiving photo: Damage · taken 2026-10-27']);
   assert.match(textOf(r), /1 photo could not be opened\./);
+  assert.match(textOf(r), /Count \| on 10-26 \| Damage \| on 10-27/, 'each thumbnail says what it is and when');
   const modal = () => r.root.findByType('Modal');
   assert.equal(modal().props.visible, false);
   await TestRenderer.act(async () => { thumbs[1].props.onPress(); });
@@ -163,4 +202,80 @@ test('offline it says photos need a connection and loads them once back online; 
   let empty;
   await TestRenderer.act(async () => { empty = TestRenderer.create(React.createElement(none.ItemPhotos, { receivingRecordId: null })); });
   assert.equal(empty.toJSON(), null, 'no receipt, no section');
+});
+
+test('photos already seen come back at once when the screen reloads, offline too, without asking again', async () => {
+  const h = photosSection([{ photos: [photo(1, 'Receiving photo: Damage', '2026-10-27T19:05:00Z')], missing: 0 }]);
+  const first = await render(h, RECEIPT);
+  assert.equal(thumbsOf(first).length, 1);
+  await TestRenderer.act(async () => { first.unmount(); });
+  h.network.isOnline = false;
+  const again = await render(h, RECEIPT);
+  assert.equal(thumbsOf(again).length, 1, 'the reloaded screen shows them');
+  assert.doesNotMatch(textOf(again), /online|Loading/);
+  assert.deepEqual(h.calls, [RECEIPT], 'and the server is not asked again');
+});
+
+test('a photo that fails to download says Unavailable, and the section asks again for links when the signal returns', async () => {
+  const h = photosSection([{ photos: [photo(1, 'Count photo', '2026-10-26T15:00:00Z')], missing: 0 }, { photos: [photo(2, 'Count photo', '2026-10-26T15:00:00Z')], missing: 0 }]);
+  const r = await render(h, RECEIPT);
+  await TestRenderer.act(async () => { r.root.findByType('Image').props.onError(); });
+  assert.match(textOf(r), /Unavailable/);
+  await TestRenderer.act(async () => { thumbsOf(r)[0].props.onPress(); });
+  assert.match(textOf(r), /This photo could not be opened\. Check the connection and try again\./, 'the viewer says so too');
+  await TestRenderer.act(async () => { r.root.findByType('Modal').props.onRequestClose(); });
+  h.network.isOnline = false;
+  await rerender(r, h, RECEIPT);
+  h.network.isOnline = true;
+  await rerender(r, h, RECEIPT);
+  assert.deepEqual(h.calls, [RECEIPT, RECEIPT], 'new links once back online');
+  assert.doesNotMatch(textOf(r), /Unavailable/);
+  assert.equal(r.root.findByType('Image').props.source.uri, 'https://files.test/p2.jpg');
+});
+
+test('a load that fails offline says photos need a connection; one interrupted by a dropped signal tries again by itself', async () => {
+  const offline = photosSection([new Error('Network request failed')]);
+  offline.network.isOnline = false;
+  // The phone thought it was online when the load started, and lost the signal before it failed.
+  offline.network.isOnline = true;
+  let r;
+  await TestRenderer.act(async () => { r = TestRenderer.create(React.createElement(offline.ItemPhotos, { receivingRecordId: RECEIPT })); offline.network.isOnline = false; });
+  await settle();
+  assert.match(textOf(r), /Photos show when this phone is online\./);
+  assert.equal(r.root.findAll(n => n.type === 'Button').length, 0, 'no Try again while offline');
+
+  let fail;
+  const dropped = photosSection([new Promise((_, reject) => { fail = reject; }), { photos: [photo(4, 'Count photo', null)], missing: 0 }]);
+  const s = await render(dropped, RECEIPT);
+  dropped.network.isOnline = false;
+  await rerender(s, dropped, RECEIPT);
+  dropped.network.isOnline = true;
+  await rerender(s, dropped, RECEIPT);
+  assert.equal(dropped.calls.length, 1, 'still the first load');
+  await TestRenderer.act(async () => { fail(new Error('timed out')); });
+  await settle();
+  assert.equal(dropped.calls.length, 2, 'it tried again by itself');
+  assert.equal(thumbsOf(s).length, 1);
+});
+
+test('a different item never shows the last item\'s photos, even for a moment', async () => {
+  let release, item = 'receipt-a';
+  // What each render draws, and for which item the screen was asking.
+  const drawn = [];
+  const native = {
+    Image: (props) => { drawn.push([item, 'image', props.source.uri]); return React.createElement('Image', props); },
+    Modal: (props) => { drawn.push([item, 'viewer', props.visible]); return React.createElement('Modal', props, props.children); },
+  };
+  const h = photosSection([{ photos: [photo(1, 'Count photo', null)], missing: 0 }, new Promise(resolve => { release = resolve; })], { native });
+  const r = await render(h, item);
+  await TestRenderer.act(async () => { thumbsOf(r)[0].props.onPress(); });
+  assert.ok(drawn.some(([at, what, value]) => at === 'receipt-a' && what === 'viewer' && value === true), 'the first item\'s photo was open');
+  item = 'receipt-b';
+  await rerender(r, h, item);
+  assert.deepEqual(drawn.filter(([at, what, value]) => at === 'receipt-b' && (what === 'image' || value === true)), [], 'no photo of the first item and no open viewer while the second loads');
+  assert.match(textOf(r), /Loading photos…/);
+  await TestRenderer.act(async () => { release({ photos: [photo(2, 'Count photo', null), photo(3, 'Count photo', null)], missing: 0 }); });
+  await settle();
+  assert.equal(thumbsOf(r).length, 2);
+  assert.deepEqual(drawn.filter(([at, what]) => at === 'receipt-b' && what === 'image').map(([, , uri]) => uri), ['https://files.test/p2.jpg', 'https://files.test/p3.jpg']);
 });
