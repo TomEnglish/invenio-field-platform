@@ -410,6 +410,9 @@ export function packedAfter(index: LoadIndex, draft: Pick<PackDraft, 'code' | 'a
 }
 export const unitName = (unit: Pick<HandlingUnit, 'kind' | 'description' | 'item_count' | 'unit_count'>) =>
   [unit.description?.trim() || kindLabel(unit.kind), `${unit.item_count + unit.unit_count} inside`].join(' · ');
+// "Container · Valve trim · 3 inside": what kind of unit it is always comes first, so a container reads as one.
+export const unitSummary = (unit: Pick<HandlingUnit, 'kind' | 'description' | 'item_count' | 'unit_count'>) =>
+  [kindLabel(unit.kind), unit.description?.trim(), `${unit.item_count + unit.unit_count} inside`].filter(Boolean).join(' · ');
 
 export type ScanVerdict =
   | { kind: 'add'; entry: PackEntry; message: string }

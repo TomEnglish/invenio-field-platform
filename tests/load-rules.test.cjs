@@ -289,3 +289,11 @@ test('E6: a crate at an outside shop or vendor isn’t asked for an area', () =>
   assert.equal(crates.packReviewIssue(ix2, { ...draft, location: { ...draft.location, placeId: 'site', placeName: 'North Site' } }, true, true).step, 3, 'our own site still needs one');
   assert.equal(crates.packReviewIssue(ix2, { ...draft, before: { kind: 'crate', description: '', isHighValue: false, status: 'delivered', parentCode: null, placeId: 'shop', zoneId: null, where: 'Gulf Machine' } }, true, true), null, 'delivered to a shop and repacked there');
 });
+
+test('a piece opens what it is: a crate by its code in capitals, a received item by its material; a counted one has no page', () => {
+  assert.deepEqual(plain(loads.pieceRoute(line('hu-aaaa01', { piece_kind: 'crate' }))), { to: 'crate', code: 'HU-AAAA01' });
+  assert.deepEqual(plain(loads.pieceRoute(line('GT-1', { material_id: 'm-1' }))), { to: 'material', id: 'm-1' });
+  assert.equal(loads.pieceRoute(line('GT-2')), null);
+  assert.equal(loads.pieceRoute(line('GT-3', { material_id: undefined })), null, 'a copy saved before material_id was read');
+  assert.equal(loads.LINE_STATUS_LABELS.not_loaded, 'Left behind', 'in the office manifest’s words');
+});

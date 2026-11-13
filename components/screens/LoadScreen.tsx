@@ -1,14 +1,36 @@
 import { useState } from 'react';
-import { View, Text, ScrollView, RefreshControl } from 'react-native';
+import { View, Text, ScrollView, RefreshControl, Pressable } from 'react-native';
 import { router, Stack, useLocalSearchParams } from 'expo-router';
+import FontAwesome from '@expo/vector-icons/FontAwesome';
 import { Button } from '@/components/ui/Button';
 import { useLoadReference } from '@/components/logistics/useLoadReference';
 import { loadStyles as styles } from '@/components/logistics/loadStyles';
 import { groupRoute } from '@/components/logistics/routes';
-import { canUnload, COMPANY_ROLES, licenceOnFile, LOAD_STATUS_LABELS, loadLabel, STOP_KINDS } from '@/lib/logistics/loads';
+import { canUnload, COMPANY_ROLES, licenceOnFile, LINE_STATUS_LABELS, LOAD_STATUS_LABELS, loadLabel, loadPieces, pieceRoute, STOP_KINDS, type LoadLine } from '@/lib/logistics/loads';
+import { colors } from '@/lib/design/tokens';
+
+// One piece on the load: a crate (or container, skid...) opens its Crate screen, a received item its material's page.
+function PieceRow({ line }: { line: LoadLine }) {
+  const route = pieceRoute(line);
+  const status = LINE_STATUS_LABELS[line.status] ?? line.status;
+  const body = <>
+    <FontAwesome name={line.piece_kind === 'crate' ? 'archive' : 'tag'} size={16} color={route ? colors.brandPrimary : colors.textMuted} />
+    <View style={styles.rowText}>
+      <Text style={styles.rowTitle}>{line.tag}{line.is_high_value ? ' · High value' : ''}</Text>
+      <Text style={styles.muted}>{line.name} · {status}{route ? '' : line.piece_kind === 'item' ? ' · Counted, not received yet' : ''}</Text>
+    </View>
+    {route ? <FontAwesome name="chevron-right" size={12} color={colors.textMuted} /> : null}
+  </>;
+  if (!route) return <View style={styles.row}>{body}</View>;
+  const go = () => (route.to === 'crate'
+    ? router.push({ pathname: groupRoute('crate') as any, params: { code: route.code } })
+    : router.push({ pathname: groupRoute('material-detail') as any, params: { id: route.id } }));
+  return <Pressable accessibilityRole="button" accessibilityLabel={`${line.tag}, ${line.name}, ${status}. Open it.`} onPress={go} style={styles.row}>{body}</Pressable>;
+}
 
 // One load: its route, truck, driver and companies, what is on it, and the
 // steps open to the field at its stage. The office closes or cancels loads.
+// Each piece opens what it is: a crate's contents, or an item's page.
 export function LoadScreenContent() {
   const { id = '' } = useLocalSearchParams<{ id?: string }>();
   const { loads, pending, refused, loading, data, reload } = useLoadReference({ refresh: true });
@@ -25,6 +47,7 @@ export function LoadScreenContent() {
     <Text style={styles.text}>{loading && !data.savedAt ? 'Looking for this load…' : 'This load isn’t on this device. Pull to refresh when online.'}</Text>
   </ScrollView>;
 
+  const pieces = loadPieces(loads, id);
   const before = load.status === 'planning' || load.status === 'loading';
   const pickups = load.status === 'in_transit' ? stops.filter(stop => stop.kind !== 'dropoff' && stop.status !== 'done') : [];
   const licence = licenceOnFile(load) ? 'License on file' : load.licence_waiting ? 'License saved on this device; it uploads when online'
@@ -50,6 +73,10 @@ export function LoadScreenContent() {
     <View style={styles.card}>
       <Text style={styles.heading} accessibilityRole="header">Pieces</Text>
       <Text style={styles.text}>{load.planned_count} planned · {load.on_board_count} on board · {load.delivered_count} delivered{load.missing_count ? ` · ${load.missing_count} missing` : ''}{load.written_off_count ? ` · ${load.written_off_count} written off` : ''}{load.flagged_count ? ` · ${load.flagged_count} flagged` : ''}</Text>
+      {pieces.map(group => <View key={group.stop?.id ?? 'other'} style={styles.section}>
+        <Text style={styles.rowTitle}>{group.stop ? `Stop ${group.stop.seq} · ${group.stop.place_name}` : 'Other stops'}</Text>
+        {group.lines.map(line => <PieceRow key={line.id} line={line} />)}
+      </View>)}
     </View>
     <View style={styles.card}>
       <Text style={styles.heading} accessibilityRole="header">Route</Text>

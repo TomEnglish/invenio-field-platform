@@ -32,7 +32,7 @@ const countReference = {
 
 // `fresh`: what the server answers per tag (crate lookups are keyed "crates:<code>");
 // `gates`: a promise a lookup waits on, to hold it open.
-function load({ online = true, fresh = {}, gates = {}, queue = [], refused = [] } = {}) {
+function load({ online = true, fresh = {}, gates = {}, queue = [], refused = [], ref = reference } = {}) {
   const routes = [], queued = [], lookups = [], announced = [], blur = [], options = [];
   const records = new Map();
   const params = { code: 'hu-aaaa01' };
@@ -81,9 +81,9 @@ function load({ online = true, fresh = {}, gates = {}, queue = [], refused = [] 
     '@/lib/design/tokens': tokens,
   } });
   const crates = loader.load('./lib/logistics/crates.ts');
-  const index = crates.indexLoad(reference);
+  const index = crates.indexLoad(ref);
   // One object across renders, as the real hook keeps its state.
-  const loadResult = { base: reference, pending: [], refused, data: reference, index, known: index, loading: false, source: 'cache', error: '', reload: async () => {} };
+  const loadResult = { base: ref, pending: [], refused, data: ref, index, known: index, loading: false, source: 'cache', error: '', reload: async () => {} };
   const { usePackStore, switchPackScope } = loader.load('./stores/packStore.ts');
   return { loader, crates, usePackStore, switchPackScope, routes, queued, lookups, announced, blur, options, params, network, records };
 }
@@ -307,5 +307,29 @@ test('the Crate screen shows a crate from the device copy: details, contents, ne
   assert.ok(shown().some(text => /Unpack HU-AAAA01\? Its 1 item and 1 crate come out where it stands/.test(text)));
   await TestRenderer.act(async () => { await button('Unpack crate').props.onPress(); });
   assert.deepEqual(h.queued.map(q => q.action), [{ type: 'unpack', payload: { unitCode: 'HU-AAAA01' } }]);
+  await TestRenderer.act(async () => { r.unmount(); });
+});
+
+test('the Crate screen taps down through what is inside: a container opens its own screen, a received item its material page; a counted one has none', async () => {
+  const ref = { ...reference,
+    units: [unit('HU-AAAA01', { item_count: 2, unit_count: 1, description: 'Pump spares' }),
+      unit('HU-BBBB02', { kind: 'container', description: 'Valve trim', parent_id: 'id-HU-AAAA01', parent_code: 'HU-AAAA01', top_code: 'HU-AAAA01', item_count: 3 })],
+    items: [...reference.items, { unit_code: 'HU-AAAA01', tag: 'GASKET-7', name: 'Spare gasket', quantity: 2, uom: 'EA', material_id: null, inventory_uid: 'u-7' }],
+  };
+  const h = load({ online: false, ref });
+  await h.switchPackScope('worker-a', 'project-a');
+  const { CrateScreenContent } = h.loader.load('./components/screens/CrateScreen.tsx');
+  let r;
+  await TestRenderer.act(async () => { r = TestRenderer.create(React.createElement(CrateScreenContent, { crateRoute: '/(field)/crate', packRoute: '/(field)/pack' })); });
+  const shown = () => r.root.findAll(n => n.type === 'Text').map(n => [].concat(n.props.children).join(''));
+  const pressable = (pattern) => r.root.findAll(n => n.type === 'Pressable' && pattern.test(n.props.accessibilityLabel ?? ''))[0];
+  assert.ok(shown().includes('Contents · 2 items, 1 crate'));
+  assert.ok(shown().includes('Container · Valve trim · 3 inside'), 'a container reads as one, kind first');
+  await TestRenderer.act(async () => { pressable(/^HU-BBBB02, Container · Valve trim · 3 inside\. Open it\.$/).props.onPress(); });
+  assert.deepEqual(plain(h.routes.at(-1)), { pathname: '/(field)/crate', params: { code: 'HU-BBBB02' } });
+  await TestRenderer.act(async () => { pressable(/^6" pipe, tag PIPE-1\. Open it\.$/).props.onPress(); });
+  assert.deepEqual(plain(h.routes.at(-1)), { pathname: '/(field)/material-detail', params: { id: 'm-1' } }, 'a received item opens its material page');
+  assert.equal(pressable(/GASKET-7/), undefined, 'a counted item has no page to open on the phone');
+  assert.ok(shown().includes('Tag GASKET-7 · 2 EA · Counted, not received yet'));
   await TestRenderer.act(async () => { r.unmount(); });
 });

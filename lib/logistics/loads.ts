@@ -79,6 +79,9 @@ export interface LoadLine {
   load_status: LoadStatus;
   tag: string;
   piece_kind: 'crate' | 'item';
+  // A received item's material, which its page opens. Absent in a copy saved before it was read, and on a line made
+  // on this device until it uploads.
+  material_id?: string | null;
   name: string;
   is_high_value: boolean;
   status: LineStatus;
@@ -142,6 +145,29 @@ export interface LicencePayload {
 export interface LicenceDetails { number: string; state?: string; expiry?: string }
 
 export const loadLabel = (load: Pick<Load, 'load_number'> | undefined | null) => load?.load_number ?? 'New load';
+// A manifest line's status in the office's words.
+export const LINE_STATUS_LABELS: Record<LineStatus, string> = {
+  planned: 'Planned', on_board: 'On board', delivered: 'Delivered', missing: 'Missing', written_off: 'Written off', not_loaded: 'Left behind', removed: 'Removed',
+};
+const byTag = new Intl.Collator('en-US', { numeric: true, sensitivity: 'base' });
+// What a load carries, as the office's manifest lists it: by the stop each piece comes off at, in stop order, then any
+// whose stop this device doesn't have; by tag within each; pieces taken off the plan left out.
+export function loadPieces(ix: Pick<LoadsIndex, 'stops' | 'lines'>, loadId: string): { stop: LoadStop | null; lines: LoadLine[] }[] {
+  const shown = (ix.lines.get(loadId) ?? []).filter(line => line.status !== 'removed').sort((a, b) => byTag.compare(a.tag, b.tag));
+  const stops = ix.stops.get(loadId) ?? [];
+  const groups: { stop: LoadStop | null; lines: LoadLine[] }[] = stops.map(stop => ({ stop, lines: shown.filter(line => line.dropoff_stop_id === stop.id) }));
+  const known = new Set(stops.map(stop => stop.id));
+  const others = shown.filter(line => !known.has(line.dropoff_stop_id));
+  if (others.length) groups.push({ stop: null, lines: others });
+  return groups.filter(group => group.lines.length);
+}
+// Where tapping a piece goes: a crate (or container, skid...) to its Crate screen, a received item to its material's
+// page. An item counted but not yet received has no page on the phone.
+export type PieceRoute = { to: 'crate'; code: string } | { to: 'material'; id: string } | null;
+export function pieceRoute(line: Pick<LoadLine, 'piece_kind' | 'tag' | 'material_id'>): PieceRoute {
+  if (line.piece_kind === 'crate') return { to: 'crate', code: crateCode(line.tag) };
+  return line.material_id ? { to: 'material', id: line.material_id } : null;
+}
 // The licence the truck needs to leave is on file (number and photo). A copy
 // saved before licence_complete goes by licence_recorded_at.
 export const licenceOnFile = (load: Pick<Load, 'licence_complete' | 'licence_recorded_at'> | undefined | null) => !!load && (load.licence_complete ?? !!load.licence_recorded_at);

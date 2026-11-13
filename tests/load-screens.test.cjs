@@ -515,3 +515,30 @@ test('022: a crate moves as it is to a place and an area of a plan there; a loos
   assert.equal(s.button('Save the location').props.disabled, true);
   await TestRenderer.act(async () => { s.r.unmount(); });
 });
+
+test('the load screen lists its pieces by drop-off stop, and each piece opens what it is', async () => {
+  const ref = reference({ lines: [line('HU-AAAA01'), line('HU-BBBB02', { status: 'on_board', on_at: 'x' }), line('GT-10', { material_id: 'm-10', dropoff_stop_id: 'stop-2', dropoff_place: 'North Site', is_high_value: true }),
+    line('GT-2', { dropoff_stop_id: 'stop-2', dropoff_place: 'North Site' }), line('GT-3', { status: 'removed' }), line('GT-4', { dropoff_stop_id: 'stop-gone', dropoff_place: null })] });
+  const h = load({ ref });
+  const s = await show(h, './components/screens/LoadScreen.tsx', 'LoadScreenContent');
+  const texts = s.texts();
+  assert.deepEqual(texts.filter(text => /^Stop \d+ · |^Other stops$/.test(text)), ['Stop 1 · Gulf Machine', 'Stop 2 · North Site', 'Other stops'], 'by stop, in order, then any stop this device lacks');
+  assert.ok(!texts.some(text => text.startsWith('GT-3')), 'a piece taken off the plan is not listed');
+  const tags = texts.filter(text => /^(HU-|GT-)/.test(text));
+  assert.deepEqual(tags, ['HU-AAAA01', 'HU-BBBB02', 'GT-2', 'GT-10 · High value', 'GT-4'], 'by tag within a stop, numbers by value');
+  assert.ok(texts.includes('Piece GT-2 · Planned · Counted, not received yet'));
+  const rows = s.r.root.findAll(n => n.type === 'Pressable' && / Open it\.$/.test(n.props.accessibilityLabel ?? ''));
+  assert.deepEqual(rows.map(n => n.props.accessibilityLabel), ['HU-AAAA01, Piece HU-AAAA01, Planned. Open it.', 'HU-BBBB02, Piece HU-BBBB02, On board. Open it.',
+    'GT-10, Piece GT-10, Planned. Open it.'], 'crates and received items open; counted items have no page');
+  await s.press(rows[1]);
+  assert.deepEqual(plain(h.routes.at(-1)), { pathname: '/(field)/crate', params: { code: 'HU-BBBB02' } });
+  await s.press(rows[2]);
+  assert.deepEqual(plain(h.routes.at(-1)), { pathname: '/(field)/material-detail', params: { id: 'm-10' } });
+  await TestRenderer.act(async () => { s.r.unmount(); });
+
+  const office = load({ ref, role: 'office_staff' });
+  const o = await show(office, './components/screens/LoadScreen.tsx', 'LoadScreenContent');
+  await o.press(o.r.root.findAll(n => n.type === 'Pressable' && /^HU-AAAA01, /.test(n.props.accessibilityLabel ?? ''))[0]);
+  assert.deepEqual(plain(office.routes.at(-1)), { pathname: '/(office)/crate', params: { code: 'HU-AAAA01' } }, 'office staff stay in their own tabs');
+  await TestRenderer.act(async () => { o.r.unmount(); });
+});
