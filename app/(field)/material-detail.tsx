@@ -34,6 +34,7 @@ import { colors } from '@/lib/design/tokens';
 import { PackedInNote } from '@/components/logistics/PackedInNote';
 import { groupRoute } from '@/components/logistics/routes';
 import { positionsOfMaterials } from '@/lib/api/tags';
+import { ItemPhotos } from '@/components/photos/ItemPhotos';
 import { materialActions, positionText, type ItemPosition } from '@/lib/logistics/positions';
 
 export default function MaterialDetailScreen() {
@@ -214,6 +215,8 @@ export default function MaterialDetailScreen() {
         {position ? <DetailRow label="Where" value={positionText(position)} /> : null}
         <DetailRow label="Received" value={new Date(material.created_at).toLocaleDateString()} />
       </View>
+
+      <ItemPhotos receivingRecordId={material.receiving_record_id} />
 
       {position?.crate_code && position.position === 'in_crate' ? (
         <TouchableOpacity accessibilityRole="button" accessibilityLabel={`${positionText(position)}. Open the crate.`} style={styles.positionLink}
