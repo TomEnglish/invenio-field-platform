@@ -306,6 +306,17 @@ test('a piece opens what it is: a crate by its code in capitals, a received item
   assert.equal(loads.LINE_STATUS_LABELS.not_loaded, 'Left behind', 'in the office manifest’s words');
 });
 
+test('a tag counted on this phone is counted before its count uploads, though it has no record id yet', () => {
+  const count = { type: 'count', payload: { count: { tag: 'NEW-5', name: 'Gate valve', quantity: 1, uom: 'EA' } } };
+  const after = loads.applyChanges(reference(), [count, on({ pieces: [{ code: 'NEW-5', dropoffStopId: 'stop-1' }] })]);
+  const piece = after.lines.find(l => l.tag === 'NEW-5');
+  assert.deepEqual(plain([piece.material_id, piece.inventory_uid]), [null, null], 'no id yet');
+  assert.equal(loads.countedOnly(piece, cx(after)), true);
+  assert.equal(crates.countedNotReceived(cx(after), { tag: 'NEW-5', material_id: null, inventory_uid: null }), true);
+  assert.equal(crates.countedNotReceived(cx(after), { tag: 'NEVER-SEEN', material_id: null, inventory_uid: null }), false);
+  assert.equal(crates.countedNotReceived(cx(after), { tag: 'PIPE-2', material_id: 'm-2', inventory_uid: null }), false);
+});
+
 test('a piece scanned onto a load on this device says what it is before it uploads', () => {
   const after = loads.applyLoadPending(reference(), [on({ pieces: [{ code: 'PIPE-3', dropoffStopId: 'stop-1' }, { code: 'GT-1', dropoffStopId: 'stop-1' }, { code: 'NEW-1', dropoffStopId: 'stop-1' }, { code: 'HU-BOX001', dropoffStopId: 'stop-1' }] })]);
   const made = tag => after.lines.find(l => l.tag === tag && l.load_id === 'load-a');

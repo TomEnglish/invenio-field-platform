@@ -14,7 +14,7 @@ import { processQueue } from '@/lib/sync/syncManager';
 import { newOperationId } from '@/lib/utils/operationId';
 import { quantityText, shortDate } from '@/lib/inventory/count';
 import {
-  crateCode, isCrateCode, kindLabel, labelIssue, looksLikeCrate, moveIssue, packStart, STATUS_LABELS, unitAncestors, unitLoadText, unitName, unitSummary, unitWhere, unpackIssue,
+  countedNotReceived, crateCode, isCrateCode, kindLabel, labelIssue, looksLikeCrate, moveIssue, packStart, STATUS_LABELS, unitAncestors, unitLoadText, unitName, unitSummary, unitWhere, unpackIssue,
   type PackQueuePayload,
 } from '@/lib/logistics/crates';
 import { colors, radius, space, fontSize, fontWeight, touchTarget } from '@/lib/design/tokens';
@@ -184,7 +184,7 @@ export function CrateScreenContent({ crateRoute, packRoute }: { crateRoute: stri
           // Counted but not yet received, or a tag packed here that this device doesn't know: nothing to open.
           if (!item.material_id) return <View key={item.tag} style={styles.row}>
             <FontAwesome name="tag" size={16} color={colors.textMuted} />
-            <View style={styles.rowText}><Text style={styles.rowTitle}>{item.name}</Text><Text style={styles.muted}>{details}{item.inventory_uid ? ' · Counted, not received yet' : ''}</Text></View>
+            <View style={styles.rowText}><Text style={styles.rowTitle}>{item.name}</Text><Text style={styles.muted}>{details}{countedNotReceived(index, item) ? ' · Counted, not received yet' : ''}</Text></View>
           </View>;
           // The material's page reads from the server: offline it would say the item isn't found.
           const openItem = () => online ? router.push({ pathname: groupRoute('material-detail') as any, params: { id: item.material_id! } })

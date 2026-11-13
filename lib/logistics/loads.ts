@@ -2,7 +2,7 @@
 // checks for loading and unloading, driver check-in rules and the load
 // operation payloads. Pure, shared by screens, the queue and tests.
 // Contract: MSR migration 022 (docs/LOGISTICS.md, "Loads").
-import { applyPending, crateCode, looksLikeCrate, spelled, STATUS_LABELS, type HandlingUnit, type LoadAction, type LoadIndex, type LoadReference } from './crates';
+import { applyPending, countedNotReceived, crateCode, looksLikeCrate, spelled, STATUS_LABELS, type HandlingUnit, type LoadAction, type LoadIndex, type LoadReference } from './crates';
 
 export type LoadStatus = 'planning' | 'loading' | 'in_transit' | 'delivered' | 'closed' | 'cancelled';
 export type StopKind = 'dropoff' | 'pickup' | 'both';
@@ -181,9 +181,7 @@ export function pieceRoute(line: Pick<LoadLine, 'piece_kind' | 'tag' | 'material
 // this device knows nothing about is neither.
 export function countedOnly(line: Pick<LoadLine, 'piece_kind' | 'tag' | 'material_id' | 'inventory_uid'>, known?: Pick<LoadIndex, 'materials' | 'counted'>): boolean {
   if (line.piece_kind !== 'item' || pieceRoute(line, known)) return false;
-  if (line.inventory_uid) return true;
-  const record = line.inventory_uid === undefined ? known?.counted.get(line.tag.trim()) : undefined;
-  return !!record && (record.status === 'counted' || record.status === 'expected');
+  return countedNotReceived(known ?? { counted: new Map() }, line);
 }
 // The licence the truck needs to leave is on file (number and photo). A copy
 // saved before licence_complete goes by licence_recorded_at.

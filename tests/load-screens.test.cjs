@@ -38,13 +38,14 @@ const reference = (extra = {}) => ({
 const yardPlans = { maps: [{ id: 'map-a', name: 'Yard' }], zones: [{ id: 'z-1', map_id: 'map-a', parent_id: null, name: 'Bay 1', shape: [], is_active: true }] };
 
 function load({ ref = reference(), params = { id: 'load-a' }, online = false, failQueue = null, stuck = [], role = 'field_worker', tagAnswer = null, plans = yardPlans } = {}) {
-  const routes = [], queued = [], blur = [], deleted = [], captured = [];
+  const routes = [], queued = [], blur = [], deleted = [], captured = [], announced = [];
   const records = new Map();
   const auth = { user: { id: 'worker-a', role }, activeProject: { id: 'project-a', status: 'active' } };
   const network = { isOnline: online };
   const loader = createModuleLoader({ stubs: {
     react: React, 'react/jsx-runtime': require('react/jsx-runtime'), zustand: require('zustand'), 'zustand/middleware': require('zustand/middleware'),
-    'react-native': { View: 'View', Text: 'Text', ScrollView: 'ScrollView', Pressable: 'Pressable', Image: 'Image', KeyboardAvoidingView: 'KeyboardAvoidingView', StyleSheet: { create: (s) => s }, Platform: { OS: 'ios' }, AppState: { addEventListener: () => ({ remove() {} }) } },
+    'react-native': { View: 'View', Text: 'Text', ScrollView: 'ScrollView', Pressable: 'Pressable', Image: 'Image', KeyboardAvoidingView: 'KeyboardAvoidingView', StyleSheet: { create: (s) => s }, Platform: { OS: 'ios' }, AppState: { addEventListener: () => ({ remove() {} }) },
+      AccessibilityInfo: { announceForAccessibility: (text) => announced.push(text) } },
     '@react-native-async-storage/async-storage': { getItem: async (k) => records.get(k) ?? null, setItem: async (k, v) => { records.set(k, v); }, removeItem: async (k) => { records.delete(k); } },
     'expo-router': {
       router: { push: (r) => routes.push(r), replace: (r) => routes.push(r), back: () => routes.push('back') },
@@ -81,7 +82,7 @@ function load({ ref = reference(), params = { id: 'load-a' }, online = false, fa
     cached = { count: queued.length, result: { data, base: ref, pending: [], refused: stuck, loads: loads.indexLoads(data), index: crates.indexLoad(data), known: crates.indexLoad(ref), loading: false, source: 'cache', error: '', reload: async () => {} } };
     return cached.result;
   };
-  return { loader, routes, queued, blur, deleted, records, network, params, captured };
+  return { loader, routes, queued, blur, deleted, records, network, params, captured, announced };
 }
 async function show(h, file, name) {
   const Screen = h.loader.load(file)[name];
@@ -545,14 +546,27 @@ test('the load screen lists its pieces by drop-off stop, and each piece opens wh
   assert.deepEqual(plain(h.routes.at(-1)), { pathname: '/(field)/material-detail', params: { id: 'm-10' } });
   await TestRenderer.act(async () => { s.r.unmount(); });
 
-  // Offline the material's page can't load, so the tap says so instead; a crate still opens from the copy.
+  // Offline the material's page can't load, so the tap says so under the row, and out loud on iOS; a crate still
+  // opens from the copy.
   const offline = load({ ref, online: false });
   const o = await show(offline, './components/screens/LoadScreen.tsx', 'LoadScreenContent');
   const row = (tag) => o.r.root.findAll(n => n.type === 'Pressable' && (n.props.accessibilityLabel ?? '').startsWith(`${tag}, `))[0];
+  const note = "GT-10's page needs signal. Try again when this phone is online.";
+  assert.ok(!o.texts().includes(note));
   await o.press(row('GT-10'));
   assert.equal(offline.routes.length, 0);
-  assert.equal(o.r.root.findByType('Toast').props.title, 'No signal');
-  assert.equal(o.r.root.findByType('Toast').props.message, "GT-10's page needs signal. Try again when this phone is online.");
+  const shown = o.texts();
+  assert.equal(shown[shown.indexOf('Piece GT-10 · Planned') + 1], note, 'right under the row that was tapped');
+  assert.equal(o.r.root.findAll(n => n.type === 'Text' && n.props.accessibilityRole === 'alert' && n.props.children === note).length, 1);
+  assert.deepEqual(offline.announced, [note]);
+  await o.press(row('GT-1'));
+  assert.ok(!o.texts().includes(note), 'one note at a time');
+  assert.ok(o.texts().includes("GT-1's page needs signal. Try again when this phone is online."));
+  offline.network.isOnline = true;
+  await TestRenderer.act(async () => { o.r.update(React.createElement(offline.loader.load('./components/screens/LoadScreen.tsx').LoadScreenContent)); });
+  assert.ok(!o.texts().some(text => /needs signal/.test(text)), 'gone once signal returns');
+  offline.network.isOnline = false;
+  await TestRenderer.act(async () => { o.r.update(React.createElement(offline.loader.load('./components/screens/LoadScreen.tsx').LoadScreenContent)); });
   await o.press(row('HU-AAAA01'));
   assert.deepEqual(plain(offline.routes.at(-1)), { pathname: '/(field)/crate', params: { code: 'HU-AAAA01' } });
   await TestRenderer.act(async () => { o.r.unmount(); });
