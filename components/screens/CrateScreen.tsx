@@ -5,6 +5,7 @@ import FontAwesome from '@expo/vector-icons/FontAwesome';
 import { Button } from '@/components/ui/Button';
 import { Toast } from '@/components/ui/Toast';
 import { useLoadReference } from '@/components/logistics/useLoadReference';
+import { NoSignalNote, sayNoSignal } from '@/components/logistics/NoSignalNote';
 import { usePackStore } from '@/stores/packStore';
 import { groupRoute } from '@/components/logistics/routes';
 import { useAuthStore } from '@/stores/authStore';
@@ -46,9 +47,12 @@ export function CrateScreenContent({ crateRoute, packRoute }: { crateRoute: stri
   const [message, setMessage] = useState<{ tone: 'success' | 'warn' | 'info'; title: string; text: string } | null>(null);
   const [busy, setBusy] = useState(false);
   const [blocked, setBlocked] = useState(false);
+  // The item whose page couldn't open for want of signal; cleared when signal returns.
+  const [noSignal, setNoSignal] = useState<string | null>(null);
   const unpackId = useRef(newOperationId());
   // The screen stays mounted between crates: each one starts clean.
-  useEffect(() => { setConfirmUnpack(false); setMessage(null); setBlocked(false); unpackId.current = newOperationId(); }, [code]);
+  useEffect(() => { setConfirmUnpack(false); setMessage(null); setBlocked(false); setNoSignal(null); unpackId.current = newOperationId(); }, [code]);
+  useEffect(() => { if (online) setNoSignal(null); }, [online]);
   // VoiceOver has no live regions: say what happened.
   useEffect(() => { if (message && Platform.OS === 'ios') AccessibilityInfo.announceForAccessibility(`${message.title}. ${message.text}`); }, [message]);
 
@@ -187,13 +191,18 @@ export function CrateScreenContent({ crateRoute, packRoute }: { crateRoute: stri
             <View style={styles.rowText}><Text style={styles.rowTitle}>{item.name}</Text><Text style={styles.muted}>{details}{countedNotReceived(index, item) ? ' · Counted, not received yet' : ''}</Text></View>
           </View>;
           // The material's page reads from the server: offline it would say the item isn't found.
-          const openItem = () => online ? router.push({ pathname: groupRoute('material-detail') as any, params: { id: item.material_id! } })
-            : setMessage({ tone: 'info', title: 'No signal', text: `${item.tag}'s page needs signal. Try again when this phone is online.` });
-          return <Pressable key={item.tag} accessibilityRole="button" accessibilityLabel={`${item.name}, tag ${item.tag}. Open it.`} onPress={openItem} style={styles.row}>
-            <FontAwesome name="tag" size={16} color={colors.brandPrimary} />
-            <View style={styles.rowText}><Text style={styles.rowTitle}>{item.name}</Text><Text style={styles.muted}>{details}</Text></View>
-            <FontAwesome name="chevron-right" size={12} color={colors.textMuted} />
-          </Pressable>;
+          const openItem = () => {
+            if (online) router.push({ pathname: groupRoute('material-detail') as any, params: { id: item.material_id! } });
+            else { setNoSignal(item.tag); sayNoSignal(item.tag); }
+          };
+          return <View key={item.tag}>
+            <Pressable accessibilityRole="button" accessibilityLabel={`${item.name}, tag ${item.tag}. Open it.`} onPress={openItem} style={styles.row}>
+              <FontAwesome name="tag" size={16} color={colors.brandPrimary} />
+              <View style={styles.rowText}><Text style={styles.rowTitle}>{item.name}</Text><Text style={styles.muted}>{details}</Text></View>
+              <FontAwesome name="chevron-right" size={12} color={colors.textMuted} />
+            </Pressable>
+            {noSignal === item.tag ? <NoSignalNote tag={item.tag} /> : null}
+          </View>;
         })}
       </View>
 

@@ -1,17 +1,16 @@
 import { useEffect, useState } from 'react';
-import { View, Text, ScrollView, RefreshControl, Pressable, Platform, AccessibilityInfo } from 'react-native';
+import { View, Text, ScrollView, RefreshControl, Pressable } from 'react-native';
 import { router, Stack, useLocalSearchParams } from 'expo-router';
 import FontAwesome from '@expo/vector-icons/FontAwesome';
 import { Button } from '@/components/ui/Button';
 import { useNetworkStore } from '@/lib/sync/networkStore';
 import type { LoadIndex } from '@/lib/logistics/crates';
 import { useLoadReference } from '@/components/logistics/useLoadReference';
+import { NoSignalNote, sayNoSignal } from '@/components/logistics/NoSignalNote';
 import { loadStyles as styles } from '@/components/logistics/loadStyles';
 import { groupRoute } from '@/components/logistics/routes';
 import { canUnload, COMPANY_ROLES, countedOnly, licenceOnFile, LINE_STATUS_LABELS, LOAD_STATUS_LABELS, loadLabel, loadPieces, pieceRoute, STOP_KINDS, type LoadLine } from '@/lib/logistics/loads';
 import { colors } from '@/lib/design/tokens';
-
-const noSignalText = (tag: string) => `${tag}'s page needs signal. Try again when this phone is online.`;
 
 // One piece on the load: a crate (or container, skid...) opens its Crate screen, a received item its material's page.
 // `known` is the device's copy, for lines saved before they said what an item is. Offline, a received item's page
@@ -36,7 +35,7 @@ function PieceRow({ line, known, online, warned, onNoSignal }: { line: LoadLine;
   };
   return <>
     <Pressable accessibilityRole="button" accessibilityLabel={`${line.tag}, ${line.name}, ${status}. Open it.`} onPress={go} style={styles.row}>{body}</Pressable>
-    {warned ? <Text style={styles.warning} accessibilityRole="alert">{noSignalText(line.tag)}</Text> : null}
+    {warned ? <NoSignalNote tag={line.tag} /> : null}
   </>;
 }
 
@@ -51,11 +50,7 @@ export function LoadScreenContent() {
   // The piece whose page couldn't open for want of signal; cleared when signal returns or another load opens.
   const [noSignal, setNoSignal] = useState<string | null>(null);
   useEffect(() => { setNoSignal(null); }, [id, online]);
-  const sayNoSignal = (line: LoadLine) => {
-    setNoSignal(line.id);
-    // VoiceOver has no live regions: say it.
-    if (Platform.OS === 'ios') AccessibilityInfo.announceForAccessibility(noSignalText(line.tag));
-  };
+  const noSignalFor = (line: LoadLine) => { setNoSignal(line.id); sayNoSignal(line.tag); };
   const load = loads.loads.get(id);
   const stops = loads.stops.get(id) ?? [];
   const companies = (loads.companies.get(id) ?? []).sort((a, b) => a.position - b.position);
@@ -96,7 +91,7 @@ export function LoadScreenContent() {
       <Text style={styles.text}>{load.planned_count} planned · {load.on_board_count} on board · {load.delivered_count} delivered{load.missing_count ? ` · ${load.missing_count} missing` : ''}{load.written_off_count ? ` · ${load.written_off_count} written off` : ''}{load.flagged_count ? ` · ${load.flagged_count} flagged` : ''}</Text>
       {pieces.map(group => <View key={group.stop?.id ?? 'other'} style={styles.section}>
         <Text style={styles.rowTitle}>{group.stop ? `Stop ${group.stop.seq} · ${group.stop.place_name}` : 'Other stops'}</Text>
-        {group.lines.map(line => <PieceRow key={line.id} line={line} known={index} online={online} warned={noSignal === line.id} onNoSignal={sayNoSignal} />)}
+        {group.lines.map(line => <PieceRow key={line.id} line={line} known={index} online={online} warned={noSignal === line.id} onNoSignal={noSignalFor} />)}
       </View>)}
     </View>
     <View style={styles.card}>

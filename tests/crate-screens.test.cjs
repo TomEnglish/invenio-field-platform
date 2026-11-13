@@ -339,14 +339,19 @@ test('the Crate screen taps down through what is inside: a container opens its o
   assert.ok(shown().includes('Tag NEW-5 · 1 EA · Counted, not received yet'), 'counted on this phone, before the count uploads');
   assert.equal(pressable(/NEW-1/), undefined);
 
-  // Offline the material's page can't load: the tap says so instead of opening an error.
+  // Offline the material's page can't load: the tap says so right under the row, read out on Android (a polite live
+  // region) and on iOS (announced), instead of opening an error.
   const routed = h.routes.length;
+  const note = "PIPE-1's page needs signal. Try again when this phone is online.";
   await TestRenderer.act(async () => { pressable(/^6" pipe, tag PIPE-1\. Open it\.$/).props.onPress(); });
   assert.equal(h.routes.length, routed);
-  assert.equal(r.root.findByType('Toast').props.title, 'No signal');
-  assert.equal(r.root.findByType('Toast').props.message, "PIPE-1's page needs signal. Try again when this phone is online.");
+  assert.equal(shown()[shown().indexOf('Tag PIPE-1 · 1 EA') + 1], note);
+  const said = r.root.findAll(n => n.type === 'Text' && n.props.children === note)[0];
+  assert.deepEqual([said.props.accessibilityRole, said.props.accessibilityLiveRegion], ['alert', 'polite']);
+  assert.equal(h.announced.at(-1), note);
   h.network.isOnline = true;
   await TestRenderer.act(async () => { r.update(view()); });
+  assert.ok(!shown().includes(note), 'gone once signal returns');
   await TestRenderer.act(async () => { pressable(/^6" pipe, tag PIPE-1\. Open it\.$/).props.onPress(); });
   assert.deepEqual(plain(h.routes.at(-1)), { pathname: '/(field)/material-detail', params: { id: 'm-1' } }, 'online, a received item opens its material page');
   await TestRenderer.act(async () => { r.unmount(); });

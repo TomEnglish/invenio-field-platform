@@ -557,7 +557,9 @@ test('the load screen lists its pieces by drop-off stop, and each piece opens wh
   assert.equal(offline.routes.length, 0);
   const shown = o.texts();
   assert.equal(shown[shown.indexOf('Piece GT-10 · Planned') + 1], note, 'right under the row that was tapped');
-  assert.equal(o.r.root.findAll(n => n.type === 'Text' && n.props.accessibilityRole === 'alert' && n.props.children === note).length, 1);
+  const said = o.r.root.findAll(n => n.type === 'Text' && n.props.children === note);
+  assert.equal(said.length, 1);
+  assert.deepEqual([said[0].props.accessibilityRole, said[0].props.accessibilityLiveRegion], ['alert', 'polite'], 'read out on Android too');
   assert.deepEqual(offline.announced, [note]);
   await o.press(row('GT-1'));
   assert.ok(!o.texts().includes(note), 'one note at a time');
