@@ -79,9 +79,10 @@ export interface LoadLine {
   load_status: LoadStatus;
   tag: string;
   piece_kind: 'crate' | 'item';
-  // A received item's material, which its page opens. Absent in a copy saved before it was read, and on a line made
-  // on this device until it uploads.
+  // A loose item's material once received (its page opens), else its count record. Absent in a copy saved before
+  // they were read; on a line made on this device, filled from the device's copy when it knows the tag.
   material_id?: string | null;
+  inventory_uid?: string | null;
   name: string;
   is_high_value: boolean;
   status: LineStatus;
@@ -161,12 +162,28 @@ export function loadPieces(ix: Pick<LoadsIndex, 'stops' | 'lines'>, loadId: stri
   if (others.length) groups.push({ stop: null, lines: others });
   return groups.filter(group => group.lines.length);
 }
+// What the device's copy knows about a loose item's tag: its material once received, else its count record.
+export function knownItem(ref: Pick<LoadReference, 'materials' | 'counted'>, tag: string): { material_id: string | null; inventory_uid: string | null } {
+  const material = ref.materials.find(m => m.tag.trim() === tag.trim());
+  const record = material ? undefined : ref.counted.find(c => c.tag.trim() === tag.trim() && c.status !== 'received');
+  return { material_id: material?.id ?? null, inventory_uid: record?.uid || null };
+}
 // Where tapping a piece goes: a crate (or container, skid...) to its Crate screen, a received item to its material's
-// page. An item counted but not yet received has no page on the phone.
+// page. The line says which material; a copy saved before lines carried it is asked by tag. An item counted but not
+// yet received has no page on the phone.
 export type PieceRoute = { to: 'crate'; code: string } | { to: 'material'; id: string } | null;
-export function pieceRoute(line: Pick<LoadLine, 'piece_kind' | 'tag' | 'material_id'>): PieceRoute {
+export function pieceRoute(line: Pick<LoadLine, 'piece_kind' | 'tag' | 'material_id'>, known?: Pick<LoadIndex, 'materials'>): PieceRoute {
   if (line.piece_kind === 'crate') return { to: 'crate', code: crateCode(line.tag) };
-  return line.material_id ? { to: 'material', id: line.material_id } : null;
+  const id = line.material_id || (line.material_id === undefined ? known?.materials.get(line.tag.trim())?.id : undefined);
+  return id ? { to: 'material', id } : null;
+}
+// A loose item known to be counted but not yet received: from its line, or from the device's copy by tag. An item
+// this device knows nothing about is neither.
+export function countedOnly(line: Pick<LoadLine, 'piece_kind' | 'tag' | 'material_id' | 'inventory_uid'>, known?: Pick<LoadIndex, 'materials' | 'counted'>): boolean {
+  if (line.piece_kind !== 'item' || pieceRoute(line, known)) return false;
+  if (line.inventory_uid) return true;
+  const record = line.inventory_uid === undefined ? known?.counted.get(line.tag.trim()) : undefined;
+  return !!record && (record.status === 'counted' || record.status === 'expected');
 }
 // The licence the truck needs to leave is on file (number and photo). A copy
 // saved before licence_complete goes by licence_recorded_at.
@@ -322,6 +339,7 @@ export function applyLoadPending(ref: LoadReference, actions: LoadActionLike[]):
           const crate = looksLikeCrate(tag), unit = units.get(tag);
           line = {
             id: `local-${load.id}-${tag}-${lines.length}`, load_id: load.id, load_number: load.load_number, load_status: load.status, tag, piece_kind: crate ? 'crate' : 'item',
+            ...(crate ? {} : knownItem(ref, tag)),
             name: crate ? unit?.description || 'Crate' : (ref.materials.find(m => m.tag === tag)?.name ?? ref.counted.find(c => c.tag === tag)?.name ?? tag),
             is_high_value: !!unit?.is_high_value, status: 'planned', flag: null, added_in_field: true, pickup_stop_id: null, dropoff_stop_id: dropoff,
             dropoff_place: stopOf(dropoff)?.place_name ?? null, delivered_stop_id: null, delivered_place: null, is_current_position: false, on_at: null, off_at: null,
@@ -374,6 +392,7 @@ export function applyLoadPending(ref: LoadReference, actions: LoadActionLike[]):
           if (!line) {
             line = {
               id: `local-${load.id}-${tag}-${lines.length}`, load_id: load.id, load_number: load.load_number, load_status: load.status, tag, piece_kind: looksLikeCrate(tag) ? 'crate' : 'item',
+              ...(looksLikeCrate(tag) ? {} : knownItem(ref, tag)),
               name: units.get(tag)?.description || tag, is_high_value: !!units.get(tag)?.is_high_value, status: 'delivered', flag: 'extra', added_in_field: true,
               pickup_stop_id: null, dropoff_stop_id: stop.id, dropoff_place: stop.place_name, delivered_stop_id: null, delivered_place: null, is_current_position: false, on_at: null, off_at: null,
             };

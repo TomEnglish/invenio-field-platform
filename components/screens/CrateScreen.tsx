@@ -181,13 +181,15 @@ export function CrateScreenContent({ crateRoute, packRoute }: { crateRoute: stri
         </Pressable>)}
         {items.map(item => {
           const details = `Tag ${item.tag} · ${quantityText(item.quantity)} ${item.uom}`;
-          // Counted but not yet received: nothing to open on the phone.
+          // Counted but not yet received, or a tag packed here that this device doesn't know: nothing to open.
           if (!item.material_id) return <View key={item.tag} style={styles.row}>
             <FontAwesome name="tag" size={16} color={colors.textMuted} />
-            <View style={styles.rowText}><Text style={styles.rowTitle}>{item.name}</Text><Text style={styles.muted}>{details} · Counted, not received yet</Text></View>
+            <View style={styles.rowText}><Text style={styles.rowTitle}>{item.name}</Text><Text style={styles.muted}>{details}{item.inventory_uid ? ' · Counted, not received yet' : ''}</Text></View>
           </View>;
-          return <Pressable key={item.tag} accessibilityRole="button" accessibilityLabel={`${item.name}, tag ${item.tag}. Open it.`}
-            onPress={() => router.push({ pathname: groupRoute('material-detail') as any, params: { id: item.material_id! } })} style={styles.row}>
+          // The material's page reads from the server: offline it would say the item isn't found.
+          const openItem = () => online ? router.push({ pathname: groupRoute('material-detail') as any, params: { id: item.material_id! } })
+            : setMessage({ tone: 'info', title: 'No signal', text: `${item.tag}'s page needs signal. Try again when this phone is online.` });
+          return <Pressable key={item.tag} accessibilityRole="button" accessibilityLabel={`${item.name}, tag ${item.tag}. Open it.`} onPress={openItem} style={styles.row}>
             <FontAwesome name="tag" size={16} color={colors.brandPrimary} />
             <View style={styles.rowText}><Text style={styles.rowTitle}>{item.name}</Text><Text style={styles.muted}>{details}</Text></View>
             <FontAwesome name="chevron-right" size={12} color={colors.textMuted} />

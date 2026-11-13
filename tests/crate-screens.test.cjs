@@ -312,24 +312,38 @@ test('the Crate screen shows a crate from the device copy: details, contents, ne
 
 test('the Crate screen taps down through what is inside: a container opens its own screen, a received item its material page; a counted one has none', async () => {
   const ref = { ...reference,
-    units: [unit('HU-AAAA01', { item_count: 2, unit_count: 1, description: 'Pump spares' }),
+    units: [unit('HU-AAAA01', { item_count: 3, unit_count: 1, description: 'Pump spares' }),
       unit('HU-BBBB02', { kind: 'container', description: 'Valve trim', parent_id: 'id-HU-AAAA01', parent_code: 'HU-AAAA01', top_code: 'HU-AAAA01', item_count: 3 })],
-    items: [...reference.items, { unit_code: 'HU-AAAA01', tag: 'GASKET-7', name: 'Spare gasket', quantity: 2, uom: 'EA', material_id: null, inventory_uid: 'u-7' }],
+    items: [...reference.items, { unit_code: 'HU-AAAA01', tag: 'GASKET-7', name: 'Spare gasket', quantity: 2, uom: 'EA', material_id: null, inventory_uid: 'u-7' },
+      // Packed here offline, not on this device's copy yet: neither.
+      { unit_code: 'HU-AAAA01', tag: 'NEW-1', name: 'NEW-1', quantity: 1, uom: 'EA', material_id: null, inventory_uid: null }],
   };
   const h = load({ online: false, ref });
   await h.switchPackScope('worker-a', 'project-a');
   const { CrateScreenContent } = h.loader.load('./components/screens/CrateScreen.tsx');
+  const view = () => React.createElement(CrateScreenContent, { crateRoute: '/(field)/crate', packRoute: '/(field)/pack' });
   let r;
-  await TestRenderer.act(async () => { r = TestRenderer.create(React.createElement(CrateScreenContent, { crateRoute: '/(field)/crate', packRoute: '/(field)/pack' })); });
+  await TestRenderer.act(async () => { r = TestRenderer.create(view()); });
   const shown = () => r.root.findAll(n => n.type === 'Text').map(n => [].concat(n.props.children).join(''));
   const pressable = (pattern) => r.root.findAll(n => n.type === 'Pressable' && pattern.test(n.props.accessibilityLabel ?? ''))[0];
-  assert.ok(shown().includes('Contents · 2 items, 1 crate'));
+  assert.ok(shown().includes('Contents · 3 items, 1 crate'));
   assert.ok(shown().includes('Container · Valve trim · 3 inside'), 'a container reads as one, kind first');
   await TestRenderer.act(async () => { pressable(/^HU-BBBB02, Container · Valve trim · 3 inside\. Open it\.$/).props.onPress(); });
-  assert.deepEqual(plain(h.routes.at(-1)), { pathname: '/(field)/crate', params: { code: 'HU-BBBB02' } });
-  await TestRenderer.act(async () => { pressable(/^6" pipe, tag PIPE-1\. Open it\.$/).props.onPress(); });
-  assert.deepEqual(plain(h.routes.at(-1)), { pathname: '/(field)/material-detail', params: { id: 'm-1' } }, 'a received item opens its material page');
+  assert.deepEqual(plain(h.routes.at(-1)), { pathname: '/(field)/crate', params: { code: 'HU-BBBB02' } }, 'a unit inside opens from the copy, offline too');
   assert.equal(pressable(/GASKET-7/), undefined, 'a counted item has no page to open on the phone');
   assert.ok(shown().includes('Tag GASKET-7 · 2 EA · Counted, not received yet'));
+  assert.ok(shown().includes('Tag NEW-1 · 1 EA'), 'a tag the device knows nothing about is not called counted');
+  assert.equal(pressable(/NEW-1/), undefined);
+
+  // Offline the material's page can't load: the tap says so instead of opening an error.
+  const routed = h.routes.length;
+  await TestRenderer.act(async () => { pressable(/^6" pipe, tag PIPE-1\. Open it\.$/).props.onPress(); });
+  assert.equal(h.routes.length, routed);
+  assert.equal(r.root.findByType('Toast').props.title, 'No signal');
+  assert.equal(r.root.findByType('Toast').props.message, "PIPE-1's page needs signal. Try again when this phone is online.");
+  h.network.isOnline = true;
+  await TestRenderer.act(async () => { r.update(view()); });
+  await TestRenderer.act(async () => { pressable(/^6" pipe, tag PIPE-1\. Open it\.$/).props.onPress(); });
+  assert.deepEqual(plain(h.routes.at(-1)), { pathname: '/(field)/material-detail', params: { id: 'm-1' } }, 'online, a received item opens its material page');
   await TestRenderer.act(async () => { r.unmount(); });
 });

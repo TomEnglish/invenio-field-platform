@@ -66,6 +66,7 @@ function load({ ref = reference(), params = { id: 'load-a' }, online = false, fa
     '@/components/scanning/QRScanner': { QRScanner: element('QRScanner') },
     '@/components/inventory/AreaList': { AreaList: element('AreaList') },
     '@/components/ui/Button': { Button: element('Button') },
+    '@/components/ui/Toast': { Toast: (props) => (props.visible ? React.createElement('Toast', props) : null) },
     '@/components/ui/Input': { Input: element('Input') },
     '@/components/ui/DatePicker': { DatePicker: element('DatePicker') },
     '@/components/ui/Select': { Select: element('Select') },
@@ -517,28 +518,48 @@ test('022: a crate moves as it is to a place and an area of a plan there; a loos
 });
 
 test('the load screen lists its pieces by drop-off stop, and each piece opens what it is', async () => {
-  const ref = reference({ lines: [line('HU-AAAA01'), line('HU-BBBB02', { status: 'on_board', on_at: 'x' }), line('GT-10', { material_id: 'm-10', dropoff_stop_id: 'stop-2', dropoff_place: 'North Site', is_high_value: true }),
-    line('GT-2', { dropoff_stop_id: 'stop-2', dropoff_place: 'North Site' }), line('GT-3', { status: 'removed' }), line('GT-4', { dropoff_stop_id: 'stop-gone', dropoff_place: null })] });
-  const h = load({ ref });
+  // GT-1 is from a copy saved before lines said what an item is: the device's copy knows it by tag (m-1).
+  const ref = reference({ lines: [line('HU-AAAA01'), line('HU-BBBB02', { status: 'on_board', on_at: 'x' }),
+    line('GT-10', { material_id: 'm-10', inventory_uid: null, dropoff_stop_id: 'stop-2', dropoff_place: 'North Site', is_high_value: true }),
+    line('GT-2', { material_id: null, inventory_uid: 'u-2', dropoff_stop_id: 'stop-2', dropoff_place: 'North Site' }),
+    line('GT-1', { dropoff_stop_id: 'stop-2', dropoff_place: 'North Site' }),
+    line('GT-3', { status: 'removed' }), line('GT-4', { dropoff_stop_id: 'stop-gone', dropoff_place: null })] });
+  const h = load({ ref, online: true });
   const s = await show(h, './components/screens/LoadScreen.tsx', 'LoadScreenContent');
   const texts = s.texts();
   assert.deepEqual(texts.filter(text => /^Stop \d+ · |^Other stops$/.test(text)), ['Stop 1 · Gulf Machine', 'Stop 2 · North Site', 'Other stops'], 'by stop, in order, then any stop this device lacks');
   assert.ok(!texts.some(text => text.startsWith('GT-3')), 'a piece taken off the plan is not listed');
   const tags = texts.filter(text => /^(HU-|GT-)/.test(text));
-  assert.deepEqual(tags, ['HU-AAAA01', 'HU-BBBB02', 'GT-2', 'GT-10 · High value', 'GT-4'], 'by tag within a stop, numbers by value');
+  assert.deepEqual(tags, ['HU-AAAA01', 'HU-BBBB02', 'GT-1', 'GT-2', 'GT-10 · High value', 'GT-4'], 'by tag within a stop, numbers by value');
   assert.ok(texts.includes('Piece GT-2 · Planned · Counted, not received yet'));
-  const rows = s.r.root.findAll(n => n.type === 'Pressable' && / Open it\.$/.test(n.props.accessibilityLabel ?? ''));
-  assert.deepEqual(rows.map(n => n.props.accessibilityLabel), ['HU-AAAA01, Piece HU-AAAA01, Planned. Open it.', 'HU-BBBB02, Piece HU-BBBB02, On board. Open it.',
-    'GT-10, Piece GT-10, Planned. Open it.'], 'crates and received items open; counted items have no page');
-  await s.press(rows[1]);
+  assert.ok(texts.includes('Piece GT-1 · Planned'), 'received, so never called counted');
+  assert.ok(texts.includes('Piece GT-4 · Planned'), 'a tag this device knows nothing about is not called counted');
+  const rows = () => s.r.root.findAll(n => n.type === 'Pressable' && / Open it\.$/.test(n.props.accessibilityLabel ?? ''));
+  assert.deepEqual(rows().map(n => n.props.accessibilityLabel), ['HU-AAAA01, Piece HU-AAAA01, Planned. Open it.', 'HU-BBBB02, Piece HU-BBBB02, On board. Open it.',
+    'GT-1, Piece GT-1, Planned. Open it.', 'GT-10, Piece GT-10, Planned. Open it.'], 'crates and received items open; counted items have no page');
+  await s.press(rows()[1]);
   assert.deepEqual(plain(h.routes.at(-1)), { pathname: '/(field)/crate', params: { code: 'HU-BBBB02' } });
-  await s.press(rows[2]);
+  await s.press(rows()[2]);
+  assert.deepEqual(plain(h.routes.at(-1)), { pathname: '/(field)/material-detail', params: { id: 'm-1' } }, 'the old copy opens it by tag');
+  await s.press(rows()[3]);
   assert.deepEqual(plain(h.routes.at(-1)), { pathname: '/(field)/material-detail', params: { id: 'm-10' } });
   await TestRenderer.act(async () => { s.r.unmount(); });
 
-  const office = load({ ref, role: 'office_staff' });
-  const o = await show(office, './components/screens/LoadScreen.tsx', 'LoadScreenContent');
-  await o.press(o.r.root.findAll(n => n.type === 'Pressable' && /^HU-AAAA01, /.test(n.props.accessibilityLabel ?? ''))[0]);
-  assert.deepEqual(plain(office.routes.at(-1)), { pathname: '/(office)/crate', params: { code: 'HU-AAAA01' } }, 'office staff stay in their own tabs');
+  // Offline the material's page can't load, so the tap says so instead; a crate still opens from the copy.
+  const offline = load({ ref, online: false });
+  const o = await show(offline, './components/screens/LoadScreen.tsx', 'LoadScreenContent');
+  const row = (tag) => o.r.root.findAll(n => n.type === 'Pressable' && (n.props.accessibilityLabel ?? '').startsWith(`${tag}, `))[0];
+  await o.press(row('GT-10'));
+  assert.equal(offline.routes.length, 0);
+  assert.equal(o.r.root.findByType('Toast').props.title, 'No signal');
+  assert.equal(o.r.root.findByType('Toast').props.message, "GT-10's page needs signal. Try again when this phone is online.");
+  await o.press(row('HU-AAAA01'));
+  assert.deepEqual(plain(offline.routes.at(-1)), { pathname: '/(field)/crate', params: { code: 'HU-AAAA01' } });
   await TestRenderer.act(async () => { o.r.unmount(); });
+
+  const office = load({ ref, role: 'office_staff', online: true });
+  const v = await show(office, './components/screens/LoadScreen.tsx', 'LoadScreenContent');
+  await v.press(v.r.root.findAll(n => n.type === 'Pressable' && /^HU-AAAA01, /.test(n.props.accessibilityLabel ?? ''))[0]);
+  assert.deepEqual(plain(office.routes.at(-1)), { pathname: '/(office)/crate', params: { code: 'HU-AAAA01' } }, 'office staff stay in their own tabs');
+  await TestRenderer.act(async () => { v.r.unmount(); });
 });

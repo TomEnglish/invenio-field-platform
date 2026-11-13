@@ -3,28 +3,35 @@ import { View, Text, ScrollView, RefreshControl, Pressable } from 'react-native'
 import { router, Stack, useLocalSearchParams } from 'expo-router';
 import FontAwesome from '@expo/vector-icons/FontAwesome';
 import { Button } from '@/components/ui/Button';
+import { Toast } from '@/components/ui/Toast';
+import { useNetworkStore } from '@/lib/sync/networkStore';
+import type { LoadIndex } from '@/lib/logistics/crates';
 import { useLoadReference } from '@/components/logistics/useLoadReference';
 import { loadStyles as styles } from '@/components/logistics/loadStyles';
 import { groupRoute } from '@/components/logistics/routes';
-import { canUnload, COMPANY_ROLES, licenceOnFile, LINE_STATUS_LABELS, LOAD_STATUS_LABELS, loadLabel, loadPieces, pieceRoute, STOP_KINDS, type LoadLine } from '@/lib/logistics/loads';
+import { canUnload, COMPANY_ROLES, countedOnly, licenceOnFile, LINE_STATUS_LABELS, LOAD_STATUS_LABELS, loadLabel, loadPieces, pieceRoute, STOP_KINDS, type LoadLine } from '@/lib/logistics/loads';
 import { colors } from '@/lib/design/tokens';
 
 // One piece on the load: a crate (or container, skid...) opens its Crate screen, a received item its material's page.
-function PieceRow({ line }: { line: LoadLine }) {
-  const route = pieceRoute(line);
+// `known` is the device's copy, for lines saved before they said what an item is.
+function PieceRow({ line, known, online, say }: { line: LoadLine; known: LoadIndex; online: boolean; say: (title: string, text: string) => void }) {
+  const route = pieceRoute(line, known);
   const status = LINE_STATUS_LABELS[line.status] ?? line.status;
   const body = <>
     <FontAwesome name={line.piece_kind === 'crate' ? 'archive' : 'tag'} size={16} color={route ? colors.brandPrimary : colors.textMuted} />
     <View style={styles.rowText}>
       <Text style={styles.rowTitle}>{line.tag}{line.is_high_value ? ' · High value' : ''}</Text>
-      <Text style={styles.muted}>{line.name} · {status}{route ? '' : line.piece_kind === 'item' ? ' · Counted, not received yet' : ''}</Text>
+      <Text style={styles.muted}>{line.name} · {status}{countedOnly(line, known) ? ' · Counted, not received yet' : ''}</Text>
     </View>
     {route ? <FontAwesome name="chevron-right" size={12} color={colors.textMuted} /> : null}
   </>;
   if (!route) return <View style={styles.row}>{body}</View>;
-  const go = () => (route.to === 'crate'
-    ? router.push({ pathname: groupRoute('crate') as any, params: { code: route.code } })
-    : router.push({ pathname: groupRoute('material-detail') as any, params: { id: route.id } }));
+  const go = () => {
+    if (route.to === 'crate') router.push({ pathname: groupRoute('crate') as any, params: { code: route.code } });
+    // The material's page reads from the server: offline it would say the item isn't found.
+    else if (!online) say('No signal', `${line.tag}'s page needs signal. Try again when this phone is online.`);
+    else router.push({ pathname: groupRoute('material-detail') as any, params: { id: route.id } });
+  };
   return <Pressable accessibilityRole="button" accessibilityLabel={`${line.tag}, ${line.name}, ${status}. Open it.`} onPress={go} style={styles.row}>{body}</Pressable>;
 }
 
@@ -33,8 +40,10 @@ function PieceRow({ line }: { line: LoadLine }) {
 // Each piece opens what it is: a crate's contents, or an item's page.
 export function LoadScreenContent() {
   const { id = '' } = useLocalSearchParams<{ id?: string }>();
-  const { loads, pending, refused, loading, data, reload } = useLoadReference({ refresh: true });
+  const { loads, index, pending, refused, loading, data, reload } = useLoadReference({ refresh: true });
+  const online = useNetworkStore(s => s.isOnline);
   const [pulling, setPulling] = useState(false);
+  const [message, setMessage] = useState<{ title: string; text: string } | null>(null);
   const load = loads.loads.get(id);
   const stops = loads.stops.get(id) ?? [];
   const companies = (loads.companies.get(id) ?? []).sort((a, b) => a.position - b.position);
@@ -75,7 +84,7 @@ export function LoadScreenContent() {
       <Text style={styles.text}>{load.planned_count} planned · {load.on_board_count} on board · {load.delivered_count} delivered{load.missing_count ? ` · ${load.missing_count} missing` : ''}{load.written_off_count ? ` · ${load.written_off_count} written off` : ''}{load.flagged_count ? ` · ${load.flagged_count} flagged` : ''}</Text>
       {pieces.map(group => <View key={group.stop?.id ?? 'other'} style={styles.section}>
         <Text style={styles.rowTitle}>{group.stop ? `Stop ${group.stop.seq} · ${group.stop.place_name}` : 'Other stops'}</Text>
-        {group.lines.map(line => <PieceRow key={line.id} line={line} />)}
+        {group.lines.map(line => <PieceRow key={line.id} line={line} known={index} online={online} say={(title, text) => setMessage({ title, text })} />)}
       </View>)}
     </View>
     <View style={styles.card}>
@@ -97,6 +106,7 @@ export function LoadScreenContent() {
       </Text>)}
     </View>
     {load.notes ? <Text style={styles.muted}>{load.notes}</Text> : null}
+    {message ? <Toast visible tone="info" title={message.title} message={message.text} onDismiss={() => setMessage(null)} /> : null}
 
     <View style={styles.actions}>
       {before ? <>
