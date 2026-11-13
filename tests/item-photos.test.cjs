@@ -229,7 +229,8 @@ test('photos already seen come back at once when the screen reloads, offline too
   h.network.isOnline = false;
   const again = await render(h, RECEIPT);
   assert.equal(thumbsOf(again).length, 1, 'the reloaded screen shows them');
-  assert.doesNotMatch(textOf(again), /online|Loading/);
+  assert.doesNotMatch(textOf(again), /Loading|Photos show when/);
+  assert.match(textOf(again), /Showing what this phone found earlier\. New photos load when it is online\./);
   assert.deepEqual(h.calls, [RECEIPT], 'and the server is not asked again');
 });
 
@@ -336,4 +337,53 @@ test('a refresh never takes photos off the screen, even when the signal drops ag
   await settle();
   assert.equal(thumbsOf(r).length, 2, 'the signal dropped again: they still stay');
   assert.doesNotMatch(textOf(r), /Photos show when this phone is online/);
+});
+
+test('a thumbnail whose old link failed shows again once the check gives it a new one', async () => {
+  let answer;
+  const h = photosSection([{ photos: [photo(1, 'Receiving photo: Damage', null)], missing: 0 }, new Promise(resolve => { answer = resolve; })]);
+  const first = await render(h, RECEIPT);
+  await TestRenderer.act(async () => { first.unmount(); });
+  // Reopened after the link's hour: the kept link fails before the check answers.
+  const again = await render(h, RECEIPT);
+  await TestRenderer.act(async () => { again.root.findByType('Image').props.onError(); });
+  assert.match(textOf(again), /Unavailable/);
+  await TestRenderer.act(async () => { answer({ photos: [{ ...photo(1, 'Receiving photo: Damage', null), uri: 'https://files.test/p1-new.jpg' }], missing: 0 }); });
+  await settle();
+  assert.doesNotMatch(textOf(again), /Unavailable|did not load/);
+  assert.equal(again.root.findByType('Image').props.source.uri, 'https://files.test/p1-new.jpg');
+});
+
+test('a check behind photos already shown says when it fails, offers Check again, and runs again when the signal returns', async () => {
+  let cut;
+  const h = photosSection([
+    { photos: [photo(1, 'Receiving photo: Damage', null)], missing: 0 },
+    new Error('server error'),
+    { photos: [photo(1, 'Receiving photo: Damage', null), photo(2, 'Count photo', null)], missing: 0 },
+    new Promise((_, reject) => { cut = reject; }),
+    { photos: [photo(1, 'Receiving photo: Damage', null), photo(2, 'Count photo', null), photo(3, 'Count photo', null)], missing: 0 },
+  ]);
+  const first = await render(h, RECEIPT);
+  await TestRenderer.act(async () => { first.unmount(); });
+  const r = await render(h, RECEIPT);
+  assert.equal(thumbsOf(r).length, 1, 'what was found stays');
+  assert.match(textOf(r), /New photos could not be checked\./);
+  await TestRenderer.act(async () => { r.root.findByType('Button').props.onPress(); });
+  await settle();
+  assert.equal(thumbsOf(r).length, 2, 'Check again finds the new photo');
+  assert.doesNotMatch(textOf(r), /could not be checked|Checking/);
+  // A check cut off by a dropped signal runs again when it returns.
+  await TestRenderer.act(async () => { r.unmount(); });
+  const s = await render(h, RECEIPT);
+  assert.match(textOf(s), /Checking for new photos…/);
+  h.network.isOnline = false;
+  await rerender(s, h, RECEIPT);
+  await TestRenderer.act(async () => { cut(new Error('Network request failed')); });
+  await settle();
+  assert.match(textOf(s), /New photos load when it is online\./);
+  assert.equal(thumbsOf(s).length, 2);
+  h.network.isOnline = true;
+  await rerender(s, h, RECEIPT);
+  assert.equal(thumbsOf(s).length, 3, 'checked again once back online');
+  assert.equal(h.calls.length, 5);
 });

@@ -29,10 +29,12 @@ export function ItemPhotos({ receivingRecordId }: { receivingRecordId: string | 
   const [state, setState] = useState<Shown>(() => startFor(receipt));
   const [refresh, setRefresh] = useState(0);
   const [open, setOpen] = useState<{ receipt: string; index: number } | null>(null);
-  // Thumbnails whose image did not download (no signal, or a link past its hour), by photo id;
-  // and the photo the full-screen view could not show. One doesn't mark the other.
-  const [broken, setBroken] = useState<{ receipt: string; ids: Set<string> }>({ receipt, ids: new Set() });
+  // Thumbnails whose image did not download (no signal, or a link past its hour), by link: a new
+  // link for the photo is a new chance to load. And the link the full-screen view could not show.
+  const [broken, setBroken] = useState<{ receipt: string; uris: Set<string> }>({ receipt, uris: new Set() });
   const [viewerBroken, setViewerBroken] = useState<string | null>(null);
+  // The check behind photos already shown: under way, waiting for a signal, or failed.
+  const [check, setCheck] = useState<{ receipt: string; status: 'idle' | 'checking' | 'pending' | 'failed' }>({ receipt, status: 'idle' });
   const resign = useRef<string[]>([]);  // photos the next load asks new links for
   const dropped = useRef(false);        // the signal dropped while this load was under way
   const latest = useRef<Shown>(state);
@@ -48,38 +50,46 @@ export function ItemPhotos({ receivingRecordId }: { receivingRecordId: string | 
     dropped.current = false;
     const before = latest.current.receipt === receipt ? latest.current : startFor(receipt);
     if (before !== latest.current) setState(before);
+    const showing = () => latest.current.receipt === receipt && latest.current.status === 'ready';
     if (before.status !== 'ready') setState({ receipt, status: 'loading' });
+    setCheck({ receipt, status: before.status === 'ready' ? 'checking' : 'idle' });
     fetchItemPhotos(receipt, { resign: fresh })
       .then(found => {
         if (!live) return;
         if (found) {
           setState({ receipt, status: 'ready', ...found });
-          // Photos that got new links load again.
-          setBroken(now => now.receipt !== receipt ? { receipt, ids: new Set() } : { receipt, ids: new Set([...now.ids].filter(id => !fresh.includes(id))) });
-          setViewerBroken(now => now && fresh.includes(now) ? null : now);
-        } else if (latest.current.status !== 'ready' || latest.current.receipt !== receipt) {
+          setCheck({ receipt, status: 'idle' });
+          // A failed link no longer in use is forgotten; a photo with a new link loads again.
+          setBroken(now => ({ receipt, uris: new Set(now.receipt !== receipt ? [] : [...now.uris].filter(uri => found.photos.some(photo => photo.uri === uri))) }));
+        } else if (showing()) {
+          // Offline: what is shown stays, and is checked again when the signal returns.
+          setCheck({ receipt, status: 'pending' });
+        } else {
           setState({ receipt, status: 'offline' });
         }
       })
       .catch(() => {
         if (!live) return;
-        // Photos already shown stay; the next answer replaces them.
-        if (latest.current.status === 'ready' && latest.current.receipt === receipt) return;
-        if (!useNetworkStore.getState().isOnline) setState({ receipt, status: 'offline' });
+        const online = useNetworkStore.getState().isOnline;
         // The signal went and came back during the load: try once more now it's back.
-        else if (dropped.current) load(fresh);
-        else setState({ receipt, status: 'error' });
+        if (online && dropped.current) { load(fresh); return; }
+        if (showing()) setCheck({ receipt, status: online ? 'failed' : 'pending' });
+        else setState({ receipt, status: online ? 'error' : 'offline' });
       });
     return () => { live = false; };
   }, [receipt, refresh]);
 
   const shown = state.receipt === receipt ? state : startFor(receipt);
-  const failedIds = broken.receipt === receipt ? broken.ids : new Set<string>();
-  // Back online: load what didn't show. Photos already shown stay when the signal drops.
+  const checking = check.receipt === receipt ? check.status : 'idle';
+  const failedUris = broken.receipt === receipt ? broken.uris : new Set<string>();
+  const shownPhotos = shown.status === 'ready' ? shown.photos : [];
+  const failedIds = shownPhotos.filter(photo => failedUris.has(photo.uri)).map(photo => photo.id);
+  const viewerFailedId = shownPhotos.find(photo => photo.uri === viewerBroken)?.id;
+  // Back online: load or check what didn't finish, and what didn't show. Photos already shown stay when the signal drops.
   useEffect(() => {
-    if (!online) { if (shown.status === 'loading') dropped.current = true; return; }
-    if (shown.status === 'offline' || shown.status === 'error' || failedIds.size || viewerBroken) {
-      load([...failedIds, ...(viewerBroken ? [viewerBroken] : [])]);
+    if (!online) { if (shown.status === 'loading' || checking === 'checking') dropped.current = true; return; }
+    if (shown.status === 'offline' || shown.status === 'error' || checking === 'pending' || checking === 'failed' || failedIds.length || viewerFailedId) {
+      load([...failedIds, ...(viewerFailedId ? [viewerFailedId] : [])]);
     }
   }, [online]);
 
@@ -89,8 +99,8 @@ export function ItemPhotos({ receivingRecordId }: { receivingRecordId: string | 
   const current = at === null ? null : photos[at];
   const close = () => setOpen(null);
   const step = (by: number) => setOpen(now => now && { receipt: now.receipt, index: (now.index + by + photos.length) % photos.length });
-  const markBroken = (id: string) => setBroken(now => now.receipt === receipt && now.ids.has(id) ? now : { receipt, ids: new Set(now.receipt === receipt ? now.ids : []).add(id) });
-  const reloadBroken = () => load([...failedIds]);
+  const markBroken = (uri: string) => setBroken(now => now.receipt === receipt && now.uris.has(uri) ? now : { receipt, uris: new Set(now.receipt === receipt ? now.uris : []).add(uri) });
+  const reloadBroken = () => load(failedIds);
 
   return (
     <View style={styles.section}>
@@ -104,10 +114,18 @@ export function ItemPhotos({ receivingRecordId }: { receivingRecordId: string | 
         </View>
       ) : null}
       {shown.status === 'ready' && !photos.length && !shown.missing ? <Text style={styles.note}>No photos were taken for this item.</Text> : null}
+      {shown.status === 'ready' && checking === 'checking' ? <Text style={styles.note}>Checking for new photos…</Text> : null}
+      {shown.status === 'ready' && checking === 'pending' ? <Text style={styles.note}>Showing what this phone found earlier. New photos load when it is online.</Text> : null}
+      {shown.status === 'ready' && checking === 'failed' ? (
+        <View style={styles.retry}>
+          <Text style={styles.note} accessibilityRole="alert">Showing what this phone found earlier. New photos could not be checked.</Text>
+          <Button title="Check again" variant="secondary" onPress={() => load(failedIds)} />
+        </View>
+      ) : null}
       {photos.length ? (
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.strip}>
           {photos.map((photo, index) => {
-            const unavailable = failedIds.has(photo.id);
+            const unavailable = failedUris.has(photo.uri);
             return (
               <Pressable
                 key={`${photo.id}|${photo.uri}`}
@@ -121,7 +139,7 @@ export function ItemPhotos({ receivingRecordId }: { receivingRecordId: string | 
                 {unavailable ? (
                   <View style={[styles.thumbImage, styles.thumbMissing]}><Text style={styles.missingText}>Unavailable</Text></View>
                 ) : (
-                  <Image source={{ uri: photo.uri }} style={styles.thumbImage} onError={() => markBroken(photo.id)} accessibilityIgnoresInvertColors />
+                  <Image source={{ uri: photo.uri }} style={styles.thumbImage} onError={() => markBroken(photo.uri)} accessibilityIgnoresInvertColors />
                 )}
                 <Text style={styles.thumbLabel} numberOfLines={1}>{photo.short}</Text>
                 <Text style={styles.thumbDate} numberOfLines={1}>{shortDate(photo.takenAt)}</Text>
@@ -133,9 +151,9 @@ export function ItemPhotos({ receivingRecordId }: { receivingRecordId: string | 
       {shown.status === 'ready' && shown.missing ? (
         <Text style={styles.note}>{shown.missing === 1 ? '1 photo could not be opened.' : `${shown.missing} photos could not be opened.`}</Text>
       ) : null}
-      {failedIds.size ? (
+      {failedIds.length ? (
         <View style={styles.retry}>
-          <Text style={styles.note}>{failedIds.size === 1 ? '1 photo did not load.' : `${failedIds.size} photos did not load.`}</Text>
+          <Text style={styles.note}>{failedIds.length === 1 ? '1 photo did not load.' : `${failedIds.length} photos did not load.`}</Text>
           <Button title="Reload photos" variant="secondary" onPress={reloadBroken} />
         </View>
       ) : null}
@@ -151,7 +169,7 @@ export function ItemPhotos({ receivingRecordId }: { receivingRecordId: string | 
                 <FontAwesome name="close" size={22} color={colors.navInk} />
               </Pressable>
             </View>
-            {viewerBroken === current.id ? (
+            {viewerBroken === current.uri ? (
               <View style={styles.viewerMissing}>
                 <Text style={styles.viewerNote} accessibilityRole="alert">This photo could not be opened.</Text>
                 <Pressable accessibilityRole="button" accessibilityLabel="Try this photo again" onPress={() => load([current.id])} style={styles.navButton}>
@@ -159,7 +177,7 @@ export function ItemPhotos({ receivingRecordId }: { receivingRecordId: string | 
                 </Pressable>
               </View>
             ) : (
-              <Image key={current.uri} source={{ uri: current.uri }} style={styles.viewerImage} resizeMode="contain" onError={() => setViewerBroken(current.id)} accessibilityLabel={caption(current)} accessibilityIgnoresInvertColors />
+              <Image key={current.uri} source={{ uri: current.uri }} style={styles.viewerImage} resizeMode="contain" onError={() => setViewerBroken(current.uri)} accessibilityLabel={caption(current)} accessibilityIgnoresInvertColors />
             )}
             {photos.length > 1 ? (
               <View style={styles.viewerNav}>
