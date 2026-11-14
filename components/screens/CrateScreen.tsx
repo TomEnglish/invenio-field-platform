@@ -5,6 +5,7 @@ import FontAwesome from '@expo/vector-icons/FontAwesome';
 import { Button } from '@/components/ui/Button';
 import { Toast } from '@/components/ui/Toast';
 import { useLoadReference } from '@/components/logistics/useLoadReference';
+import { NoSignalNote, sayNoSignal } from '@/components/logistics/NoSignalNote';
 import { usePackStore } from '@/stores/packStore';
 import { groupRoute } from '@/components/logistics/routes';
 import { useAuthStore } from '@/stores/authStore';
@@ -14,7 +15,7 @@ import { processQueue } from '@/lib/sync/syncManager';
 import { newOperationId } from '@/lib/utils/operationId';
 import { quantityText, shortDate } from '@/lib/inventory/count';
 import {
-  crateCode, isCrateCode, kindLabel, labelIssue, looksLikeCrate, moveIssue, packStart, STATUS_LABELS, unitAncestors, unitLoadText, unitName, unitWhere, unpackIssue,
+  countedNotReceived, crateCode, isCrateCode, kindLabel, labelIssue, looksLikeCrate, moveIssue, packStart, STATUS_LABELS, unitAncestors, unitLoadText, unitName, unitSummary, unitWhere, unpackIssue,
   type PackQueuePayload,
 } from '@/lib/logistics/crates';
 import { colors, radius, space, fontSize, fontWeight, touchTarget } from '@/lib/design/tokens';
@@ -32,6 +33,8 @@ function waitingFor(code: string, pending: QueueItem[]) {
 
 // One crate: what it is, where it is (or the crate it is inside), what it
 // holds, and Pack / Unpack / Move (022: moved as it is, keeping its seal).
+// Each crate, container or other unit inside opens its own screen, and each
+// received item its material's page, so a crew can tap down through it all.
 // Works from the device's copy when offline.
 export function CrateScreenContent({ crateRoute, packRoute }: { crateRoute: string; packRoute: string }) {
   const { code: param } = useLocalSearchParams<{ code?: string }>();
@@ -44,9 +47,12 @@ export function CrateScreenContent({ crateRoute, packRoute }: { crateRoute: stri
   const [message, setMessage] = useState<{ tone: 'success' | 'warn' | 'info'; title: string; text: string } | null>(null);
   const [busy, setBusy] = useState(false);
   const [blocked, setBlocked] = useState(false);
+  // The item whose page couldn't open for want of signal; cleared when signal returns.
+  const [noSignal, setNoSignal] = useState<string | null>(null);
   const unpackId = useRef(newOperationId());
   // The screen stays mounted between crates: each one starts clean.
-  useEffect(() => { setConfirmUnpack(false); setMessage(null); setBlocked(false); unpackId.current = newOperationId(); }, [code]);
+  useEffect(() => { setConfirmUnpack(false); setMessage(null); setBlocked(false); setNoSignal(null); unpackId.current = newOperationId(); }, [code]);
+  useEffect(() => { if (online) setNoSignal(null); }, [online]);
   // VoiceOver has no live regions: say what happened.
   useEffect(() => { if (message && Platform.OS === 'ios') AccessibilityInfo.announceForAccessibility(`${message.title}. ${message.text}`); }, [message]);
 
@@ -172,14 +178,32 @@ export function CrateScreenContent({ crateRoute, packRoute }: { crateRoute: stri
       <View style={styles.section}>
         <Text style={styles.heading} accessibilityRole="header">Contents · {items.length} item{items.length === 1 ? '' : 's'}{inner.length ? `, ${inner.length} crate${inner.length === 1 ? '' : 's'}` : ''}</Text>
         {items.length === 0 && inner.length === 0 ? <Text style={styles.muted}>Nothing is packed in this crate.</Text> : null}
-        {inner.map(child => <Pressable key={child.code} accessibilityRole="button" accessibilityLabel={`${child.code}, ${unitName(child)}. Open it.`} onPress={() => open(child.code)} style={styles.row}>
+        {inner.map(child => <Pressable key={child.code} accessibilityRole="button" accessibilityLabel={`${child.code}, ${unitSummary(child)}. Open it.`} onPress={() => open(child.code)} style={styles.row}>
           <FontAwesome name="archive" size={16} color={colors.brandPrimary} />
-          <View style={styles.rowText}><Text style={styles.rowTitle}>{child.code}</Text><Text style={styles.muted}>{unitName(child)}</Text></View>
+          <View style={styles.rowText}><Text style={styles.rowTitle}>{child.code}</Text><Text style={styles.muted}>{unitSummary(child)}</Text></View>
           <FontAwesome name="chevron-right" size={12} color={colors.textMuted} />
         </Pressable>)}
-        {items.map(item => <View key={item.tag} style={styles.row}>
-          <View style={styles.rowText}><Text style={styles.rowTitle}>{item.name}</Text><Text style={styles.muted}>Tag {item.tag} · {quantityText(item.quantity)} {item.uom}</Text></View>
-        </View>)}
+        {items.map(item => {
+          const details = `Tag ${item.tag} · ${quantityText(item.quantity)} ${item.uom}`;
+          // Counted but not yet received, or a tag packed here that this device doesn't know: nothing to open.
+          if (!item.material_id) return <View key={item.tag} style={styles.row}>
+            <FontAwesome name="tag" size={16} color={colors.textMuted} />
+            <View style={styles.rowText}><Text style={styles.rowTitle}>{item.name}</Text><Text style={styles.muted}>{details}{countedNotReceived(index, item) ? ' · Counted, not received yet' : ''}</Text></View>
+          </View>;
+          // The material's page reads from the server: offline it would say the item isn't found.
+          const openItem = () => {
+            if (online) router.push({ pathname: groupRoute('material-detail') as any, params: { id: item.material_id! } });
+            else { setNoSignal(item.tag); sayNoSignal(item.tag); }
+          };
+          return <View key={item.tag}>
+            <Pressable accessibilityRole="button" accessibilityLabel={`${item.name}, tag ${item.tag}. Open it.`} onPress={openItem} style={styles.row}>
+              <FontAwesome name="tag" size={16} color={colors.brandPrimary} />
+              <View style={styles.rowText}><Text style={styles.rowTitle}>{item.name}</Text><Text style={styles.muted}>{details}</Text></View>
+              <FontAwesome name="chevron-right" size={12} color={colors.textMuted} />
+            </Pressable>
+            {noSignal === item.tag ? <NoSignalNote tag={item.tag} /> : null}
+          </View>;
+        })}
       </View>
 
       <View style={styles.actions}>

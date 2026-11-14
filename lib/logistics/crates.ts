@@ -410,6 +410,17 @@ export function packedAfter(index: LoadIndex, draft: Pick<PackDraft, 'code' | 'a
 }
 export const unitName = (unit: Pick<HandlingUnit, 'kind' | 'description' | 'item_count' | 'unit_count'>) =>
   [unit.description?.trim() || kindLabel(unit.kind), `${unit.item_count + unit.unit_count} inside`].join(' · ');
+// An item counted but not yet received: it has a count record, or it was counted on this phone and the count hasn't
+// uploaded yet (so it has no record id), which the device's copy of the count says.
+export function countedNotReceived(index: Pick<LoadIndex, 'counted'>, item: { tag: string; material_id?: string | null; inventory_uid?: string | null }): boolean {
+  if (item.material_id) return false;
+  if (item.inventory_uid) return true;
+  const record = index.counted.get(item.tag.trim());
+  return !!record && (record.status === 'counted' || record.status === 'expected');
+}
+// "Container · Valve trim · 3 inside": what kind of unit it is always comes first, so a container reads as one.
+export const unitSummary = (unit: Pick<HandlingUnit, 'kind' | 'description' | 'item_count' | 'unit_count'>) =>
+  [kindLabel(unit.kind), unit.description?.trim(), `${unit.item_count + unit.unit_count} inside`].filter(Boolean).join(' · ');
 
 export type ScanVerdict =
   | { kind: 'add'; entry: PackEntry; message: string }

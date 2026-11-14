@@ -289,3 +289,46 @@ test('E6: a crate at an outside shop or vendor isn’t asked for an area', () =>
   assert.equal(crates.packReviewIssue(ix2, { ...draft, location: { ...draft.location, placeId: 'site', placeName: 'North Site' } }, true, true).step, 3, 'our own site still needs one');
   assert.equal(crates.packReviewIssue(ix2, { ...draft, before: { kind: 'crate', description: '', isHighValue: false, status: 'delivered', parentCode: null, placeId: 'shop', zoneId: null, where: 'Gulf Machine' } }, true, true), null, 'delivered to a shop and repacked there');
 });
+
+test('a piece opens what it is: a crate by its code in capitals, a received item by its material; a counted one has no page', () => {
+  const known = cx();
+  assert.deepEqual(plain(loads.pieceRoute(line('hu-aaaa01', { piece_kind: 'crate' }))), { to: 'crate', code: 'HU-AAAA01' });
+  assert.deepEqual(plain(loads.pieceRoute(line('GT-1', { material_id: 'm-1' }))), { to: 'material', id: 'm-1' });
+  assert.equal(loads.pieceRoute(line('PIPE-2', { material_id: null, inventory_uid: 'u-9' }), known), null, 'the line says it is not received: the copy is not asked');
+  assert.equal(loads.countedOnly(line('PIPE-2', { material_id: null, inventory_uid: 'u-9' }), known), true);
+  // A copy saved before lines said what an item is: the device's copy answers by tag.
+  assert.deepEqual(plain(loads.pieceRoute(line('PIPE-2'), known)), { to: 'material', id: 'm-2' });
+  assert.equal(loads.countedOnly(line('PIPE-2'), known), false, 'a received item is never called counted');
+  assert.equal(loads.countedOnly(line('GT-2'), known), true, 'expected, not yet received');
+  assert.equal(loads.pieceRoute(line('GT-2'), known), null);
+  assert.equal(loads.countedOnly(line('NEVER-SEEN'), known), false, 'a tag the device knows nothing about is neither');
+  assert.equal(loads.countedOnly(line('HU-AAAA01'), known), false);
+  assert.equal(loads.LINE_STATUS_LABELS.not_loaded, 'Left behind', 'in the office manifest’s words');
+});
+
+test('a tag counted on this phone is counted before its count uploads, though it has no record id yet', () => {
+  const count = { type: 'count', payload: { count: { tag: 'NEW-5', name: 'Gate valve', quantity: 1, uom: 'EA' } } };
+  const after = loads.applyChanges(reference(), [count, on({ pieces: [{ code: 'NEW-5', dropoffStopId: 'stop-1' }] })]);
+  const piece = after.lines.find(l => l.tag === 'NEW-5');
+  assert.deepEqual(plain([piece.material_id, piece.inventory_uid]), [null, null], 'no id yet');
+  assert.equal(loads.countedOnly(piece, cx(after)), true);
+  assert.equal(crates.countedNotReceived(cx(after), { tag: 'NEW-5', material_id: null, inventory_uid: null }), true);
+  assert.equal(crates.countedNotReceived(cx(after), { tag: 'NEVER-SEEN', material_id: null, inventory_uid: null }), false);
+  assert.equal(crates.countedNotReceived(cx(after), { tag: 'PIPE-2', material_id: 'm-2', inventory_uid: null }), false);
+});
+
+test('a piece scanned onto a load on this device says what it is before it uploads', () => {
+  const after = loads.applyLoadPending(reference(), [on({ pieces: [{ code: 'PIPE-3', dropoffStopId: 'stop-1' }, { code: 'GT-1', dropoffStopId: 'stop-1' }, { code: 'NEW-1', dropoffStopId: 'stop-1' }, { code: 'HU-BOX001', dropoffStopId: 'stop-1' }] })]);
+  const made = tag => after.lines.find(l => l.tag === tag && l.load_id === 'load-a');
+  assert.deepEqual(plain([made('GT-1').material_id, made('GT-1').inventory_uid]), [null, 'u-1'], 'counted: its count record');
+  assert.deepEqual(plain([made('NEW-1').material_id, made('NEW-1').inventory_uid]), [null, null], 'unknown here: neither');
+  assert.equal(made('HU-BOX001').material_id, undefined, 'a crate has no material');
+  const known = cx(after);
+  assert.equal(loads.countedOnly(made('GT-1'), known), true);
+  assert.equal(loads.countedOnly(made('NEW-1'), known), false);
+  // A received item on another load moves only when asked: plan it here from the yard instead.
+  const yard = loads.applyLoadPending(reference({ lines: [line('HU-AAAA01')] }), [on({ pieces: [{ code: 'PIPE-3', dropoffStopId: 'stop-1' }] })]);
+  const pipe = yard.lines.find(l => l.tag === 'PIPE-3');
+  assert.deepEqual(plain([pipe.material_id, pipe.inventory_uid]), ['m-3', null], 'received: its material, so it opens at once');
+  assert.deepEqual(plain(loads.pieceRoute(pipe, cx(yard))), { to: 'material', id: 'm-3' });
+});
