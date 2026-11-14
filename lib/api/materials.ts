@@ -14,6 +14,8 @@ export interface MaterialWithLocation {
   status: string;
   qr_code_id: string;
   location_id: string | null;
+  // The receipt it came in on, which holds its photos.
+  receiving_record_id?: string | null;
   created_at: string;
   qr_code_value: string | null;
   location_zone: string | null;
@@ -92,6 +94,7 @@ export async function fetchMaterials(filters?: {
     status: m.status,
     qr_code_id: m.qr_code_id,
     location_id: m.location_id,
+    receiving_record_id: m.receiving_record_id ?? null,
     created_at: m.created_at,
     qr_code_value: m.qr_codes?.code_value ?? null,
     location_zone: m.locations?.zone ?? null,
@@ -130,6 +133,7 @@ export async function fetchMaterialById(id: string) {
     status: m.status,
     qr_code_id: m.qr_code_id,
     location_id: m.location_id,
+    receiving_record_id: m.receiving_record_id ?? null,
     created_at: m.created_at,
     qr_code_value: m.qr_codes?.code_value ?? null,
     location_zone: m.locations?.zone ?? null,
