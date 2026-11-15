@@ -14,6 +14,7 @@ function createModuleLoader({ stubs = {}, globals = {} } = {}) {
     process: { env: {
       EXPO_PUBLIC_SUPABASE_URL: 'https://test.example.com',
       EXPO_PUBLIC_SUPABASE_ANON_KEY: 'test-anon-key',
+      EXPO_PUBLIC_OFFICE_SITE_URL: 'https://office.example.com',
     } },
     ...globals,
   });

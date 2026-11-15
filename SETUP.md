@@ -23,7 +23,7 @@
    ```bash
    cp .env.example .env
    ```
-   Then edit `.env` and fill in the Supabase credentials (ask the project lead for these).
+   Then edit `.env` and fill in the three settings (ask the project lead for these). Use the **dev** environment's values for everyday work, never a production's. See "Environments" below.
 
 4. **Start the dev server**
    ```bash
@@ -54,3 +54,25 @@ Use the credentials provided to you. Your account role determines which screens 
 - QR scanning requires a physical device with a camera
 - The app works offline — actions are queued and sync when you reconnect
 - When offline, a yellow banner appears at the top of the screen
+
+## Environments
+
+The app is built for one environment at a time: dev, the demo production, or a customer's production. Each has its own database and its own office site (the MSR repository's `docs/ENVIRONMENTS.md` lists them). Three settings name the environment, and nothing else in the code does:
+
+| Setting | Meaning |
+| --- | --- |
+| `EXPO_PUBLIC_SUPABASE_URL` | That environment's database |
+| `EXPO_PUBLIC_SUPABASE_ANON_KEY` | That database's public key |
+| `EXPO_PUBLIC_OFFICE_SITE_URL` | That environment's office site, used for password reset and the administrator's "Manage projects and users" link |
+
+Locally they come from `.env`. For builds and published updates they come from the build service's environment variables for the profile in `eas.json` (`development`, `preview`, `production`).
+
+Before publishing an update or starting a build, check that the three belong together. The check asks the office site which database it connects to and refuses if it is not the one the app would use:
+
+```bash
+npx eas-cli env:exec production "node scripts/check-release-env.cjs"
+```
+
+Nothing runs this check automatically yet, so run it by hand for the profile you are about to build or publish.
+
+A build with no office site set still runs: password reset tells the person to ask their administrator, and the administrator link is left out.

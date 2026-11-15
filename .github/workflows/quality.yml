@@ -16,6 +16,7 @@ jobs:
       CI: '1'
       EXPO_PUBLIC_SUPABASE_URL: https://example.supabase.co
       EXPO_PUBLIC_SUPABASE_ANON_KEY: ci-build-placeholder
+      EXPO_PUBLIC_OFFICE_SITE_URL: https://office.example.com
     steps:
       - uses: actions/checkout@v4
         with:
@@ -30,5 +31,5 @@ jobs:
         run: node --test tests/*.test.cjs
       - name: Bundle iOS, Android and web without production credentials
         run: npx expo export --clear --platform all --output-dir dist-ci
-      - name: Verify CI bundles use only the placeholder backend
+      - name: Verify CI bundles use only the placeholder backend and office site
         run: node scripts/check-ci-export.cjs

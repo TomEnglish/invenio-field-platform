@@ -157,7 +157,13 @@ the spaces a phone keyboard leaves around it, since the server matches it exactl
 password is sent as typed; the email field has autocorrect off; an email of spaces only is
 asked for again and nothing is sent.
 
-All tests pass (279 with the known-limit fixes). `npm run lint` and `npx expo export --platform web` also pass;
+Environments (`office-site`, `release-env`): the office site address comes only from the build
+setting, so password reset and the administrator's link go to that environment's own site; a
+build without it sends no reset and leaves the link out; no site or database address is written
+into the app; and the publish check refuses settings that are missing, are placeholders, or
+pair an office site with a different database.
+
+All tests pass (314 with the environment checks). `npm run lint` and `npx expo export --platform web` also pass;
 the web login was verified in Chrome without console errors. Native camera,
 force-close/restart and hosted email/storage behavior remain release smoke checks.
 See the sibling MSR `docs/PLATFORM_RELEASE.md` for the coordinated release guide.

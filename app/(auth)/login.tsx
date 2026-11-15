@@ -1,4 +1,5 @@
 import { supabase } from '@/lib/supabase';
+import { officeSitePage } from '@/lib/config';
 import { useState } from 'react';
 import { View, Text, Image, StyleSheet, KeyboardAvoidingView, Platform, type TextStyle, type ViewStyle } from 'react-native';
 import { router } from 'expo-router';
@@ -17,10 +18,13 @@ export default function LoginScreen() {
 
   const resetPassword = async () => {
     if (!email.trim()) { setError('Enter your email to request a password reset.'); return; }
+    // The reset page is on this environment's office site.
+    const resetPage = officeSitePage('login.html');
+    if (!resetPage) { setError('Password reset is not available in this version of the app. Ask your administrator to reset your password.'); return; }
     setLoading(true); setError(''); setNotice('');
     try {
       const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), {
-        redirectTo: 'https://invenio-field-msr.netlify.app/login.html',
+        redirectTo: resetPage,
       });
       if (error) throw error;
       setNotice('If this account can receive a reset link, check your email to set a new password.');
