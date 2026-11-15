@@ -101,7 +101,9 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     const version = ++revision;
     set({ ...cleared, loading: true });
     try {
-      const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+      // A phone keyboard can leave a space after the address, and the server matches the
+      // address exactly. The password goes as typed: a space can be part of it.
+      const { data, error } = await supabase.auth.signInWithPassword({ email: email.trim(), password });
       if (error || !data.session) throw new Error(error?.message ?? 'Sign in failed');
       const access = await loadAccess(data.session, version);
       if (version !== revision) return { error: 'Session changed. Please retry.' };

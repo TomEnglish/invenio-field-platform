@@ -22,7 +22,7 @@ function harness() {
     session: sessionFor('worker-a'), connection: 'online', inactive: false,
     revoked: false, queryFailure: false, failProjectWrite: false, failHydration: false,
   };
-  const calls = { queries: [], scopes: [], signOut: 0 };
+  const calls = { queries: [], scopes: [], signIns: [], signOut: 0 };
   const storage = {
     getItem: async (key) => records.get(key) ?? null,
     setItem: async (key, value) => {
@@ -52,7 +52,10 @@ function harness() {
   const supabase = {
     auth: {
       getSession: async () => ({ data: { session: controls.session }, error: null }),
-      signInWithPassword: async () => ({ data: { session: controls.session }, error: null }),
+      signInWithPassword: async (credentials) => {
+        calls.signIns.push({ ...credentials });
+        return { data: { session: controls.session }, error: null };
+      },
       signOut: async () => { calls.signOut += 1; controls.session = null; return { error: null }; },
     },
     from: (table) => ({ select: () => ({ eq: (_field, userId) => ({
@@ -259,3 +262,12 @@ for (const table of ['users', 'user_projects']) {
     assert.equal(restarted.getState().user, null, 'The denied snapshot must also be unavailable after restart');
   });
 }
+
+test('sign-in sends the address without the spaces a keyboard leaves around it, and the password as typed', async () => {
+  const h = harness();
+  const store = h.restart();
+  const result = await store.getState().signIn('  Worker-A@example.com \n', ' fixture password ');
+  assert.equal(result.error, null);
+  assert.deepEqual(h.calls.signIns, [{ email: 'Worker-A@example.com', password: ' fixture password ' }]);
+  assert.equal(store.getState().user?.id, 'worker-a');
+});
