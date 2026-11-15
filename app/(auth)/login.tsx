@@ -29,7 +29,7 @@ export default function LoginScreen() {
   };
 
   const handleLogin = async () => {
-    if (!email || !password) {
+    if (!email.trim() || !password) {
       setError('Please enter email and password');
       return;
     }
@@ -71,10 +71,11 @@ export default function LoginScreen() {
             value={email}
             onChangeText={setEmail}
             autoCapitalize="none"
+            autoCorrect={false}
             keyboardType="email-address"
             placeholder="you@company.com"
             required
-            error={error && !email ? 'Email is required' : undefined}
+            error={error && !email.trim() ? 'Email is required' : undefined}
           />
           <Input
             label="Password"

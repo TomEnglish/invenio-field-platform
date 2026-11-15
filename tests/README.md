@@ -152,6 +152,11 @@ Known limits from the field guide (MSR `docs/booklet`, appendix A10), fixed: the
     and licences could. Shipments, counts and kinds it doesn't know keep their rules.
   - It says when a discard drops only the photos.
 
+Sign-in (`login-screen`, and a case in `field-access-recovery`): the address is sent without
+the spaces a phone keyboard leaves around it, since the server matches it exactly, and the
+password is sent as typed; the email field has autocorrect off; an email of spaces only is
+asked for again and nothing is sent.
+
 All tests pass (279 with the known-limit fixes). `npm run lint` and `npx expo export --platform web` also pass;
 the web login was verified in Chrome without console errors. Native camera,
 force-close/restart and hosted email/storage behavior remain release smoke checks.
