@@ -15,6 +15,7 @@ import { useCountStore } from '@/stores/countStore';
 import { useNetworkStore } from '@/lib/sync/networkStore';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
+import { EnvironmentLabel } from '@/components/ui/EnvironmentLabel';
 import { colors } from '@/lib/design/tokens';
 
 function SupportDetails({ title = 'Support details', children }: {title?: string; children: ReactNode}) {
@@ -150,6 +151,7 @@ export default function SyncScreen() {
   const canSync = online && !loading && !!activeProject && activeProject.status === 'active';
   return <ScrollView contentContainerStyle={styles.content}>
     <Stack.Screen options={{ headerShown:true,title:'Sync & recovery',headerBackTitle:'Back' }} />
+    <EnvironmentLabel variant="pill" />
     <Text style={styles.title} accessibilityRole="header">{activeProject?.name ?? 'Select a project'}</Text>
     <View style={styles.summary}>
       <Text style={styles.summaryTitle}>{!queueLoaded ? 'Loading saved submissions…' : queueError ? 'Saved submissions unavailable' : `${visible.length} pending submission${visible.length === 1 ? '' : 's'}`}</Text>

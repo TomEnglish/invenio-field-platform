@@ -6,6 +6,7 @@ import { useNetworkStore } from '@/lib/sync/networkStore';
 import { useAuthStore } from '@/stores/authStore';
 import { getQueueStats, subscribeQueue } from '@/lib/sync/offlineQueue';
 import { colors, fontSize, fontWeight, space } from '@/lib/design/tokens';
+import { EnvironmentLabel } from './EnvironmentLabel';
 
 export function OfflineIndicator() {
   const isOnline = useNetworkStore((s) => s.isOnline);
@@ -29,6 +30,7 @@ export function OfflineIndicator() {
     // Sits above the tab header and owns the status-bar inset, so it reads
     // as part of the navy header instead of drawing under the clock.
     <View style={{ paddingTop: insets.top, backgroundColor: colors.navBg }}>
+      <EnvironmentLabel />
       <Link href="/sync" style={styles.syncLink}>Sync &amp; recovery{stats.pending + stats.deadLetters + stats.refused > 0 ? ` (${stats.pending + stats.deadLetters + stats.refused})` : ''}</Link>
       {error ? (
         <View style={[styles.banner, styles.bannerDanger]}>

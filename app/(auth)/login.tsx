@@ -6,6 +6,7 @@ import { router } from 'expo-router';
 import { useAuthStore } from '@/stores/authStore';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
+import { EnvironmentLabel } from '@/components/ui/EnvironmentLabel';
 import { colors, radius, space, fontSize, fontWeight, shadow } from '@/lib/design/tokens';
 
 export default function LoginScreen() {
@@ -69,6 +70,7 @@ export default function LoginScreen() {
             />
             <Text style={styles.title} accessibilityRole="header">Sign in</Text>
             <Text style={styles.subtitle}>Laydown yard management</Text>
+            <EnvironmentLabel variant="pill" />
           </View>
           <Input
             label="Email"

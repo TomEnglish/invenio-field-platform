@@ -176,6 +176,9 @@ Banner that surfaces network state from `@/lib/sync/networkStore` and queue stat
 
 ---
 
+### `EnvironmentLabel`
+Says "Dev · Sample data only" on a build for a dev environment (`environmentLabel` in `lib/config.ts`) and renders nothing in a production build, so it can sit on any screen. `variant="strip"` (default) is a full-width bar; `variant="pill"` is a small tag for a heading. `OfflineIndicator` leads with the strip, which puts it above every screen in the two tab layouts; the sign-in, access-pending and Sync & recovery screens carry the pill. A new screen outside the tab layouts must carry it too (`tests/environment-label.test.cjs` fails otherwise). Its purple is used by no other banner.
+
 ## Layout & data
 
 ### `Card`
