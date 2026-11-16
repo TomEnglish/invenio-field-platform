@@ -19,11 +19,12 @@ export function officeSitePage(page: string): string | null {
   return officeSiteUrl ? `${officeSiteUrl}/${page.replace(/^\/+/, '')}` : null;
 }
 
-// The label of the dev environment this build connects to ("Dev"), or null in
-// a production build. It is set with the other settings when the app is built
-// or an update is published (EXPO_PUBLIC_ENVIRONMENT_LABEL), so it always
-// travels with the database address it describes. The same rule as
-// scripts/environment-identity.cjs, which refuses a malformed label at build time.
+// The label of the dev environment this bundle connects to ("Dev"), or null in
+// a production one. It is set with the other settings when the app is built or
+// an update is published (EXPO_PUBLIC_ENVIRONMENT_LABEL), so the label and the
+// database address in one bundle come from the same set of settings. The same
+// form as scripts/environment-identity.cjs, which refuses a label that cannot
+// name an app when the app is built.
 const label = (process.env.EXPO_PUBLIC_ENVIRONMENT_LABEL ?? '').trim();
 
 export const environmentLabel: string | null = /^[A-Za-z][A-Za-z0-9]{0,11}$/.test(label) ? label : null;

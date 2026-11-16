@@ -25,7 +25,7 @@
 //
 // Nothing runs this for you: run it for the profile you are about to build or
 // publish. It needs the office site of that environment to be published already.
-const { environmentIdentity, withEnvironmentIdentity } = require('./environment-identity.cjs');
+const { environmentIdentity, withEnvironmentIdentity, labelProblem } = require('./environment-identity.cjs');
 
 const PLACEHOLDER = /(^|\.)example\.|your-|placeholder/i;
 
@@ -65,18 +65,19 @@ async function checkReleaseEnv({ env = process.env, fetchImpl = fetch, offline =
       else problems.push(`${office} did not serve its connection settings (${response.status})`);
     } catch (error) { problems.push(`${office} could not be reached: ${error.message}`); }
     if (published !== null) {
-      // Whole quoted values only, so a longer address or key that merely starts the same does not pass.
-      const names = value => published.includes(`"${value}"`) || published.includes(`'${value}'`);
-      if (!names(database)) problems.push(`${office} belongs to a different environment: it does not connect to ${database}`);
-      else if (!names(key)) problems.push(`${office} uses a different public key than this build`);
-      else {
-        // The site knows what kind of environment this is; the build's label must say the same.
-        const site = publishedEnvironment(published);
-        if (!site) problems.push(`${office} does not say which kind of environment it is, so this build's label cannot be confirmed. Publish the current office site first`);
-        else if (site.kind === 'dev' && !identity) problems.push(`${office} is a dev environment: set EXPO_PUBLIC_ENVIRONMENT_LABEL to "${site.label}" so this build is its own app and says so on screen`);
-        else if (site.kind === 'dev' && identity.label !== site.label) problems.push(`EXPO_PUBLIC_ENVIRONMENT_LABEL is "${identity.label}" but ${office} is labeled "${site.label}"`);
-        else if (site.kind === 'production' && identity) problems.push(`EXPO_PUBLIC_ENVIRONMENT_LABEL is "${identity.label}" but ${office} is a production environment: a production build has no label`);
-      }
+      // Every answer comes from the site's own settings object, so an address
+      // or key that merely appears somewhere in the file confirms nothing.
+      const site = publishedSettings(published);
+      const sitesLabel = site && site.kind === 'dev' && typeof site.label === 'string' && site.label ? labelProblem(site.label) : null;
+      if (!site) problems.push(`${office} published settings this check cannot read`);
+      else if (site.url !== database) problems.push(`${office} belongs to a different environment: it does not connect to ${database}`);
+      else if (site.anonKey !== key) problems.push(`${office} uses a different public key than this build`);
+      // The site knows what kind of environment this is; the build's label must say the same.
+      else if (!['dev', 'production'].includes(site.kind) || typeof site.label !== 'string' || !site.label) problems.push(`${office} does not say which kind of environment it is, so this build's label cannot be confirmed. Publish the current office site first`);
+      else if (sitesLabel) problems.push(`${office} is a dev environment labeled "${site.label}", which cannot name an app: a label ${sitesLabel}. Change the label where the office site's environments are listed`);
+      else if (site.kind === 'dev' && !identity) problems.push(`${office} is a dev environment: set EXPO_PUBLIC_ENVIRONMENT_LABEL to "${site.label}" so this build is its own app and says so on screen`);
+      else if (site.kind === 'dev' && identity.label !== site.label) problems.push(`EXPO_PUBLIC_ENVIRONMENT_LABEL is "${identity.label}" but ${office} is labeled "${site.label}"`);
+      else if (site.kind === 'production' && identity) problems.push(`EXPO_PUBLIC_ENVIRONMENT_LABEL is "${identity.label}" but ${office} is a production environment: a production build has no label`);
     }
   }
   if (problems.length) throw new Error(`This build's settings are not ready to publish:\n  ${problems.join('\n  ')}`);
@@ -84,16 +85,15 @@ async function checkReleaseEnv({ env = process.env, fetchImpl = fetch, offline =
   return { database, office, checkedSite: !offline, label: identity?.label ?? null, appName: app.name, appId: app.ios.bundleIdentifier };
 }
 
-// What the office site's published settings say about its environment:
-// { kind: 'dev' | 'production', label }, or null when they do not say.
-function publishedEnvironment(published) {
-  const start = published.indexOf('{');
-  const end = published.lastIndexOf('}');
-  if (start === -1 || end <= start) return null;
-  let config;
-  try { config = JSON.parse(published.slice(start, end + 1)); } catch { return null; }
-  if (!['dev', 'production'].includes(config?.kind) || typeof config.label !== 'string' || !config.label) return null;
-  return { kind: config.kind, label: config.label };
+// The settings object the office site publishes (window.SUPABASE_CONFIG), or
+// null when the file is not that one assignment of one readable object.
+function publishedSettings(published) {
+  const match = /window\.SUPABASE_CONFIG\s*=\s*(\{[\s\S]*\})\s*;?\s*$/.exec(published);
+  if (!match) return null;
+  try {
+    const config = JSON.parse(match[1]);
+    return config && typeof config === 'object' && !Array.isArray(config) ? config : null;
+  } catch { return null; }
 }
 
 module.exports = { checkReleaseEnv };

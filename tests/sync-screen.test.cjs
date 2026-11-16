@@ -49,6 +49,7 @@ test('an older queue read cannot replace a newer empty snapshot', async () => {
     '@/lib/sync/syncManager': { processQueue: async () => ({ processed: 0, failed: 0 }) },
     '@/components/ui/Button': { Button: (props) => React.createElement('Button', props) },
     '@/components/ui/Input': { Input: (props) => React.createElement('Input', props) },
+    '@/components/ui/EnvironmentLabel': { EnvironmentLabel: 'EnvironmentLabel' },
     '@/lib/design/tokens': { colors: new Proxy({}, { get: () => '#000' }) },
   } });
   const SyncScreen = loader.load('./app/sync.tsx').default;
@@ -102,6 +103,7 @@ test('022: a piece another load had planned can be moved to this load from Sync:
     '@/lib/sync/syncManager': { processQueue: async () => { calls.push(['sync']); queue = []; return { processed: 1, failed: 0 }; } },
     '@/components/ui/Button': { Button: (props) => React.createElement('Button', props) },
     '@/components/ui/Input': { Input: (props) => React.createElement('Input', props) },
+    '@/components/ui/EnvironmentLabel': { EnvironmentLabel: 'EnvironmentLabel' },
     '@/lib/design/tokens': { colors: new Proxy({}, { get: () => '#000' }) },
   } });
   const SyncScreen = loader.load('./app/sync.tsx').default;
@@ -139,6 +141,7 @@ test('review fixes: a departure held back for the license can be sent without it
       '@/lib/sync/syncManager': { processQueue: async () => { calls.push(['sync']); return { processed: 1, failed: 0 }; } },
       '@/components/ui/Button': { Button: (props) => React.createElement('Button', props) },
       '@/components/ui/Input': { Input: (props) => React.createElement('Input', props) },
+      '@/components/ui/EnvironmentLabel': { EnvironmentLabel: 'EnvironmentLabel' },
       '@/lib/design/tokens': { colors: new Proxy({}, { get: () => '#000' }) },
     } });
     return { SyncScreen: loader.load('./app/sync.tsx').default, calls };
@@ -188,6 +191,7 @@ function syncSetup(queue, { role = 'field_worker' } = {}) {
     '@/lib/sync/syncManager': { processQueue: async () => ({ processed: 0, failed: 0 }) },
     '@/components/ui/Button': { Button: (props) => React.createElement('Button', props) },
     '@/components/ui/Input': { Input: (props) => React.createElement('Input', props) },
+    '@/components/ui/EnvironmentLabel': { EnvironmentLabel: 'EnvironmentLabel' },
     '@/lib/design/tokens': { colors: new Proxy({}, { get: () => '#000' }) },
   } });
   return { SyncScreen: loader.load('./app/sync.tsx').default, calls };

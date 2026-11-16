@@ -91,7 +91,7 @@ The label makes a dev build a different app from the production one (`app.config
 | Name on the phone | Invenio Field | Invenio Field Dev |
 | App ID (iPhone and Android) | `com.qrassetscanner.app` | `com.qrassetscanner.app.dev` |
 | Link scheme | `qrassetscanner` | `qrassetscanner-dev` |
-| On screen | Nothing extra | "Dev · Sample data only" on the sign-in screen and above every signed-in screen |
+| On screen | Nothing extra | "Dev · Sample data only" on the sign-in, access-pending and Sync & recovery screens, and above every signed-in tab |
 
 So both can be installed on one phone, and neither is mistaken for the other. Same project, version and update channels otherwise.
 
@@ -100,5 +100,9 @@ So both can be installed on one phone, and neither is mistaken for the other. Sa
 - **First build.** The dev app ID is new to the app stores' developer accounts. The first `preview` or `development` build after this change asks to register it and to create its signing profile.
 - **Phones that already have a `preview` or `development` build** have it under the production app ID. A published update never changes an app's name or ID, so those phones need the new build installed; the old one can then be removed.
 - **Updates.** Always publish with `--environment`, and the same one as the channel: `eas update --channel preview --environment preview`. Then the label and the database address come from the same place. Without `--environment`, an update is made from the local `.env` file instead of the build service's settings. The label an update carries is what the screen shows.
+
+What the label does not guarantee. The name and app ID are fixed when an app is built. The label on screen and the database address come with each bundle, so a published update brings its own. An update published to a channel with another environment's settings (`--channel production --environment preview`, or the reverse) would therefore run in the wrong app: the production app would connect to dev and show the Dev label, or the dev app would connect to a production and show none. Nothing stops that today. The check above cannot, because it is not told which channel the update is for.
+
+The label must also be one the app stores accept as the end of an app ID: one short word of letters and digits, starting with a letter, and not a reserved word such as `class` or `new`. A build with any other label stops before it starts.
 
 A build with no office site set still runs: password reset tells the person to ask their administrator, and the administrator link is left out.

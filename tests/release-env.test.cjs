@@ -54,8 +54,40 @@ test('an office site that does not say its kind cannot confirm a label, with or 
         /does not say which kind of environment it is, so this build's label cannot be confirmed/, JSON.stringify(environment));
     }
   }
-  const unreadable = async () => ({ ok: true, status: 200, text: async () => `window.SUPABASE_CONFIG = {"url": "https://acmedb.supabase.co", "anonKey": "${key('acmedb')}", kind: dev};` });
-  await assert.rejects(checkReleaseEnv({ env: settings(), fetchImpl: unreadable }), /does not say which kind of environment/);
+});
+
+test('every answer is read from the site\'s own settings object, not from text that merely appears in its file', async () => {
+  const serves = (text) => async () => ({ ok: true, status: 200, text: async () => text });
+  const good = published('https://acmedb.supabase.co', key('acmedb'), PRODUCTION);
+  // Our database and key quoted in a comment, above settings for another environment: not ours.
+  const decoy = `// "https://acmedb.supabase.co" "${key('acmedb')}"\n` + published('https://demodb.supabase.co', key('demodb'), PRODUCTION);
+  await assert.rejects(checkReleaseEnv({ env: settings(), fetchImpl: serves(decoy) }), /belongs to a different environment: it does not connect to https:\/\/acmedb\.supabase\.co/);
+  // A dev label in a comment does not make a production site a dev one, or the other way around.
+  await assert.rejects(checkReleaseEnv({ env: settings({ EXPO_PUBLIC_ENVIRONMENT_LABEL: 'Dev' }), fetchImpl: serves(`// "kind": "dev", "label": "Dev"\n${good}`) }), /a production build has no label/);
+  // Braces in a comment before the settings are just a comment.
+  assert.equal((await checkReleaseEnv({ env: settings(), fetchImpl: serves(`// {not the settings}\n${good}`) })).checkedSite, true);
+  // Anything that is not one assignment of one readable object confirms nothing.
+  for (const unreadable of [
+    `window.SUPABASE_CONFIG = {"url": "https://acmedb.supabase.co", "anonKey": "${key('acmedb')}", kind: dev};`,
+    good + good, `${good}// {"kind": "dev"}`, `window.OTHER = ${JSON.stringify({ url: 'https://acmedb.supabase.co', anonKey: key('acmedb'), ...PRODUCTION })};`,
+    'window.SUPABASE_CONFIG = ["https://acmedb.supabase.co"];', 'window.SUPABASE_CONFIG = null;', '', '<!doctype html><title>Not found</title>',
+  ]) {
+    await assert.rejects(checkReleaseEnv({ env: settings(), fetchImpl: serves(unreadable) }), /published settings this check cannot read/, unreadable.slice(0, 60));
+  }
+});
+
+test('a dev site whose label cannot name an app is reported as that, not as a setting to copy', async () => {
+  for (const [label, why] of [['Dev 2', /must be one short word/], [' Dev ', /must be one short word/], ['Class', /"class" is a reserved word in an Android app ID/]]) {
+    for (const mine of [undefined, 'Dev']) {
+      await assert.rejects(checkReleaseEnv({ env: settings({ EXPO_PUBLIC_ENVIRONMENT_LABEL: mine }), fetchImpl: ours({ kind: 'dev', label }) }),
+        error => /is a dev environment labeled ".*", which cannot name an app/.test(error.message) && why.test(error.message) && !/set EXPO_PUBLIC_ENVIRONMENT_LABEL to/.test(error.message),
+        `${label} / ${mine}`);
+    }
+  }
+  // A build that copied such a label is stopped for its own label first, before the site is asked.
+  await assert.rejects(checkReleaseEnv({ env: settings({ EXPO_PUBLIC_ENVIRONMENT_LABEL: 'Dev 2' }), fetchImpl: async () => { throw new Error('must not be asked'); } }), /EXPO_PUBLIC_ENVIRONMENT_LABEL must be one short word/);
+  // A production's label is never used to name an app, so its form does not matter.
+  assert.equal((await checkReleaseEnv({ env: settings(), fetchImpl: ours({ kind: 'production', label: 'Acme Steel & Sons' }) })).label, null);
 });
 
 test('the database is confirmed before the label: another environment\'s site is never asked about labels', async () => {
@@ -87,6 +119,7 @@ test('missing, placeholder and mismatched settings are each named, before the si
   await refuses({ EXPO_PUBLIC_SUPABASE_ANON_KEY: 'sb_secret_0123456789abcdefghij' }, /server key/);
   await refuses({ EXPO_PUBLIC_SUPABASE_ANON_KEY: key('demodb') }, /belongs to a different database/);
   await refuses({ EXPO_PUBLIC_ENVIRONMENT_LABEL: 'Dev build' }, /EXPO_PUBLIC_ENVIRONMENT_LABEL must be one short word/);
+  await refuses({ EXPO_PUBLIC_ENVIRONMENT_LABEL: 'Class' }, /EXPO_PUBLIC_ENVIRONMENT_LABEL cannot be "Class": "class" is a reserved word in an Android app ID/);
   // Every problem is listed together.
   await assert.rejects(checkReleaseEnv({ env: {}, fetchImpl: never }), error =>
     ['EXPO_PUBLIC_SUPABASE_URL', 'EXPO_PUBLIC_OFFICE_SITE_URL', 'EXPO_PUBLIC_SUPABASE_ANON_KEY'].every(name => error.message.includes(name)));
