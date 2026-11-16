@@ -65,14 +65,40 @@ The app is built for one environment at a time: dev, the demo production, or a c
 | `EXPO_PUBLIC_SUPABASE_ANON_KEY` | That database's public key |
 | `EXPO_PUBLIC_OFFICE_SITE_URL` | That environment's office site, used for password reset and the administrator's "Manage projects and users" link |
 
-Locally they come from `.env`. For builds and published updates they come from the build service's environment variables for the profile in `eas.json` (`development`, `preview`, `production`).
+A build for a **dev** environment has a fourth, and a production build must not have it:
 
-Before publishing an update or starting a build, check that the three belong together. The check asks the office site which database it connects to and refuses if it is not the one the app would use:
+| Setting | Meaning |
+| --- | --- |
+| `EXPO_PUBLIC_ENVIRONMENT_LABEL` | That dev environment's label, the same one its office site shows on every page (`Dev`) |
+
+Locally they come from `.env`. For builds and published updates they come from the build service's environment variables. Each profile in `eas.json` (`development`, `preview`, `production`) names the environment of the same name, so a build never takes another profile's settings. Store the label as plain text, not as a secret: the build reads it to name the app before anything is uploaded, and a secret cannot be read then.
+
+Before publishing an update or starting a build, check that they belong together. The check asks the office site which database it connects to and which kind of environment it is. It refuses if the database is not the one the app would use, if a build for a dev environment lacks that environment's label, or if a production build has a label. Its last line names the app the settings build:
 
 ```bash
 npx eas-cli env:exec production "node scripts/check-release-env.cjs"
+npx eas-cli env:exec preview "node scripts/check-release-env.cjs"
 ```
 
 Nothing runs this check automatically yet, so run it by hand for the profile you are about to build or publish.
+
+### The dev app
+
+The label makes a dev build a different app from the production one (`app.config.js`, `scripts/environment-identity.cjs`):
+
+| | Production build | Build labeled `Dev` |
+| --- | --- | --- |
+| Name on the phone | Invenio Field | Invenio Field Dev |
+| App ID (iPhone and Android) | `com.qrassetscanner.app` | `com.qrassetscanner.app.dev` |
+| Link scheme | `qrassetscanner` | `qrassetscanner-dev` |
+| On screen | Nothing extra | "Dev · Sample data only" on the sign-in screen and above every signed-in screen |
+
+So both can be installed on one phone, and neither is mistaken for the other. Same project, version and update channels otherwise.
+
+- **Accounts.** A dev environment has its own users. Invite testers from that environment's office site; production sign-ins do not work in the dev app.
+- **Installing.** `preview` and `development` builds are distributed directly, not through the store's test channel. An iPhone must be registered as a test device before the build that should run on it is made.
+- **First build.** The dev app ID is new to the app stores' developer accounts. The first `preview` or `development` build after this change asks to register it and to create its signing profile.
+- **Phones that already have a `preview` or `development` build** have it under the production app ID. A published update never changes an app's name or ID, so those phones need the new build installed; the old one can then be removed.
+- **Updates.** Always publish with `--environment`, and the same one as the channel: `eas update --channel preview --environment preview`. Then the label and the database address come from the same place. Without `--environment`, an update is made from the local `.env` file instead of the build service's settings. The label an update carries is what the screen shows.
 
 A build with no office site set still runs: password reset tells the person to ask their administrator, and the administrator link is left out.

@@ -80,6 +80,7 @@ async function openAccessPending(site, role) {
     'react-native': { View: 'View', Text: 'Text', Linking: { openURL: (url) => opened.push(url) } },
     '@/stores/authStore': { useAuthStore: () => ({ user: { role }, loadSession: () => {}, signOut: () => {} }) },
     '@/components/ui/Button': { Button: 'Button' },
+    '@/components/ui/EnvironmentLabel': { EnvironmentLabel: 'EnvironmentLabel' },
     '@/lib/design/tokens': { colors: { canvas: '#fff', textPrimary: '#000', textMuted: '#555' } },
   } });
   const { AccessPendingScreen } = loader.load('./components/screens/AccessPendingScreen.tsx');
@@ -87,6 +88,8 @@ async function openAccessPending(site, role) {
   await TestRenderer.act(async () => { renderer = TestRenderer.create(React.createElement(AccessPendingScreen)); });
   const buttons = () => renderer.root.findAll(node => node.type === 'Button').map(node => node.props.title);
   const press = (title) => renderer.root.findAll(node => node.type === 'Button' && node.props.title === title)[0].props.onPress();
+  // A new dev account lands here before it has a project, so the screen carries the environment label too.
+  assert.equal(renderer.root.findAll(node => node.type === 'EnvironmentLabel' && node.props.variant === 'pill').length, 1);
   return { opened, buttons, press };
 }
 

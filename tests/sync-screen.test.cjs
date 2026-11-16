@@ -316,6 +316,7 @@ test('known limits: the header banner tells refusals from failed retries', async
     '@react-native-async-storage/async-storage': { getItem: async () => JSON.stringify(queue), setItem: async () => {} },
     '@/stores/authStore': { useAuthStore: Object.assign(() => auth, { getState: () => auth }) },
     '@/lib/sync/networkStore': { useNetworkStore: (selector) => selector({ isOnline: true }) },
+    'components/ui/EnvironmentLabel.tsx': { EnvironmentLabel: 'EnvironmentLabel' },
     '@/lib/design/tokens': { colors: new Proxy({}, { get: () => '#000' }), fontSize: new Proxy({}, { get: () => 12 }), fontWeight: new Proxy({}, { get: () => '600' }), space: new Proxy({}, { get: () => 4 }) },
   } });
   const offlineQueue = loader.load('./lib/sync/offlineQueue.ts');
@@ -326,5 +327,7 @@ test('known limits: the header banner tells refusals from failed retries', async
   const shown = r.root.findAll(node => node.type === 'Text').map(node => [].concat(node.props.children).flat().join(''));
   assert.deepEqual(shown, ['1 queued action waiting to sync', '2 queued actions refused: open Sync to decide', '1 queued action failed after multiple retries']);
   assert.equal([].concat(r.root.findByType('Link').props.children).join(''), 'Sync & recovery (4)');
+  // The environment label leads the header on every signed-in screen.
+  assert.equal(r.root.findByType('View').props.children[0].type, 'EnvironmentLabel');
   await TestRenderer.act(async () => { r.unmount(); });
 });

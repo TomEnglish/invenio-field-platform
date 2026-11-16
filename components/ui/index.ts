@@ -24,6 +24,7 @@ export {
   type ImagePickerSource,
   type PickedImage,
 } from './ImagePicker';
+export { EnvironmentLabel } from './EnvironmentLabel';
 export { AppErrorBoundary } from './ErrorBoundary';
 export { Input } from './Input';
 export { LoadingScreen } from './LoadingScreen';
