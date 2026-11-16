@@ -96,8 +96,18 @@ The label makes a dev build a different app from the production one (`app.config
 So both can be installed on one phone, and neither is mistaken for the other. Same project, version and update channels otherwise.
 
 - **Accounts.** A dev environment has its own users. Invite testers from that environment's office site; production sign-ins do not work in the dev app.
-- **Installing.** `preview` and `development` builds are distributed directly, not through the store's test channel. An iPhone must be registered as a test device before the build that should run on it is made.
-- **First build.** The dev app ID is new to the app stores' developer accounts. The first `preview` or `development` build after this change asks to register it and to create its signing profile.
+- **Two ways to reach testers.** The dev app is a separate app in the stores' eyes, so it has its own of each:
+
+  | | Installed directly (`preview`) | Through the store's test channel (`dev-store`) |
+  | --- | --- | --- |
+  | Command | `eas build --profile preview --platform ios` | `eas build --profile dev-store --platform ios --auto-submit` |
+  | Who can install | iPhones registered as test devices before the build is made | Anyone invited to the dev app's testers, by their store account |
+  | Adding a person later | Register the phone, then build again | Invite them; no new build |
+  | Ready | When the build finishes | After the store has processed the build; testers outside the developer team also wait for the first build's review |
+
+  Both are the same app: the same name, app ID, settings (`preview`) and update channel, so a published `preview` update reaches both.
+- **First build.** The dev app ID is new to the app stores' developer accounts. The first build of either kind asks to sign in and register it, and to create its signing profile. The first `dev-store` build also creates the dev app's record in the store ("Invenio Field Dev"), which is separate from the production app's: testers of one are not testers of the other, so invite them to the new app. Once the record exists, add its ID to `submit.dev-store` in `eas.json` as `ascAppId`, as the production profile has, so later builds are sent without asking.
+- **Build numbers.** The store accepts a build only with a higher build number than the last one it has for that app and version. Raise `ios.buildNumber` in `app.json` before a build that goes to the test channel. Both apps read it from there, and skipped numbers do no harm.
 - **Phones that already have a `preview` or `development` build** have it under the production app ID. A published update never changes an app's name or ID, so those phones need the new build installed; the old one can then be removed.
 - **Updates.** Always publish with `--environment`, and the same one as the channel: `eas update --channel preview --environment preview`. Then the label and the database address come from the same place. Without `--environment`, an update is made from the local `.env` file instead of the build service's settings. The label an update carries is what the screen shows.
 
