@@ -20,12 +20,21 @@
     "production": {
       "environment": "production",
       "channel": "production"
+    },
+    "dev-store": {
+      "extends": "preview",
+      "distribution": "store"
     }
   },
   "submit": {
     "production": {
       "ios": {
         "ascAppId": "6761624622"
+      }
+    },
+    "dev-store": {
+      "ios": {
+        "appName": "Invenio Field Dev"
       }
     }
   }

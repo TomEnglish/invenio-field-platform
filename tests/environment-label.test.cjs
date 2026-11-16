@@ -152,12 +152,28 @@ test('the sign-in screen carries the label of a dev build', async () => {
 test('each build profile names the environment its settings come from', () => {
   // Left unsaid, the build service picks one from the profile's other fields, and a
   // production build that drew dev's settings would connect the production app to dev.
-  const { build } = JSON.parse(require('node:fs').readFileSync(path.join(root, 'eas.json'), 'utf8'));
-  assert.deepEqual(Object.keys(build).sort(), ['development', 'preview', 'production']);
-  for (const [profile, settings] of Object.entries(build)) {
-    assert.equal(settings.environment, profile, `${profile} builds with the ${profile} environment's settings`);
-    assert.equal(settings.channel, profile, `${profile} builds listen for ${profile} updates`);
+  const { build, submit } = JSON.parse(fs.readFileSync(path.join(root, 'eas.json'), 'utf8'));
+  // A profile with "extends" takes what it does not say from the one it names.
+  const resolved = (name) => (build[name].extends ? { ...resolved(build[name].extends), ...build[name] } : build[name]);
+  assert.deepEqual(Object.keys(build).sort(), ['dev-store', 'development', 'preview', 'production']);
+  for (const name of Object.keys(build)) {
+    const profile = resolved(name);
+    assert.ok(['development', 'preview', 'production'].includes(profile.environment), `${name} names its environment`);
+    assert.equal(profile.channel, profile.environment, `${name} builds listen for updates published with the same settings`);
   }
+  for (const name of ['development', 'preview', 'production']) assert.equal(build[name].environment, name);
+  // Only the production profile draws production's settings.
+  assert.deepEqual(Object.keys(build).filter(name => resolved(name).environment === 'production'), ['production']);
+
+  // The dev app can reach testers two ways: installed directly, or through the store's test channel.
+  assert.equal(resolved('preview').distribution, 'internal');
+  assert.deepEqual([resolved('dev-store').environment, resolved('dev-store').distribution], ['preview', 'store']);
+  // Each store build is sent to its own app record: the dev app never to the production app's.
+  assert.ok(submit.production.ios.ascAppId, 'the production app record is named');
+  assert.ok(submit['dev-store'], 'a dev-store build has its own submit profile, or it would be sent with the production one');
+  assert.notEqual(submit['dev-store'].ios.ascAppId, submit.production.ios.ascAppId);
+  // The record is created under the name the label gives the build.
+  assert.equal(submit['dev-store'].ios.appName, withEnvironmentIdentity(appJson(), 'Dev').name);
 });
 
 // The screens that carry the label, rendered with the real label component.
