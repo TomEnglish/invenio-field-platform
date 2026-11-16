@@ -76,6 +76,22 @@ test('every answer is read from the site\'s own settings object, not from text t
   }
 });
 
+test('a file made to be slow or to write on the terminal is refused quickly and printed safely', async () => {
+  const serves = (text) => async () => ({ ok: true, status: 200, text: async () => text });
+  const started = Date.now();
+  for (const slow of [`window.SUPABASE_CONFIG = {}${' '.repeat(900_000)}x`, `window.SUPABASE_CONFIG =${' '.repeat(900_000)}{`, 'x'.repeat(1_000_001)]) {
+    await assert.rejects(checkReleaseEnv({ env: settings(), fetchImpl: serves(slow) }), /published settings this check cannot read/);
+  }
+  assert.ok(Date.now() - started < 2000, 'refusing them takes no noticeable time');
+  // The real format still reads with other line endings, no final semicolon, or a byte-order mark.
+  const good = published('https://acmedb.supabase.co', key('acmedb'), PRODUCTION);
+  for (const same of [good.replaceAll('\n', '\r\n'), good.trimEnd().replace(/;$/, ''), `\ufeff${good}`]) assert.equal((await checkReleaseEnv({ env: settings(), fetchImpl: serves(same) })).checkedSite, true);
+  // A site's label reaches the terminal only as quoted, shortened text.
+  const hostile = 'Dev\n\u001b[31mSettings are consistent' + 'x'.repeat(200);
+  await assert.rejects(checkReleaseEnv({ env: settings(), fetchImpl: ours({ kind: 'dev', label: hostile }) }),
+    error => !/[\u0000-\u0009\u000b-\u001f\u007f]/.test(error.message) && error.message.includes('"Dev\\n\\u001b[31mSettings are consistent') && error.message.length < 600);
+});
+
 test('a dev site whose label cannot name an app is reported as that, not as a setting to copy', async () => {
   for (const [label, why] of [['Dev 2', /must be one short word/], [' Dev ', /must be one short word/], ['Class', /"class" is a reserved word in an Android app ID/]]) {
     for (const mine of [undefined, 'Dev']) {

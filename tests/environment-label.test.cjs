@@ -210,6 +210,36 @@ test('the header above every signed-in tab leads with the label of a dev build',
   assert.equal(production.first.type, 'Link', 'a production build starts with the sync link, as before');
 });
 
+test('the Sync & recovery screen, which has no tab header, carries the label of a dev build', async () => {
+  const auth = { user: { id: 'worker-a' }, session: { access_token: 'test' }, activeProject: { id: 'project-a', name: 'Main Yard', status: 'active' }, accessMode: 'online', loading: false };
+  const open = async (label) => {
+    const SyncScreen = screen(label, './app/sync.tsx', {
+      'react-native': { View: 'View', Text: 'Text', ScrollView: 'ScrollView', Pressable: 'Pressable', StyleSheet: { create: (styles) => styles } },
+      'expo-router': { Stack: { Screen: () => null }, Redirect: () => null, useFocusEffect: (effect) => React.useEffect(effect, [effect]), router: { push() {} } },
+      'expo-updates': { runtimeVersion: 'test', channel: 'test', updateId: 'test-update', isEmbeddedLaunch: false },
+      'expo-constants': { expoConfig: { version: '1.0.0' } },
+      '@/stores/countStore': { useCountStore: { getState: () => ({ tag: '' }) } },
+      '@/stores/authStore': { useAuthStore: Object.assign(() => auth, { getState: () => auth }) },
+      '@/lib/sync/networkStore': { useNetworkStore: (selector) => selector({ isOnline: true }) },
+      '@/lib/sync/offlineQueue': { getQueue: async () => [], subscribeQueue: () => () => {}, replaceQueuedAction: async () => {}, retryQueueItem: async () => {}, removeFromQueue: async () => {}, belongsToCurrentContext: () => true },
+      '@/lib/api/licence': { deleteLicencePhotos: async () => {} }, '@/lib/api/inventory': { forgetLocalCount: async () => {} },
+      '@/lib/sync/syncManager': { processQueue: async () => ({ processed: 0, failed: 0 }) },
+      '@/components/ui/Input': { Input: 'Input' },
+    }).default;
+    let renderer;
+    await TestRenderer.act(async () => { renderer = TestRenderer.create(React.createElement(SyncScreen)); });
+    const shown = texts(renderer);
+    await TestRenderer.act(async () => { renderer.unmount(); });
+    return shown;
+  };
+  const dev = await open('Dev');
+  assert.equal(dev[0], 'Dev · Sample data only', 'above the project name');
+  assert.equal(dev[1], 'Main Yard');
+  const production = await open(undefined);
+  assert.equal(production[0], 'Main Yard');
+  assert.ok(!production.some(text => /Sample data/.test(text)));
+});
+
 test('every screen a signed-in or signing-in person can reach carries the label', () => {
   const read = (file) => fs.readFileSync(path.join(root, file), 'utf8');
   // The two tab layouts put the header, and so the label, above all of their screens.

@@ -17,8 +17,11 @@
 // The office site also says which kind of environment it is. A build for a dev
 // environment must carry that environment's label, which makes it its own app
 // with a "Dev" label on screen (scripts/environment-identity.cjs); a production
-// build must carry none. That is what stops a dev build from being installed
-// over the production app, or a production build from wearing a dev label.
+// build must carry none. That is what stops a dev build from being made with
+// the production app's name and app ID, or a production build with a dev
+// label. It checks the settings a build or update is made from; it is not told
+// which channel an update is for, so it cannot stop an update published to the
+// wrong one (SETUP.md).
 //
 //   npx eas-cli env:exec production "node scripts/check-release-env.cjs"
 //   node scripts/check-release-env.cjs --offline     (format checks only; does not confirm they belong together)
@@ -74,9 +77,9 @@ async function checkReleaseEnv({ env = process.env, fetchImpl = fetch, offline =
       else if (site.anonKey !== key) problems.push(`${office} uses a different public key than this build`);
       // The site knows what kind of environment this is; the build's label must say the same.
       else if (!['dev', 'production'].includes(site.kind) || typeof site.label !== 'string' || !site.label) problems.push(`${office} does not say which kind of environment it is, so this build's label cannot be confirmed. Publish the current office site first`);
-      else if (sitesLabel) problems.push(`${office} is a dev environment labeled "${site.label}", which cannot name an app: a label ${sitesLabel}. Change the label where the office site's environments are listed`);
-      else if (site.kind === 'dev' && !identity) problems.push(`${office} is a dev environment: set EXPO_PUBLIC_ENVIRONMENT_LABEL to "${site.label}" so this build is its own app and says so on screen`);
-      else if (site.kind === 'dev' && identity.label !== site.label) problems.push(`EXPO_PUBLIC_ENVIRONMENT_LABEL is "${identity.label}" but ${office} is labeled "${site.label}"`);
+      else if (sitesLabel) problems.push(`${office} is a dev environment labeled ${quoted(site.label)}, which cannot name an app: a label ${sitesLabel}. Change the label where the office site's environments are listed`);
+      else if (site.kind === 'dev' && !identity) problems.push(`${office} is a dev environment: set EXPO_PUBLIC_ENVIRONMENT_LABEL to ${quoted(site.label)} so this build is its own app and says so on screen`);
+      else if (site.kind === 'dev' && identity.label !== site.label) problems.push(`EXPO_PUBLIC_ENVIRONMENT_LABEL is "${identity.label}" but ${office} is labeled ${quoted(site.label)}`);
       else if (site.kind === 'production' && identity) problems.push(`EXPO_PUBLIC_ENVIRONMENT_LABEL is "${identity.label}" but ${office} is a production environment: a production build has no label`);
     }
   }
@@ -86,15 +89,27 @@ async function checkReleaseEnv({ env = process.env, fetchImpl = fetch, offline =
 }
 
 // The settings object the office site publishes (window.SUPABASE_CONFIG), or
-// null when the file is not that one assignment of one readable object.
+// null when the file is not that one assignment of one readable object. Plain
+// searches, so no file the site could serve takes long to refuse.
+const ASSIGNMENT = 'window.SUPABASE_CONFIG';
 function publishedSettings(published) {
-  const match = /window\.SUPABASE_CONFIG\s*=\s*(\{[\s\S]*\})\s*;?\s*$/.exec(published);
-  if (!match) return null;
+  if (typeof published !== 'string' || published.length > 1_000_000) return null;
+  const at = published.indexOf(ASSIGNMENT);
+  if (at === -1) return null;
+  let rest = published.slice(at + ASSIGNMENT.length).trim();
+  if (!rest.startsWith('=')) return null;
+  rest = rest.slice(1).trim();
+  if (rest.endsWith(';')) rest = rest.slice(0, -1).trimEnd();
+  if (!rest.startsWith('{') || !rest.endsWith('}')) return null;
   try {
-    const config = JSON.parse(match[1]);
+    const config = JSON.parse(rest);
     return config && typeof config === 'object' && !Array.isArray(config) ? config : null;
   } catch { return null; }
 }
+
+// Text that came from the office site, safe to print: quoted, cut short, and
+// with anything that could move the cursor or color the terminal written out.
+const quoted = (value) => JSON.stringify(String(value).slice(0, 40)).replace(/[\u007f-\u009f\u2028\u2029]/g, (c) => `\\u${c.charCodeAt(0).toString(16).padStart(4, '0')}`);
 
 module.exports = { checkReleaseEnv };
 
