@@ -34,7 +34,8 @@
     },
     "dev-store": {
       "ios": {
-        "appName": "Invenio Field Dev"
+        "appName": "Invenio Field Dev",
+        "bundleIdentifier": "com.qrassetscanner.app.dev"
       }
     }
   }
