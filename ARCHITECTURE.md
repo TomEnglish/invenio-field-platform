@@ -26,20 +26,20 @@ app/                         — Expo Router screens (file-based routing)
     _layout.tsx              — Stack for auth screens
     login.tsx                — Email/password login
   (field)/
-    _layout.tsx              — Tab navigator for field workers
+    _layout.tsx              — Tab navigator for field workers: Scan, Count, Loads and Inventory on the bottom panel; the ☰ menu (components/ui/NavMenu) reaches Activity
     scan.tsx                 — QR scanner → on scan navigates to receiving wizard
     receiving.tsx            — 6-step receiving wizard (hidden from tab bar)
     inventory.tsx            — Browse materials with search/filter, tap for detail
     material-detail.tsx      — Material info + Transfer/Issue/Ship Out modals + shipment history (hidden from tab bar)
-    activity.tsx             — Recent actions log (receiving, transfers, issues)
+    activity.tsx             — Recent actions log (receiving, transfers, issues); opened from the menu
   (office)/
-    _layout.tsx              — Tab navigator for office staff
-    dashboard.tsx            — KPI cards and yard overview
-    materials.tsx            — Material inventory and detail navigation
-    exceptions.tsx           — Exception queue with Open/All filter, expand to review + resolve
-    locations.tsx            — Zone/row/rack management
-    qr-codes.tsx             — Batch QR generation, printable labels (PDF), QR detail view
-    reports.tsx              — Aging, counts, CSV export
+    _layout.tsx              — Tab navigator for office staff: the same four tools on the bottom panel (Inventory is materials.tsx); the ☰ menu reaches the rest
+    dashboard.tsx            — KPI cards and yard overview; where office users open the app (menu)
+    materials.tsx            — Material inventory and detail navigation (the Inventory tab)
+    locations.tsx            — Zone/row/rack management (menu)
+    qr-codes.tsx             — Batch QR generation, printable labels (PDF), QR detail view (menu)
+    reports.tsx              — Aging, counts, CSV export (menu)
+                               Exceptions and the Data Browser are on the office site only; the menu links to them there.
 
 components/
   ui/                        — Reusable UI: Button, Card, Input, SignOutButton, OfflineIndicator, LoadingScreen, ErrorBoundary
@@ -48,9 +48,9 @@ components/
 
 lib/
   supabase.ts                — Supabase client initialization
+  navigation/menu.ts         — What the ☰ menu lists for each role, and the bottom panel's four tabs
   api/receiving.ts           — QR lookup/create, photo upload, submit receiving record, auto-create material
   api/materials.ts           — Fetch materials, transfer between locations, issue to jobs
-  api/exceptions.ts          — Fetch exception queue, resolve exceptions
   api/activity.ts            — Fetch recent activity (receivings, transfers, issues)
   api/shipments.ts           — Create shipment, fetch shipment history for a material
   api/dashboard.ts           — Dashboard KPIs, inventory by type, yard overview
@@ -89,6 +89,7 @@ eas.json                     — EAS Build profiles (development, preview, produ
 4. If `field_worker` → redirect to `/(field)/scan`
 5. If `office_staff` or `admin` → redirect to `/(office)/dashboard`
 6. Sign out button in tab headers clears session and redirects to login
+7. The ☰ button at the left of the header on the main screens lists the screens for the person's role; office users still open on the Dashboard
 
 ## Data Model
 
@@ -134,7 +135,7 @@ eas.json                     — EAS Build profiles (development, preview, produ
 ## Key Design Decisions
 
 - **QR codes are lookup keys** — they encode a UUID, all meaning is in the DB
-- **Role-based tab groups** — Expo Router renders different tab navigators per role
+- **Role-based tab groups** — Expo Router renders different tab navigators per role; both show the same bottom panel (Scan, Count, Loads, Inventory) and a menu for everything else
 - **Zustand for state** — minimal boilerplate, persisted to AsyncStorage for form crash recovery
 - **Supabase RLS** — database-level security enforcement, not just client-side
 - **Photos compressed before upload** — resize to 1200px, JPEG 0.7 quality, <500KB target

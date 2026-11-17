@@ -1,5 +1,6 @@
 import { AccessPendingScreen } from '@/components/screens/AccessPendingScreen';
 import { LoadingScreen } from '@/components/ui/LoadingScreen';
+import { NavMenu } from '@/components/ui/NavMenu';
 import { OfflineIndicator } from '@/components/ui/OfflineIndicator';
 import { ProjectSelector } from '@/components/ui/ProjectSelector';
 import { SignOutButton } from '@/components/ui/SignOutButton';
@@ -9,6 +10,10 @@ import { Tabs, router } from 'expo-router';
 import { useEffect } from 'react';
 import { StyleSheet, View } from 'react-native';
 import { colors } from '@/lib/design/tokens';
+
+// The menu button, at the left of the header on the main screens. The screens
+// a step opens (a receipt, a load, a crate) set their own header and get none.
+const menu = () => <NavMenu />;
 
 export default function FieldLayout() {
   const { user, activeProject, loading } = useAuthStore();
@@ -54,6 +59,7 @@ export default function FieldLayout() {
           name="scan"
           options={{
             title: 'Scan',
+            headerLeft: menu,
             tabBarIcon: ({ color }) => (
               <FontAwesome name="qrcode" size={24} color={color} />
             ),
@@ -63,6 +69,7 @@ export default function FieldLayout() {
           name="count"
           options={{
             title: 'Count',
+            headerLeft: menu,
             tabBarIcon: ({ color }) => (
               <FontAwesome name="clipboard" size={24} color={color} />
             ),
@@ -72,6 +79,7 @@ export default function FieldLayout() {
           name="loads"
           options={{
             title: 'Loads',
+            headerLeft: menu,
             tabBarIcon: ({ color }) => (
               <FontAwesome name="truck" size={24} color={color} />
             ),
@@ -81,18 +89,19 @@ export default function FieldLayout() {
           name="inventory"
           options={{
             title: 'Inventory',
+            headerLeft: menu,
             tabBarIcon: ({ color }) => (
               <FontAwesome name="cubes" size={24} color={color} />
             ),
           }}
         />
+        {/* Reached from the menu, not the bottom panel. */}
         <Tabs.Screen
           name="activity"
           options={{
             title: 'Activity',
-            tabBarIcon: ({ color }) => (
-              <FontAwesome name="history" size={24} color={color} />
-            ),
+            headerLeft: menu,
+            href: null,
           }}
         />
         <Tabs.Screen

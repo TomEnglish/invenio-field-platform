@@ -1,5 +1,6 @@
 import { AccessPendingScreen } from '@/components/screens/AccessPendingScreen';
 import { LoadingScreen } from '@/components/ui/LoadingScreen';
+import { NavMenu } from '@/components/ui/NavMenu';
 import { OfflineIndicator } from '@/components/ui/OfflineIndicator';
 import { ProjectSelector } from '@/components/ui/ProjectSelector';
 import { SignOutButton } from '@/components/ui/SignOutButton';
@@ -9,6 +10,10 @@ import { Tabs, router } from 'expo-router';
 import { useEffect } from 'react';
 import { StyleSheet, View } from 'react-native';
 import { colors } from '@/lib/design/tokens';
+
+// The menu button, at the left of the header on the main screens. The screens
+// a step opens (a receipt, a load, a crate) set their own header and get none.
+const menu = () => <NavMenu />;
 
 export default function OfficeLayout() {
   const { user, activeProject, loading } = useAuthStore();
@@ -50,86 +55,88 @@ export default function OfficeLayout() {
           ),
         }}
       >
+        {/* The office home: first, so the Android back button returns to it.
+            It and the other office screens are reached from the menu. */}
         <Tabs.Screen
           name="dashboard"
           options={{
             title: 'Dashboard',
-            tabBarIcon: ({ color }) => (
-              <FontAwesome name="dashboard" size={24} color={color} />
-            ),
+            headerLeft: menu,
+            href: null,
           }}
         />
-        <Tabs.Screen
-          name="materials"
-          options={{
-            title: 'Materials',
-            tabBarIcon: ({ color }) => (
-              <FontAwesome name="cubes" size={24} color={color} />
-            ),
-          }}
-        />
-        <Tabs.Screen
-          name="exceptions"
-          options={{
-            title: 'Exceptions',
-            tabBarIcon: ({ color }) => (
-              <FontAwesome name="exclamation-triangle" size={24} color={color} />
-            ),
-          }}
-        />
-        <Tabs.Screen
-          name="locations"
-          options={{
-            title: 'Locations',
-            tabBarIcon: ({ color }) => (
-              <FontAwesome name="map-marker" size={24} color={color} />
-            ),
-          }}
-        />
+        {/* The bottom panel: the same four field tools the crews have. */}
         <Tabs.Screen
           name="scan"
           options={{
             title: 'Scan',
-            tabBarIcon: ({ color }) => (
-              <FontAwesome name="camera" size={24} color={color} />
-            ),
-          }}
-        />
-        <Tabs.Screen
-          name="qr-codes"
-          options={{
-            title: 'QR Codes',
+            headerLeft: menu,
             tabBarIcon: ({ color }) => (
               <FontAwesome name="qrcode" size={24} color={color} />
             ),
           }}
         />
         <Tabs.Screen
-          name="activity"
+          name="count"
           options={{
-            title: 'Activity',
+            title: 'Count',
+            headerLeft: menu,
             tabBarIcon: ({ color }) => (
-              <FontAwesome name="history" size={24} color={color} />
+              <FontAwesome name="clipboard" size={24} color={color} />
             ),
           }}
         />
+        <Tabs.Screen
+          name="loads"
+          options={{
+            title: 'Loads',
+            headerLeft: menu,
+            tabBarIcon: ({ color }) => (
+              <FontAwesome name="truck" size={24} color={color} />
+            ),
+          }}
+        />
+        <Tabs.Screen
+          name="materials"
+          options={{
+            title: 'Inventory',
+            headerLeft: menu,
+            tabBarIcon: ({ color }) => (
+              <FontAwesome name="cubes" size={24} color={color} />
+            ),
+          }}
+        />
+        {/* Reached from the menu. */}
         <Tabs.Screen
           name="reports"
           options={{
             title: 'Reports',
-            tabBarIcon: ({ color }) => (
-              <FontAwesome name="bar-chart" size={24} color={color} />
-            ),
+            headerLeft: menu,
+            href: null,
           }}
         />
         <Tabs.Screen
-          name="admin"
+          name="activity"
           options={{
-            title: 'Data Browser',
-            href: user.role === 'admin' ? undefined : null,
-            tabBarIcon: ({ color }) => (
-              <FontAwesome name="database" size={24} color={color} />
-            ),
+            title: 'Activity',
+            headerLeft: menu,
+            href: null,
+          }}
+        />
+        <Tabs.Screen
+          name="locations"
+          options={{
+            title: 'Locations',
+            headerLeft: menu,
+            href: null,
+          }}
+        />
+        <Tabs.Screen
+          name="qr-codes"
+          options={{
+            title: 'QR Codes',
+            headerLeft: menu,
+            href: null,
           }}
         />
         <Tabs.Screen
@@ -144,22 +151,6 @@ export default function OfficeLayout() {
           options={{
             href: null,
             headerShown: false,
-          }}
-        />
-        {/* Loads, reached from the Dashboard. */}
-        <Tabs.Screen
-          name="loads"
-          options={{
-            title: 'Loads',
-            href: null,
-          }}
-        />
-        {/* Field count, reached from the Dashboard. */}
-        <Tabs.Screen
-          name="count"
-          options={{
-            title: 'Count',
-            href: null,
           }}
         />
         <Tabs.Screen
