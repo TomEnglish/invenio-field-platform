@@ -174,6 +174,11 @@ test('each build profile names the environment its settings come from', () => {
   assert.notEqual(submit['dev-store'].ios.ascAppId, submit.production.ios.ascAppId);
   // The record is created under the name the label gives the build.
   assert.equal(submit['dev-store'].ios.appName, withEnvironmentIdentity(appJson(), 'Dev').name);
+  // A send run by itself (`eas submit`) is not given the build service's settings, so it
+  // would work out the production app's ID from app.json and look for that app's record and
+  // key. The profile states the dev app's ID, which the build tool uses before app.json.
+  assert.equal(submit['dev-store'].ios.bundleIdentifier, withEnvironmentIdentity(appJson(), 'Dev').ios.bundleIdentifier);
+  assert.notEqual(submit['dev-store'].ios.bundleIdentifier, appJson().ios.bundleIdentifier);
 });
 
 // The screens that carry the label, rendered with the real label component.
