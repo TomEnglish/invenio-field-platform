@@ -7,21 +7,31 @@ flowchart TD
     RoleCheck -->|Field Worker| FieldTabs
     RoleCheck -->|Office / Admin| OfficeTabs
 
-    subgraph FieldTabs["Field Worker Tabs"]
+    subgraph FieldTabs["Field Worker: bottom tabs"]
         FScan[Scan QR Code]
+        FCount[Count]
+        FLoads[Loads]
         FInv[Inventory]
+    end
+    FieldTabs -.-> FieldMenu
+    subgraph FieldMenu["Field Worker: menu"]
         FAct[My Activity]
     end
 
-    subgraph OfficeTabs["Office Staff Tabs"]
-        ODash[Dashboard KPIs]
-        OMat[Materials]
-        OExc[Exceptions]
-        OLoc[Locations]
+    subgraph OfficeTabs["Office Staff: bottom tabs"]
         OScan[Scan QR Code]
-        OQR[QR Code Mgmt]
+        OCount[Count]
+        OLoads[Loads]
+        OMat[Inventory - materials list]
+    end
+    OfficeTabs -.-> OfficeMenu
+    subgraph OfficeMenu["Office Staff: menu"]
+        ODash[Dashboard KPIs - opens here]
+        ORep[Reports]
         OAct[All Activity]
-        OAdmin[Admin]
+        OLoc[Locations]
+        OQR[QR Code Mgmt]
+        OSite[Office site: Exceptions in the Work Inbox, Data Browser for admins]
     end
 
     FScan --> ScanResult{QR Found?}
@@ -63,11 +73,6 @@ flowchart TD
     FInv --> MatDetail
     OMat --> MatDetail
     OMat --> EditMat[Edit Material Modal]
-
-    OExc --> ExcDetail[Exception Detail]
-    ExcDetail --> ExcAction{Resolution}
-    ExcAction --> Hold[Hold - Move to Hold Area]
-    ExcAction --> Return[Return to Vendor]
 
     OQR --> GenQR[Generate Batch 1-100]
     OQR --> PrintQR[Print QR Codes]

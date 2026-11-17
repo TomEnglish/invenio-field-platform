@@ -30,6 +30,7 @@ export { Input } from './Input';
 export { LoadingScreen } from './LoadingScreen';
 export { Modal } from './Modal';
 export { MultiSelect } from './MultiSelect';
+export { NavMenu } from './NavMenu';
 export { OfflineIndicator } from './OfflineIndicator';
 export { ProjectSelector } from './ProjectSelector';
 export { Radio, RadioGroup } from './Radio';

@@ -40,8 +40,9 @@
 
 Use the credentials provided to you. Your account role determines which screens you see:
 
-- **Field Worker** — Scan, Inventory, Activity tabs
-- **Office Staff** — Dashboard, Materials, Exceptions, Locations, QR Codes, Reports tabs
+- **Everyone** — four tabs along the bottom: Scan, Count, Loads, Inventory. The menu button at the top left lists every screen for your role.
+- **Field Worker** — the menu adds Activity (your own work).
+- **Office Staff and Administrators** — the app opens on the Dashboard, and the menu adds Dashboard, Reports, Activity, Locations and QR Codes. Exceptions and the Data Browser are on the office site; the menu opens them in the browser.
 
 ## Troubleshooting
 

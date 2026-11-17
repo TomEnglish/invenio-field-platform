@@ -65,8 +65,11 @@ Type the email and password, then tap **Sign In**.
 
 ### Step 6: You're In!
 
-- **Field workers** see 3 tabs: Scan, Inventory, Activity
-- **Office staff** see 8 tabs: Dashboard, Materials, Exceptions, Locations, Scan, QR Codes, Activity, Reports
+- **Everyone** sees 4 tabs along the bottom: Scan, Count, Loads, Inventory. The menu button at the top left lists every screen for the role.
+- **Field workers** find Activity in the menu.
+- **Office staff** open on the Dashboard and find Dashboard, Reports, Activity, Locations and QR Codes in the menu. Exceptions and the Data Browser are on the office site; the menu opens them in the browser.
+
+The screenshots below were taken before the menu, when office staff had these screens as tabs.
 
 ### Troubleshooting
 
@@ -87,13 +90,11 @@ Type the email and password, then tap **Sign In**.
 
 ![Office Dashboard](docs/images/07-office-dashboard.png)
 
-**Materials** — Search and filter materials by status. Tap any material to edit:
+**Inventory** (the materials list, formerly the Materials tab) — Search and filter materials by status. Tap any material to edit:
 
 ![Office Materials](docs/images/08-office-materials.png)
 
-**Exceptions** — Review flagged items (wrong type, wrong count, damage). Resolve with Hold or Return to Vendor:
-
-![Office Exceptions](docs/images/09-office-exceptions.png)
+**Exceptions** — No longer in the app. Flagged items (wrong type, wrong count, damage) are reviewed in the office site's Work Inbox, which can hold, return to vendor or release; the app's menu opens it in the browser.
 
 **Locations** — Browse all yard locations. Add new zones/rows/racks:
 
@@ -113,7 +114,7 @@ Type the email and password, then tap **Sign In**.
 
 ### Field Worker Views
 
-**Scan** — Camera-based QR scanner with manual entry fallback. Field workers see 3 tabs: Scan, Inventory, Activity:
+**Scan** — Camera-based QR scanner with manual entry fallback (the screenshot shows the earlier three tabs; there are now four: Scan, Count, Loads, Inventory):
 
 ![Field Scan with manual entry](docs/images/15-field-tabs.PNG)
 
@@ -162,24 +163,24 @@ Type the email and password, then tap **Sign In**.
 - [ ] Scan a QR code (use one of the demo codes: QR-AVAIL001 through QR-AVAIL005)
 - [ ] Complete all 6 steps of the receiving wizard (material details, PO info, inspection, photos, location, decision)
 - [ ] Submit with "Accept", "Partial Accept", and "Reject" to see different behaviors
-- [ ] Flag an exception (damaged or wrong count) and verify it appears in office exceptions queue
+- [ ] Flag an exception (damaged or wrong count) and verify it appears in the office site's Work Inbox
 - [ ] Browse inventory and tap a material to see detail
 - [ ] Transfer a material to a different location
 - [ ] Issue material to a job number
 - [ ] Ship out material (destination, carrier, tracking)
-- [ ] Check the activity feed shows recent actions
+- [ ] Open Activity from the menu and check it shows recent actions
 - [ ] Test pull-to-refresh on all screens
 
 ### Office Staff Flow
 - [ ] Login as office staff
 - [ ] Dashboard shows KPI numbers, inventory chart, yard overview
-- [ ] Materials screen — search, filter by status, edit a material
-- [ ] Exceptions screen — expand an exception, resolve it (Hold or Return to Vendor)
-- [ ] Locations screen — view locations, add a new location
-- [ ] QR Codes screen — generate a batch of QR codes, print labels
-- [ ] Reports screen — switch between Inventory and Aging reports, export CSV
+- [ ] Inventory tab — search, filter by status, edit a material
+- [ ] Exceptions — open Exceptions (Work Inbox) from the menu and decide one on the office site (hold, return to vendor or release)
+- [ ] Locations (menu) — view locations, add a new location
+- [ ] QR Codes (menu) — generate a batch of QR codes, print labels
+- [ ] Reports (menu) — switch between Inventory and Aging reports, export CSV
 - [ ] Scan tab — scan a QR code as admin and complete receiving wizard
-- [ ] Activity tab — view recent activity feed
+- [ ] Activity (menu) — view recent activity feed
 
 ### Offline
 - [ ] Turn on airplane mode

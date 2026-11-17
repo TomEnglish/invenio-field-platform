@@ -163,7 +163,16 @@ build without it sends no reset and leaves the link out; no site or database add
 into the app; and the publish check refuses settings that are missing, are placeholders, or
 pair an office site with a different database.
 
-All tests pass (314 with the environment checks). `npm run lint` and `npx expo export --platform web` also pass;
+Menu and bottom panel (`nav-menu`): what the ☰ menu lists for crews, office staff and
+administrators; office-site pages (Exceptions, Data Browser) only when the build has an office
+site address, and the Data Browser only for administrators; the panel opens, marks the screen
+showing, closes on either Close, the back button or a screen reader's escape gesture, opens a
+screen or an office page, and says so when the page will not open. The two tab layouts are drawn
+for real and read from what they hand the tab navigator: the same four tabs (Scan, Count, Loads,
+Inventory) for every role; the menu on those and on the screens it lists, and on no step screen;
+every route file declared once; and no Data Browser or Exceptions screen.
+
+All tests pass (353 with the menu checks). `npm run lint` and `npx expo export --platform web` also pass;
 the web login was verified in Chrome without console errors. Native camera,
 force-close/restart and hosted email/storage behavior remain release smoke checks.
 See the sibling MSR `docs/PLATFORM_RELEASE.md` for the coordinated release guide.

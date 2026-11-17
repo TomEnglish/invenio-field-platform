@@ -234,6 +234,9 @@ For a live demo of every state (sort, filter, sticky header, skeleton, empty), s
 ### `ProjectSelector`
 Header pill that opens a Modal sheet of available projects when the user belongs to more than one. Reads/writes `useAuthStore`.
 
+### `NavMenu`
+The ☰ button at the left of the header on the main screens (the four tabs and the screens the menu lists), and the navy panel it opens: every screen the signed-in person can use, grouped (Field, then Admin for office staff and administrators), with the screen now showing marked. Pages that live only on the office site (Exceptions in the Work Inbox, the Data Browser) are listed last and open in the browser; a build with no office site address leaves them out. What is listed comes from `lib/navigation/menu.ts` (`menuFor(role, officeSitePage)`), not from this component. The bottom panel holds only Scan, Count, Loads and Inventory, for every role. The screens a step opens (a receipt, a load, a crate) set their own header and have no menu.
+
 ### `SignOutButton`
 Right-side header icon. Confirms via `Alert.alert` before signing out and routing to `/(auth)/login`.
 
