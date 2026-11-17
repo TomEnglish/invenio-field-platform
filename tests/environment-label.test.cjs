@@ -118,8 +118,8 @@ test('a dev build says so on screen; a production build shows nothing', () => {
   assert.equal(render('', { variant: 'pill' }).toJSON(), null);
   for (const variant of [undefined, 'strip', 'pill']) {
     const shown = render('Dev', variant ? { variant } : {});
-    assert.equal(shown.root.findByType('Text').props.children.join(''), 'Dev · Sample data only');
-    assert.equal(shown.root.findByType('View').props.accessibilityLabel, 'Dev environment. Sample data only.');
+    assert.equal(shown.root.findByType('Text').props.children, 'Dev', 'the label and no other words');
+    assert.equal(shown.root.findByType('View').props.accessibilityLabel, 'Dev environment');
   }
   // Its own color: not the orange, blue or red of the offline and sync banners.
   const color = (variant) => render('Dev', { variant }).root.findByType('View').props.style.backgroundColor;
@@ -145,8 +145,8 @@ test('the sign-in screen carries the label of a dev build', async () => {
     await TestRenderer.act(async () => { renderer = TestRenderer.create(React.createElement(LoginScreen)); });
     return renderer.root.findAll(node => node.type === 'Text').map(node => [].concat(node.props.children).join(''));
   };
-  assert.ok((await open('Dev')).includes('Dev · Sample data only'));
-  assert.ok(!(await open(undefined)).some(text => /Sample data/.test(text)));
+  assert.ok((await open('Dev')).includes('Dev'));
+  assert.ok(!(await open(undefined)).includes('Dev'));
 });
 
 test('each build profile names the environment its settings come from', () => {
@@ -198,8 +198,8 @@ test('the access-pending screen, where a new dev account lands, carries the labe
     await TestRenderer.act(async () => { renderer = TestRenderer.create(React.createElement(AccessPendingScreen)); });
     return texts(renderer);
   };
-  assert.equal((await open('Dev'))[0], 'Dev · Sample data only', 'the label leads the screen');
-  assert.ok(!(await open(undefined)).some(text => /Sample data/.test(text)));
+  assert.equal((await open('Dev'))[0], 'Dev', 'the label leads the screen');
+  assert.ok(!(await open(undefined)).includes('Dev'));
 });
 
 test('the header above every signed-in tab leads with the label of a dev build', async () => {
@@ -219,8 +219,8 @@ test('the header above every signed-in tab leads with the label of a dev build',
     return shown;
   };
   const dev = await open('Dev');
-  assert.deepEqual(dev.texts, ['Dev · Sample data only']);
-  assert.equal(dev.first.props.accessibilityLabel, 'Dev environment. Sample data only.', 'above the sync link and every other banner');
+  assert.deepEqual(dev.texts, ['Dev']);
+  assert.equal(dev.first.props.accessibilityLabel, 'Dev environment', 'above the sync link and every other banner');
   const production = await open(undefined);
   assert.deepEqual(production.texts, []);
   assert.equal(production.first.type, 'Link', 'a production build starts with the sync link, as before');
@@ -249,11 +249,11 @@ test('the Sync & recovery screen, which has no tab header, carries the label of 
     return shown;
   };
   const dev = await open('Dev');
-  assert.equal(dev[0], 'Dev · Sample data only', 'above the project name');
+  assert.equal(dev[0], 'Dev', 'above the project name');
   assert.equal(dev[1], 'Main Yard');
   const production = await open(undefined);
   assert.equal(production[0], 'Main Yard');
-  assert.ok(!production.some(text => /Sample data/.test(text)));
+  assert.ok(!production.includes('Dev'));
 });
 
 test('every screen a signed-in or signing-in person can reach carries the label', () => {

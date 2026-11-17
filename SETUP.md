@@ -91,7 +91,7 @@ The label makes a dev build a different app from the production one (`app.config
 | Name on the phone | Invenio Field | Invenio Field Dev |
 | App ID (iPhone and Android) | `com.qrassetscanner.app` | `com.qrassetscanner.app.dev` |
 | Link scheme | `qrassetscanner` | `qrassetscanner-dev` |
-| On screen | Nothing extra | "Dev · Sample data only" on the sign-in, access-pending and Sync & recovery screens, and above every signed-in tab |
+| On screen | Nothing extra | A "Dev" tag on the sign-in, access-pending and Sync & recovery screens, and a "Dev" bar above every signed-in tab |
 
 So both can be installed on one phone, and neither is mistaken for the other. Same project, version and update channels otherwise.
 
